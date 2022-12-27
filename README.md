@@ -1,4 +1,4 @@
-# {{.TEMPLATE}}
+# {{.FROST}}
 [![frost](https://github.com/bytemare/frost/actions/workflows/ci.yml/badge.svg)](https://github.com/bytemare/frost/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/bytemare/frost.svg)](https://pkg.go.dev/github.com/bytemare/frost)
 [![codecov](https://codecov.io/gh/bytemare/frost/branch/main/graph/badge.svg?token=5bQfB0OctA)](https://codecov.io/gh/bytemare/frost)

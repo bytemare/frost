@@ -1,4 +1,4 @@
-name: {{.TEMPLATE}}
+name: {{.FROST}}
 on:
   push:
     branches: [ main ]
