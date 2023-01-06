@@ -31,11 +31,11 @@ func Shard(g group.Group, secret *group.Scalar, coeffs Polynomial, max, min int)
 	coeffs = append([]*group.Scalar{secret}, coeffs...)
 
 	// Evaluate the polynomial for each point x=1,...,n
-	secretKeyShares := make([]*Share, max+1)
-	for xi := 1; xi <= max+1; xi++ {
-		x := internal.IntegerToScalar(g, xi)
-		yi := coeffs.Evaluate(g, x)
-		secretKeyShares[xi-1] = &Share{x, yi}
+	secretKeyShares := make([]*Share, max)
+	for i := 1; i <= max; i++ {
+		xi := internal.IntegerToScalar(g, i)
+		yi := coeffs.Evaluate(g, xi)
+		secretKeyShares[i-1] = &Share{xi, yi}
 	}
 
 	return secretKeyShares, coeffs

@@ -9,8 +9,6 @@
 package tests
 
 import (
-	"encoding/hex"
-	"fmt"
 	"testing"
 
 	group "github.com/bytemare/crypto"
@@ -29,7 +27,7 @@ var configurationTable = []frost.Configuration{
 			Group: group.Ristretto255Sha512,
 			Hash:  hash.SHA512,
 		},
-		ContextString:  "FROST-RISTRETTO255-SHA512-v11",
+		ContextString:  []byte("FROST-RISTRETTO255-SHA512-v11"),
 		GroupPublicKey: nil,
 	},
 	{
@@ -37,7 +35,7 @@ var configurationTable = []frost.Configuration{
 			Group: group.P256Sha256,
 			Hash:  hash.SHA256,
 		},
-		ContextString:  "FROST-P256-SHA256-v11",
+		ContextString:  []byte("FROST-P256-SHA256-v11"),
 		GroupPublicKey: nil,
 	},
 }
@@ -45,7 +43,7 @@ var configurationTable = []frost.Configuration{
 func TestFrost(t *testing.T) {
 	min := 2
 	max := 3
-	participantList := []int{1, 3}
+	participantListInt := []int{1, 3}
 	message := []byte("test")
 
 	testAll(t, func(t2 *testing.T, configuration *frost.Configuration) {
@@ -72,6 +70,8 @@ func TestFrost(t *testing.T) {
 			t2.Fatal()
 		}
 
+		configuration.GroupPublicKey = dealerGroupPubKey
+
 		for i, shareI := range privateKeyShares {
 			if !vss.Verify(g, shareI, vssCommitment) {
 				t2.Fatal(i)
@@ -90,7 +90,7 @@ func TestFrost(t *testing.T) {
 		}
 
 		// Create Participants
-		participants := make([]*frost.Participant, max)
+		participants := make(frost.ParticipantList, len(privateKeyShares))
 		for i, share := range privateKeyShares {
 			participants[i] = &frost.Participant{
 				Configuration:   *configuration,
@@ -99,35 +99,39 @@ func TestFrost(t *testing.T) {
 		}
 
 		// Round One: Commitment
-		comList := make(internal.CommitmentList, max)
-		for _, id := range participantList {
-			_, commI := participants[id].Commit()
-			comList[id] = internal.Commitment{
-				ID:           internal.IntegerToScalar(g, id),
-				IDint:        id,
-				HidingNonce:  commI[0],
-				BindingNonce: commI[1],
+		participantList := make([]*group.Scalar, len(participantListInt))
+		for i, p := range participantListInt {
+			participantList[i] = internal.IntegerToScalar(g, p)
+		}
+
+		comList := make(internal.CommitmentList, len(participantList))
+		for i, id := range participantList {
+			p := participants.Get(id)
+			p.Commit()
+			comList[i] = internal.Commitment{
+				ID:           id,
+				HidingNonce:  p.Commitment[0],
+				BindingNonce: p.Commitment[1],
 			}
 		}
 
 		comList.Sort()
-
-		_ = comList.ComputeBindingFactors(configuration.Ciphersuite, message)
+		_, _ = comList.ComputeBindingFactors(configuration.Ciphersuite, configuration.ContextString, message)
 
 		// Round Two: Sign
-		sigShares := make([]*group.Scalar, max)
-		for _, id := range participantList {
-			sigShare := participants[id].Sign(message, comList)
-			sigShares[id] = sigShare
+		sigShares := make([]*group.Scalar, len(participantList))
+		for i, id := range participantList {
+			p := participants.Get(id)
+			sigShare := p.Sign(message, comList)
+			sigShares[i] = sigShare
 		}
 
 		// Final step: aggregate
-		sig := participants[1].Aggregate(comList, message, sigShares)
-		fmt.Printf("Signature: %v", hex.EncodeToString(sig.Encode()))
+		_ = participants[1].Aggregate(comList, message, sigShares)
 
 		// Sanity Check
-		singleSig := schnorr.Sign(configuration.Ciphersuite, message, groupSecretKey)
-		if !schnorr.Verify(configuration.Ciphersuite, message, singleSig, groupPublicKey) {
+		singleSig := schnorr.Sign(configuration.Ciphersuite, configuration.ContextString, message, groupSecretKey)
+		if !schnorr.Verify(configuration.Ciphersuite, configuration.ContextString, message, singleSig, groupPublicKey) {
 			t2.Fatal()
 		}
 	})
@@ -135,7 +139,7 @@ func TestFrost(t *testing.T) {
 
 func testAll(t *testing.T, f func(*testing.T, *frost.Configuration)) {
 	for _, test := range configurationTable {
-		t.Run(test.ContextString, func(t *testing.T) {
+		t.Run(string(test.ContextString), func(t *testing.T) {
 			f(t, &test)
 		})
 	}
