@@ -54,25 +54,25 @@ func (c Ciphersuite) hx(input, context, dst []byte) *group.Scalar {
 		panic(err)
 	}
 
-	return nil
+	return s
 }
 
-func (c Ciphersuite) H1(input []byte) *group.Scalar {
-	return c.hx(input, []byte("context"), []byte("rho"))
+func (c Ciphersuite) H1(contextString, input []byte) *group.Scalar {
+	return c.hx(input, contextString, []byte("rho"))
 }
 
-func (c Ciphersuite) H2(input []byte) *group.Scalar {
-	return c.hx(input, []byte("context"), []byte("chal"))
+func (c Ciphersuite) H2(contextString, input []byte) *group.Scalar {
+	return c.hx(input, contextString, []byte("chal"))
 }
 
-func (c Ciphersuite) H3(input []byte) *group.Scalar {
-	return c.hx(input, []byte("context"), []byte("nonce"))
+func (c Ciphersuite) H3(contextString, input []byte) *group.Scalar {
+	return c.hx(input, contextString, []byte("nonce"))
 }
 
-func (c Ciphersuite) H4(context, msg []byte) []byte {
-	return c.Hash.Hash(context, []byte("msg"), msg)
+func (c Ciphersuite) H4(contextString, msg []byte) []byte {
+	return c.Hash.Hash(contextString, []byte("msg"), msg)
 }
 
-func (c Ciphersuite) H5(context, msg []byte) []byte {
-	return c.Hash.Hash(context, []byte("com"), msg)
+func (c Ciphersuite) H5(contextString, msg []byte) []byte {
+	return c.Hash.Hash(contextString, []byte("com"), msg)
 }

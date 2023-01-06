@@ -19,41 +19,37 @@ import (
 
 type Participant struct {
 	ParticipantInfo
-	nonce      [2]*group.Scalar
-	commitment [2]*group.Element
+	Nonce         [2]*group.Scalar
+	Commitment    [2]*group.Element
+	HidingRandom  []byte
+	BindingRandom []byte
 	Configuration
 }
 
 type ParticipantInfo struct {
 	KeyShare *shamir.Share
-	lambda   *group.Scalar // lamba can be computed once and reused across FROST signing operations
+	Lambda   *group.Scalar // lamba can be computed once and reused across FROST signing operations
 }
 
-func (p *Participant) generateNonce(s *group.Scalar) *group.Scalar {
-	random := internal.RandomBytes(32)
+func (p *Participant) generateNonce(s *group.Scalar, random []byte) *group.Scalar {
+	if random == nil {
+		random = internal.RandomBytes(32)
+	}
 	enc := s.Encode()
 
-	return p.Ciphersuite.H3(append(random, enc...))
+	return p.Ciphersuite.H3(p.ContextString, internal.Concatenate(random, enc))
 }
 
-func (p *Participant) Commit() ([2]*group.Scalar, [2]*group.Element) {
-	hiding := p.generateNonce(p.ParticipantInfo.KeyShare.SecretKey)
-	binding := p.generateNonce(p.ParticipantInfo.KeyShare.SecretKey)
-	hidingCommit := p.Ciphersuite.Group.Base().Multiply(hiding)
-	bindingCommit := p.Ciphersuite.Group.Base().Multiply(binding)
-
-	p.nonce[0] = hiding
-	p.nonce[1] = binding
-
-	p.commitment[0] = hidingCommit
-	p.commitment[1] = bindingCommit
-
-	return p.nonce, p.commitment
+func (p *Participant) Commit() {
+	p.Nonce[0] = p.generateNonce(p.ParticipantInfo.KeyShare.SecretKey, p.HidingRandom)
+	p.Nonce[1] = p.generateNonce(p.ParticipantInfo.KeyShare.SecretKey, p.BindingRandom)
+	p.Commitment[0] = p.Ciphersuite.Group.Base().Multiply(p.Nonce[0])
+	p.Commitment[1] = p.Ciphersuite.Group.Base().Multiply(p.Nonce[1])
 }
 
 func (p *Participant) Sign(msg []byte, list internal.CommitmentList) *group.Scalar {
 	// Compute the binding factor(s)
-	bindingFactorList := list.ComputeBindingFactors(p.Ciphersuite, msg)
+	bindingFactorList, _ := list.ComputeBindingFactors(p.Ciphersuite, p.ContextString, msg)
 	bindingFactor := bindingFactorList.BindingFactorForParticipant(p.KeyShare.ID)
 
 	// Compute group commitment
@@ -63,25 +59,35 @@ func (p *Participant) Sign(msg []byte, list internal.CommitmentList) *group.Scal
 	participantList := list.Participants()
 	lambdaID := shamir.DeriveInterpolatingValue(p.Ciphersuite.Group, p.KeyShare.ID, participantList)
 
-	p.lambda = lambdaID.Copy()
+	p.Lambda = lambdaID.Copy()
 
 	// Compute per message challenge
-	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
+	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, p.ContextString, msg)
 
 	// Compute the signature share
-	sigShare := p.nonce[0].Add(
-		p.nonce[1].Multiply(bindingFactor).Add(lambdaID.Multiply(p.KeyShare.SecretKey).Multiply(challenge)),
-	)
+	sigShare := p.Nonce[0].Add(
+		p.Nonce[1].Multiply(bindingFactor).Add(lambdaID.Multiply(p.KeyShare.SecretKey).Multiply(challenge)),
+	).Copy()
 
 	// Clean up values
-	p.nonce[0].Zero()
-	p.nonce[1].Zero()
-	p.commitment[0].Identity()
-	p.commitment[1].Identity()
+	p.Nonce[0].Zero()
+	p.Nonce[1].Zero()
 
 	return sigShare
 }
 
 func (p *Participant) VerifyVSS(v vss.Commitment) bool {
 	return vss.Verify(p.Ciphersuite.Group, p.KeyShare, v)
+}
+
+type ParticipantList []*Participant
+
+func (p ParticipantList) Get(id *group.Scalar) *Participant {
+	for _, i := range p {
+		if i.ParticipantInfo.KeyShare.ID.Equal(id) == 1 {
+			return i
+		}
+	}
+
+	return nil
 }

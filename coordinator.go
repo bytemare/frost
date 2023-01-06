@@ -22,7 +22,7 @@ func (p *Participant) Aggregate(
 	sigShares []*group.Scalar,
 ) *schnorr.Signature {
 	// Compute binding factors
-	bindingFactorList := list.ComputeBindingFactors(p.Ciphersuite, msg)
+	bindingFactorList, _ := list.ComputeBindingFactors(p.Ciphersuite, p.ContextString, msg)
 
 	// Compute group commitment
 	groupCommitment := list.ComputeGroupCommitment(p.Ciphersuite, bindingFactorList)
@@ -48,7 +48,7 @@ func (p *Participant) VerifySignatureShare(
 	msg []byte,
 ) bool {
 	// Compute Binding Factor(s)
-	bindingFactorList := coms.ComputeBindingFactors(p.Ciphersuite, msg)
+	bindingFactorList, _ := coms.ComputeBindingFactors(p.Ciphersuite, p.ContextString, msg)
 	bindingFactor := bindingFactorList.BindingFactorForParticipant(id)
 
 	// Compute Group Commitment
@@ -58,7 +58,7 @@ func (p *Participant) VerifySignatureShare(
 	commShare := commi[0].Copy().Add(commi[1].Copy().Multiply(bindingFactor))
 
 	// Compute the challenge
-	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
+	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, p.ContextString, msg)
 
 	// Compute the interpolating value
 	participantList := coms.Participants()

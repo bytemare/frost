@@ -80,7 +80,8 @@ func (p Polynomial) reverse() Polynomial {
 func (p Polynomial) Evaluate(g group.Group, x *group.Scalar) *group.Scalar {
 	value := g.NewScalar().Zero()
 	for i := len(p) - 1; i >= 0; i-- {
-		value.Multiply(x).Add(p[i])
+		value.Multiply(x)
+		value.Add(p[i])
 	}
 
 	return value
@@ -114,7 +115,7 @@ func PolynomialInterpolateConstant(g group.Group, points []*Share) *group.Scalar
 
 	f0 := g.NewScalar().Zero()
 	for _, p := range points {
-		delta := p.SecretKey.Multiply(DeriveInterpolatingValue(g, p.ID, xCoords))
+		delta := p.SecretKey.Copy().Multiply(DeriveInterpolatingValue(g, p.ID, xCoords))
 		f0.Add(delta)
 	}
 

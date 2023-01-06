@@ -18,7 +18,6 @@ type Commitment struct {
 	ID           *group.Scalar
 	HidingNonce  *group.Element
 	BindingNonce *group.Element
-	IDint        int
 }
 
 type CommitmentList []Commitment
@@ -63,23 +62,20 @@ func (c CommitmentList) Participants() []*group.Scalar {
 	return identifiers
 }
 
-func (c CommitmentList) ComputeBindingFactors(cs Ciphersuite, msg []byte) BindingFactorList {
+func (c CommitmentList) ComputeBindingFactors(cs Ciphersuite, contextString, msg []byte) (BindingFactorList, [][]byte) {
 	if !c.IsSorted() {
 		panic(nil)
 	}
 
-	h := cs.H4(nil, msg)
-	encodedCommitHash := cs.H5([]byte(""), c.Encode())
-	rhoInputPrefix := append(h, encodedCommitHash...)
+	h := cs.H4(contextString, msg)
+	encodedCommitHash := cs.H5(contextString, c.Encode())
+	rhoInputPrefix := Concatenate(h, encodedCommitHash)
 
 	bindingFactorList := make([]*BindingFactor, 0, len(c))
 	rhoInputs := make([][]byte, 0, len(c))
-
-	rhoInput := make([]byte, 0, len(rhoInputPrefix)+int(cs.Group.ScalarLength()))
 	for _, l := range c {
-		copy(rhoInput, rhoInputPrefix)
-		rhoInput = append(rhoInput, l.ID.Encode()...)
-		bindingFactor := cs.H1(rhoInput)
+		rhoInput := Concatenate(rhoInputPrefix, l.ID.Encode())
+		bindingFactor := cs.H1(contextString, rhoInput)
 
 		bindingFactorList = append(bindingFactorList, &BindingFactor{
 			Identifier:    l.ID,
@@ -88,7 +84,7 @@ func (c CommitmentList) ComputeBindingFactors(cs Ciphersuite, msg []byte) Bindin
 		rhoInputs = append(rhoInputs, rhoInput)
 	}
 
-	return bindingFactorList
+	return bindingFactorList, rhoInputs
 }
 
 func (c CommitmentList) ComputeGroupCommitment(cs Ciphersuite, list BindingFactorList) *group.Element {
