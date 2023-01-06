@@ -62,12 +62,12 @@ func stringToHash(t *testing.T, s string) hash.Hashing {
 	return 0
 }
 
-func contextString(g group.Group) string {
-	switch g {
-	case group.Ristretto255Sha512:
-		return "FROST-RISTRETTO255-SHA512-v11"
+func contextString(s string) []byte {
+	switch s {
+	case "ristretto255":
+		return []byte("FROST-RISTRETTO255-SHA512-v11")
 	default:
-		return ""
+		return []byte("")
 	}
 }
 
@@ -79,11 +79,13 @@ func (c testVectorConfig) decode(t *testing.T) *testConfig {
 		Name:            c.Name,
 		Group:           stringToGroup(t, c.Group),
 		Hash:            stringToHash(t, c.Hash),
+		ContextString:   contextString(c.Group),
 	}
 }
 
 type testConfig struct {
 	Name            string
+	ContextString   []byte
 	MaxParticipants int
 	NumParticipants int
 	MinParticipants int
@@ -216,18 +218,18 @@ func splitIDString(s string) []int {
 }
 
 func (o testVectorRoundOneOutputs) decode(t *testing.T, g group.Group) *testRoundOneOutputs {
+	ids := splitIDString(o.ParticipantList)
 	r := &testRoundOneOutputs{
-		ParticipantList: make([]*group.Scalar, len(o.ParticipantList)),
+		ParticipantList: make([]*group.Scalar, len(ids)),
 		Participants:    make([]*participant, 2),
 	}
 
-	ids := splitIDString(o.ParticipantList)
 	for i, id := range ids {
 		r.ParticipantList[i] = internal.IntegerToScalar(g, id)
 	}
 
 	r.Participants[0] = decodeParticipant(t, g, 1, &o.Participants.Num1)
-	r.Participants[1] = decodeParticipant(t, g, 3, &o.Participants.Num1)
+	r.Participants[1] = decodeParticipant(t, g, 3, &o.Participants.Num3)
 
 	return r
 }
@@ -262,12 +264,12 @@ type testVectorRoundTwoOutputs struct {
 }
 
 func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoundTwoOutputs {
+	ids := splitIDString(o.ParticipantList)
 	r := &testRoundTwoOutputs{
-		make([]*group.Scalar, len(o.ParticipantList)),
-		make([]*shamir.Share, 2),
+		make([]*group.Scalar, len(ids)),
+		make([]*shamir.Share, len(ids)),
 	}
 
-	ids := splitIDString(o.ParticipantList)
 	for i, id := range ids {
 		r.ParticipantList[i] = internal.IntegerToScalar(g, id)
 	}
