@@ -23,18 +23,18 @@ func (s Signature) Encode() []byte {
 	return append(s.R.Encode(), s.Z.Encode()...)
 }
 
-func Challenge(cs internal.Ciphersuite, r, pk *group.Element, msg []byte) *group.Scalar {
+func Challenge(cs internal.Ciphersuite, r, pk *group.Element, contextString, msg []byte) *group.Scalar {
 	commEnc := r.Encode()
 	pkEnc := pk.Encode()
 	challengeInput := internal.Concatenate(commEnc, pkEnc, msg)
-	return cs.H2(challengeInput)
+	return cs.H2(contextString, challengeInput)
 }
 
-func Sign(cs internal.Ciphersuite, msg []byte, s *group.Scalar) *Signature {
+func Sign(cs internal.Ciphersuite, contextString, msg []byte, s *group.Scalar) *Signature {
 	r := cs.Group.NewScalar().Random()
 	R := cs.Group.Base().Multiply(r)
 	pk := cs.Group.Base().Multiply(s)
-	c := Challenge(cs, R, pk, msg)
+	c := Challenge(cs, R, pk, contextString, msg)
 	z := r.Add(c.Multiply(s))
 
 	return &Signature{
@@ -43,8 +43,8 @@ func Sign(cs internal.Ciphersuite, msg []byte, s *group.Scalar) *Signature {
 	}
 }
 
-func Verify(cs internal.Ciphersuite, msg []byte, signature *Signature, pk *group.Element) bool {
-	c := Challenge(cs, signature.R, pk, msg)
+func Verify(cs internal.Ciphersuite, contextString, msg []byte, signature *Signature, pk *group.Element) bool {
+	c := Challenge(cs, signature.R, pk, contextString, msg)
 	l := cs.Group.Base().Multiply(signature.Z)
 	r := signature.R.Add(pk.Copy().Multiply(c))
 
