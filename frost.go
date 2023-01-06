@@ -18,7 +18,7 @@ import (
 
 type Configuration struct {
 	GroupPublicKey *group.Element
-	ContextString  string
+	ContextString  []byte
 	Ciphersuite    internal.Ciphersuite
 }
 
@@ -48,8 +48,8 @@ func TrustedDealerKeygen(
 		}
 	}
 
-	privateKeys, coeffs := shamir.Shard(g, secret, coeffs, max, min)
+	privateKeyShares, coeffs := shamir.Shard(g, secret, coeffs, max, min)
 	coms := vss.Commit(g, coeffs)
 
-	return privateKeys, coms[0], coms
+	return privateKeyShares, coms[0], coms
 }
