@@ -95,16 +95,16 @@ func (v test) test(t *testing.T) {
 	}
 
 	// Round One: Commitment
-	commitmentList := make(internal.CommitmentList, len(v.RoundOneOutputs.ParticipantList))
-	for i, pid := range v.RoundOneOutputs.ParticipantList {
-		p := participants.Get(pid)
+	commitmentList := make(internal.CommitmentList, len(v.RoundOneOutputs.Outputs))
+	for i, pid := range v.RoundOneOutputs.Outputs {
+		p := participants.Get(pid.ID)
 		if p == nil {
 			t.Fatal(i)
 		}
 
 		var pv *participant
-		for _, pp := range v.RoundOneOutputs.Participants {
-			if pp.ID.Equal(pid) == 1 {
+		for _, pp := range v.RoundOneOutputs.Outputs {
+			if pp.ID.Equal(pid.ID) == 1 {
 				pv = pp
 			}
 		}
@@ -143,15 +143,15 @@ func (v test) test(t *testing.T) {
 		v.Inputs.Message,
 	)
 	for i, rho := range rhoInputs {
-		if !bytes.Equal(rho, v.RoundOneOutputs.Participants[i].BindingFactorInput) {
+		if !bytes.Equal(rho, v.RoundOneOutputs.Outputs[i].BindingFactorInput) {
 			t.Fatal()
 		}
 	}
 
 	// Round two: sign
-	sigShares := make([]*group.Scalar, len(v.RoundTwoOutputs.ParticipantList))
-	for i, pid := range v.RoundTwoOutputs.ParticipantList {
-		p := participants.Get(pid)
+	sigShares := make([]*group.Scalar, len(v.RoundTwoOutputs.Outputs))
+	for i, pid := range v.RoundTwoOutputs.Outputs {
+		p := participants.Get(pid.ID)
 		if p == nil {
 			t.Fatal(i)
 		}
@@ -159,7 +159,7 @@ func (v test) test(t *testing.T) {
 		sigShares[i] = p.Sign(v.Inputs.Message, commitmentList)
 	}
 
-	for i, ks := range v.RoundTwoOutputs.Participants {
+	for i, ks := range v.RoundTwoOutputs.Outputs {
 		if ks.SecretKey.Equal(sigShares[i]) != 1 {
 			t.Fatal(i)
 		}

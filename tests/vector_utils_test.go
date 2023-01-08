@@ -9,10 +9,7 @@
 package tests
 
 import (
-	"encoding/hex"
-	"encoding/json"
 	"strconv"
-	"strings"
 	"testing"
 
 	group "github.com/bytemare/crypto"
@@ -21,15 +18,6 @@ import (
 	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/frost/internal/shamir"
 )
-
-type testVectorConfig struct {
-	MaxParticipants string `json:"MAX_PARTICIPANTS"`
-	NumParticipants string `json:"NUM_PARTICIPANTS"`
-	MinParticipants string `json:"MIN_PARTICIPANTS"`
-	Name            string `json:"name"`
-	Group           string `json:"group"`
-	Hash            string `json:"hash"`
-}
 
 func stringToInt(t *testing.T, s string) int {
 	i, err := strconv.ParseInt(s, 10, 32)
@@ -71,46 +59,6 @@ func contextString(s string) []byte {
 	}
 }
 
-func (c testVectorConfig) decode(t *testing.T) *testConfig {
-	return &testConfig{
-		MaxParticipants: stringToInt(t, c.MaxParticipants),
-		NumParticipants: stringToInt(t, c.NumParticipants),
-		MinParticipants: stringToInt(t, c.MinParticipants),
-		Name:            c.Name,
-		Group:           stringToGroup(t, c.Group),
-		Hash:            stringToHash(t, c.Hash),
-		ContextString:   contextString(c.Group),
-	}
-}
-
-type testConfig struct {
-	Name            string
-	ContextString   []byte
-	MaxParticipants int
-	NumParticipants int
-	MinParticipants int
-	Hash            hash.Hashing
-	Group           group.Group
-}
-
-type testVectorInput struct {
-	GroupSecretKey              ByteToHex   `json:"group_secret_key"`
-	GroupPublicKey              ByteToHex   `json:"group_public_key"`
-	Message                     ByteToHex   `json:"message"`
-	SharePolynomialCoefficients []ByteToHex `json:"share_polynomial_coefficients"`
-	Participants                struct {
-		Num1 struct {
-			ParticipantShare ByteToHex `json:"participant_share"`
-		} `json:"1"`
-		Num2 struct {
-			ParticipantShare ByteToHex `json:"participant_share"`
-		} `json:"2"`
-		Num3 struct {
-			ParticipantShare ByteToHex `json:"participant_share"`
-		} `json:"3"`
-	} `json:"participants"`
-}
-
 func decodeScalar(t *testing.T, g group.Group, enc []byte) *group.Scalar {
 	scalar := g.NewScalar()
 	if err := scalar.Decode(enc); err != nil {
@@ -129,57 +77,9 @@ func decodeElement(t *testing.T, g group.Group, enc []byte) *group.Element {
 	return element
 }
 
-func (i testVectorInput) decode(t *testing.T, g group.Group) *testInput {
-	input := &testInput{
-		GroupSecretKey:              decodeScalar(t, g, i.GroupSecretKey),
-		GroupPublicKey:              decodeElement(t, g, i.GroupPublicKey),
-		Message:                     i.Message,
-		SharePolynomialCoefficients: make([]*group.Scalar, len(i.SharePolynomialCoefficients)),
-		Participants:                make([]*shamir.Share, 3),
-	}
-
-	for j, coeff := range i.SharePolynomialCoefficients {
-		input.SharePolynomialCoefficients[j] = decodeScalar(t, g, coeff)
-	}
-
-	input.Participants[0] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 1),
-		SecretKey: decodeScalar(t, g, i.Participants.Num1.ParticipantShare),
-	}
-	input.Participants[1] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 2),
-		SecretKey: decodeScalar(t, g, i.Participants.Num2.ParticipantShare),
-	}
-	input.Participants[2] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 3),
-		SecretKey: decodeScalar(t, g, i.Participants.Num3.ParticipantShare),
-	}
-
-	return input
-}
-
-type testInput struct {
-	GroupSecretKey              *group.Scalar
-	GroupPublicKey              *group.Element
-	Message                     []byte
-	SharePolynomialCoefficients []*group.Scalar
-	Participants                []*shamir.Share
-}
-
-type testParticipant struct {
-	HidingNonceRandomness  ByteToHex `json:"hiding_nonce_randomness"`
-	BindingNonceRandomness ByteToHex `json:"binding_nonce_randomness"`
-	HidingNonce            ByteToHex `json:"hiding_nonce"`
-	BindingNonce           ByteToHex `json:"binding_nonce"`
-	HidingNonceCommitment  ByteToHex `json:"hiding_nonce_commitment"`
-	BindingNonceCommitment ByteToHex `json:"binding_nonce_commitment"`
-	BindingFactorInput     ByteToHex `json:"binding_factor_input"`
-	BindingFactor          ByteToHex `json:"binding_factor"`
-}
-
-func decodeParticipant(t *testing.T, g group.Group, id int, tp *testParticipant) *participant {
+func decodeParticipant(t *testing.T, g group.Group, tp *testParticipant) *participant {
 	return &participant{
-		ID:                     internal.IntegerToScalar(g, id),
+		ID:                     internal.IntegerToScalar(g, tp.Identifier),
 		HidingNonceRandomness:  tp.HidingNonceRandomness,
 		BindingNonceRandomness: tp.BindingNonceRandomness,
 		HidingNonce:            decodeScalar(t, g, tp.HidingNonce),
@@ -191,114 +91,71 @@ func decodeParticipant(t *testing.T, g group.Group, id int, tp *testParticipant)
 	}
 }
 
-type testVectorRoundOneOutputs struct {
-	ParticipantList string `json:"participant_list"`
-	Participants    struct {
-		Num1 testParticipant `json:"1"`
-		Num3 testParticipant `json:"3"`
-	} `json:"participants"`
+func (c testVectorConfig) decode(t *testing.T) *testConfig {
+	return &testConfig{
+		MaxParticipants: stringToInt(t, c.MaxParticipants),
+		NumParticipants: stringToInt(t, c.NumParticipants),
+		MinParticipants: stringToInt(t, c.MinParticipants),
+		Name:            c.Name,
+		Group:           stringToGroup(t, c.Group),
+		Hash:            stringToHash(t, c.Hash),
+		ContextString:   contextString(c.Group),
+	}
 }
 
-func splitIDString(s string) []int {
-	split := func(r rune) bool {
-		return r == ',' || r == ' '
+func (i testVectorInput) decode(t *testing.T, g group.Group) *testInput {
+	input := &testInput{
+		ParticipantList:             make([]*group.Scalar, len(i.ParticipantList)),
+		GroupSecretKey:              decodeScalar(t, g, i.GroupSecretKey),
+		GroupPublicKey:              decodeElement(t, g, i.GroupPublicKey),
+		Message:                     i.Message,
+		SharePolynomialCoefficients: make([]*group.Scalar, len(i.SharePolynomialCoefficients)),
+		Participants:                make([]*shamir.Share, len(i.ParticipantShares)),
 	}
 
-	str := strings.FieldsFunc(s, split)
-	ints := make([]int, len(str))
-	for i, e := range str {
-		j, err := strconv.Atoi(e)
-		if err != nil {
-			panic(nil)
+	for j, id := range i.ParticipantList {
+		input.ParticipantList[j] = internal.IntegerToScalar(g, id)
+	}
+
+	for j, coeff := range i.SharePolynomialCoefficients {
+		input.SharePolynomialCoefficients[j] = decodeScalar(t, g, coeff)
+	}
+
+	for j, p := range i.ParticipantShares {
+		input.Participants[j] = &shamir.Share{
+			ID:        internal.IntegerToScalar(g, p.Identifier),
+			SecretKey: decodeScalar(t, g, p.ParticipantShare),
 		}
-		ints[i] = j
 	}
 
-	return ints
+	return input
 }
 
 func (o testVectorRoundOneOutputs) decode(t *testing.T, g group.Group) *testRoundOneOutputs {
-	ids := splitIDString(o.ParticipantList)
 	r := &testRoundOneOutputs{
-		ParticipantList: make([]*group.Scalar, len(ids)),
-		Participants:    make([]*participant, 2),
+		Outputs: make([]*participant, len(o.Outputs)),
 	}
 
-	for i, id := range ids {
-		r.ParticipantList[i] = internal.IntegerToScalar(g, id)
+	for i, p := range o.Outputs {
+		r.Outputs[i] = decodeParticipant(t, g, &p)
 	}
-
-	r.Participants[0] = decodeParticipant(t, g, 1, &o.Participants.Num1)
-	r.Participants[1] = decodeParticipant(t, g, 3, &o.Participants.Num3)
 
 	return r
-}
-
-type participant struct {
-	ID                     *group.Scalar
-	HidingNonce            *group.Scalar
-	BindingNonce           *group.Scalar
-	HidingNonceCommitment  *group.Element
-	BindingNonceCommitment *group.Element
-	BindingFactor          *group.Scalar
-	HidingNonceRandomness  []byte
-	BindingNonceRandomness []byte
-	BindingFactorInput     []byte
-}
-
-type testRoundOneOutputs struct {
-	ParticipantList []*group.Scalar
-	Participants    []*participant
-}
-
-type testVectorRoundTwoOutputs struct {
-	ParticipantList string `json:"participant_list"`
-	Participants    struct {
-		Num1 struct {
-			SigShare ByteToHex `json:"sig_share"`
-		} `json:"1"`
-		Num3 struct {
-			SigShare ByteToHex `json:"sig_share"`
-		} `json:"3"`
-	} `json:"participants"`
 }
 
 func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoundTwoOutputs {
-	ids := splitIDString(o.ParticipantList)
 	r := &testRoundTwoOutputs{
-		make([]*group.Scalar, len(ids)),
-		make([]*shamir.Share, len(ids)),
+		Outputs: make([]*shamir.Share, len(o.Outputs)),
 	}
 
-	for i, id := range ids {
-		r.ParticipantList[i] = internal.IntegerToScalar(g, id)
-	}
-
-	r.Participants[0] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 1),
-		SecretKey: decodeScalar(t, g, o.Participants.Num1.SigShare),
-	}
-	r.Participants[1] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 3),
-		SecretKey: decodeScalar(t, g, o.Participants.Num3.SigShare),
+	for i, p := range o.Outputs {
+		r.Outputs[i] = &shamir.Share{
+			ID:        internal.IntegerToScalar(g, p.Identifier),
+			SecretKey: decodeScalar(t, g, p.SigShare),
+		}
 	}
 
 	return r
-}
-
-type testRoundTwoOutputs struct {
-	ParticipantList []*group.Scalar
-	Participants    []*shamir.Share
-}
-
-type testVector struct {
-	Config          *testVectorConfig          `json:"config"`
-	Inputs          *testVectorInput           `json:"inputs"`
-	RoundOneOutputs *testVectorRoundOneOutputs `json:"round_one_outputs"`
-	RoundTwoOutputs *testVectorRoundTwoOutputs `json:"round_two_outputs"`
-	FinalOutput     struct {
-		Sig ByteToHex `json:"sig"`
-	} `json:"final_output"`
 }
 
 func (v testVector) decode(t *testing.T) *test {
@@ -310,30 +167,4 @@ func (v testVector) decode(t *testing.T) *test {
 		RoundTwoOutputs: v.RoundTwoOutputs.decode(t, conf.Group),
 		FinalOutput:     v.FinalOutput.Sig,
 	}
-}
-
-type test struct {
-	Config          *testConfig
-	Inputs          *testInput
-	RoundOneOutputs *testRoundOneOutputs
-	RoundTwoOutputs *testRoundTwoOutputs
-	FinalOutput     []byte
-}
-
-type ByteToHex []byte
-
-func (j ByteToHex) MarshalJSON() ([]byte, error) {
-	return json.Marshal(hex.EncodeToString(j))
-}
-
-func (j *ByteToHex) UnmarshalJSON(b []byte) error {
-	bs := strings.Trim(string(b), "\"")
-
-	dst, err := hex.DecodeString(bs)
-	if err != nil {
-		return err
-	}
-
-	*j = dst
-	return nil
 }
