@@ -211,7 +211,7 @@ func TestFrostVectors(t *testing.T) {
 				return nil
 			}
 
-			t.Run(fmt.Sprintf("%s - %s", v.Config.Name, v.Config.Group), v.test)
+			t.Run(fmt.Sprintf("%s / from %s", v.Config.Name, file), v.test)
 
 			return nil
 		}); err != nil {
