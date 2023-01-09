@@ -1,4 +1,4 @@
-package tests
+package frost_test
 
 import (
 	"encoding/hex"
