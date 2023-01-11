@@ -18,7 +18,6 @@ import (
 	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/frost/internal/schnorr"
 	"github.com/bytemare/frost/internal/shamir"
-	"github.com/bytemare/frost/internal/vss"
 )
 
 var configurationTable = []frost.Configuration{
@@ -61,8 +60,8 @@ func TestFrost(t *testing.T) {
 			t.Fatal()
 		}
 
-		groupPublicKey, participantPublicKey := frost.DeriveGroupInfo(g, max, vssCommitment)
-		if len(participantPublicKey) != max {
+		groupPublicKey, participantPublicKeys := frost.DeriveGroupInfo(g, max, vssCommitment)
+		if len(participantPublicKeys) != max {
 			t2.Fatal()
 		}
 
@@ -73,7 +72,7 @@ func TestFrost(t *testing.T) {
 		configuration.GroupPublicKey = dealerGroupPubKey
 
 		for i, shareI := range privateKeyShares {
-			if !vss.Verify(g, shareI, vssCommitment) {
+			if !frost.Verify(g, shareI, vssCommitment) {
 				t2.Fatal(i)
 			}
 		}
@@ -90,7 +89,7 @@ func TestFrost(t *testing.T) {
 		}
 
 		// Create Participants
-		participants := make(frost.ParticipantList, len(privateKeyShares))
+		participants := make(ParticipantList, len(privateKeyShares))
 		for i, share := range privateKeyShares {
 			participants[i] = &frost.Participant{
 				Configuration:   *configuration,
@@ -108,15 +107,11 @@ func TestFrost(t *testing.T) {
 		for i, id := range participantList {
 			p := participants.Get(id)
 			p.Commit()
-			comList[i] = internal.Commitment{
-				ID:           id,
-				HidingNonce:  p.Commitment[0],
-				BindingNonce: p.Commitment[1],
-			}
+			comList[i] = *p.Commit()
 		}
 
 		comList.Sort()
-		_, _ = comList.ComputeBindingFactors(configuration.Ciphersuite, configuration.ContextString, message)
+		_, _ = comList.ComputeBindingFactors(configuration.Ciphersuite, message)
 
 		// Round Two: Sign
 		sigShares := make([]*group.Scalar, len(participantList))
@@ -130,8 +125,8 @@ func TestFrost(t *testing.T) {
 		_ = participants[1].Aggregate(comList, message, sigShares)
 
 		// Sanity Check
-		singleSig := schnorr.Sign(configuration.Ciphersuite, configuration.ContextString, message, groupSecretKey)
-		if !schnorr.Verify(configuration.Ciphersuite, configuration.ContextString, message, singleSig, groupPublicKey) {
+		singleSig := schnorr.Sign(configuration.Ciphersuite, message, groupSecretKey)
+		if !schnorr.Verify(configuration.Ciphersuite, message, singleSig, groupPublicKey) {
 			t2.Fatal()
 		}
 	})

@@ -6,6 +6,7 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
+// Package shamir provides Shamir Secret Sharing operations.
 package shamir
 
 import (
@@ -14,15 +15,18 @@ import (
 	"github.com/bytemare/frost/internal"
 )
 
-type Share struct {
-	ID        *group.Scalar
-	SecretKey *group.Scalar
+// KeyShare identifies the sharded key share for a given participant.
+type KeyShare struct {
+	Identifier *group.Scalar
+	SecretKey  *group.Scalar
 }
 
-func Shard(g group.Group, secret *group.Scalar, coeffs Polynomial, max, min int) ([]*Share, Polynomial) {
+// Shard splits a secret into shares, and returns them as well as the polynomial's coefficients prepended by the secret.
+func Shard(g group.Group, secret *group.Scalar, coeffs Polynomial, max, min int) ([]*KeyShare, Polynomial) {
 	if min > max {
 		panic(nil)
 	}
+
 	if min < 2 {
 		panic(nil)
 	}
@@ -31,17 +35,19 @@ func Shard(g group.Group, secret *group.Scalar, coeffs Polynomial, max, min int)
 	coeffs = append([]*group.Scalar{secret}, coeffs...)
 
 	// Evaluate the polynomial for each point x=1,...,n
-	secretKeyShares := make([]*Share, max)
+	secretKeyShares := make([]*KeyShare, max)
+
 	for i := 1; i <= max; i++ {
 		xi := internal.IntegerToScalar(g, i)
 		yi := coeffs.Evaluate(g, xi)
-		secretKeyShares[i-1] = &Share{xi, yi}
+		secretKeyShares[i-1] = &KeyShare{xi, yi}
 	}
 
 	return secretKeyShares, coeffs
 }
 
-func Combine(g group.Group, shares []*Share, min int) *group.Scalar {
+// Combine recovers the constant secret by combining the key shares.
+func Combine(g group.Group, shares []*KeyShare, min int) *group.Scalar {
 	if len(shares) < min {
 		panic("invalid parameters")
 	}

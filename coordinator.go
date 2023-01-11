@@ -16,13 +16,26 @@ import (
 	"github.com/bytemare/frost/internal/shamir"
 )
 
+// Aggregate allows the coordinator to produce the final signature given all signature shares.
+//
+// Before aggregation, each signature share must be a valid deserialized element. If that validation fails the
+// coordinator must abort the protocol, as the resulting signature will be invalid.
+// The CommitmentList must be sorted in ascending order by identifier.
+//
+// The coordinator should verify this signature using the group public key before publishing or releasing the signature.
+// This aggregate signature will verify if and only if all signature shares are valid. If an invalid share is identified
+// a reasonable approach is to remove the participant from the set of allowed participants in future runs of FROST.
 func (p *Participant) Aggregate(
 	list internal.CommitmentList,
 	msg []byte,
 	sigShares []*group.Scalar,
 ) *schnorr.Signature {
+	if !list.IsSorted() {
+		panic("list not sorted")
+	}
+
 	// Compute binding factors
-	bindingFactorList, _ := list.ComputeBindingFactors(p.Ciphersuite, p.ContextString, msg)
+	bindingFactorList, _ := list.ComputeBindingFactors(p.Ciphersuite, msg)
 
 	// Compute group commitment
 	groupCommitment := list.ComputeGroupCommitment(p.Ciphersuite, bindingFactorList)
@@ -39,6 +52,11 @@ func (p *Participant) Aggregate(
 	}
 }
 
+// VerifySignatureShare verifies a signature share.
+// id, pki, commi, and sigShareI are, respectively, the identifier, public key, commitment, and signature share of
+// the participant whose share is to be verified.
+//
+// The CommitmentList must be sorted in ascending order by identifier.
 func (p *Participant) VerifySignatureShare(
 	id *group.Scalar,
 	pki *group.Element,
@@ -47,18 +65,22 @@ func (p *Participant) VerifySignatureShare(
 	coms internal.CommitmentList,
 	msg []byte,
 ) bool {
+	if !coms.IsSorted() {
+		panic("list not sorted")
+	}
+
 	// Compute Binding Factor(s)
-	bindingFactorList, _ := coms.ComputeBindingFactors(p.Ciphersuite, p.ContextString, msg)
+	bindingFactorList, _ := coms.ComputeBindingFactors(p.Ciphersuite, msg)
 	bindingFactor := bindingFactorList.BindingFactorForParticipant(id)
 
 	// Compute Group Commitment
 	groupCommitment := coms.ComputeGroupCommitment(p.Ciphersuite, bindingFactorList)
 
-	// Commitment Share
+	// Commitment KeyShare
 	commShare := commi[0].Copy().Add(commi[1].Copy().Multiply(bindingFactor))
 
 	// Compute the challenge
-	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, p.ContextString, msg)
+	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
 
 	// Compute the interpolating value
 	participantList := coms.Participants()

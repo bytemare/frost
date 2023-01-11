@@ -182,13 +182,10 @@ issues:
   exclude:
     - "should have a package comment, unless it's in another file for this package"
 
-  #exclude-rules:
-    #- path: internal/hash.go
-    #  linters:
-    #    - errcheck
-    #- path: internal/tag/strings.go
-    #  linters:
-    #    - gosec
+  exclude-rules:
+    - path: ./*
+      linters:
+        - exhaustive
 
   max-issues-per-linter: 0
   max-same-issues: 0

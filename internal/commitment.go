@@ -14,26 +14,32 @@ import (
 	group "github.com/bytemare/crypto"
 )
 
+// Commitment represent a participant's commitment.
 type Commitment struct {
 	ID           *group.Scalar
 	HidingNonce  *group.Element
 	BindingNonce *group.Element
 }
 
+// CommitmentList is a sortable list of commitments.
 type CommitmentList []Commitment
 
+// Len implements the sort.Interface Len method.
 func (c CommitmentList) Len() int {
 	return len(c)
 }
 
+// Less implements the sort.Interface Less method.
 func (c CommitmentList) Less(i, j int) bool {
 	return c[i].ID.LessOrEqual(c[j].ID) == 1
 }
 
+// Swap implements the sort.Interface Swap method.
 func (c CommitmentList) Swap(i, j int) {
 	c[i], c[j] = c[j], c[i]
 }
 
+// Sort sorts the list the ascending order of identifiers.
 func (c CommitmentList) Sort() {
 	sort.Sort(c)
 }
@@ -43,8 +49,10 @@ func (c CommitmentList) IsSorted() bool {
 	return sort.IsSorted(c)
 }
 
+// Encode serializes a whole commitment list.
 func (c CommitmentList) Encode() []byte {
 	var encoded []byte
+
 	for _, l := range c {
 		e := Concatenate(l.ID.Encode(), l.HidingNonce.Encode(), l.BindingNonce.Encode())
 		encoded = append(encoded, e...)
@@ -53,40 +61,45 @@ func (c CommitmentList) Encode() []byte {
 	return encoded
 }
 
+// Participants returns the list of participants in the commitment list.
 func (c CommitmentList) Participants() []*group.Scalar {
-	identifiers := make([]*group.Scalar, 0, len(c))
-	for _, l := range c {
-		identifiers = append(identifiers, l.ID)
+	identifiers := make([]*group.Scalar, len(c))
+	for i, l := range c {
+		identifiers[i] = l.ID
 	}
 
 	return identifiers
 }
 
-func (c CommitmentList) ComputeBindingFactors(cs Ciphersuite, contextString, msg []byte) (BindingFactorList, [][]byte) {
+// ComputeBindingFactors computes binding factors based on the participant commitment list and the message to be signed.
+// The rhoInputs are temporarily added for testing purposes and can be ignored.
+func (c CommitmentList) ComputeBindingFactors(cs Ciphersuite, msg []byte) (l BindingFactorList, r [][]byte) {
 	if !c.IsSorted() {
 		panic(nil)
 	}
 
-	h := cs.H4(contextString, msg)
-	encodedCommitHash := cs.H5(contextString, c.Encode())
+	h := cs.H4(msg)
+	encodedCommitHash := cs.H5(c.Encode())
 	rhoInputPrefix := Concatenate(h, encodedCommitHash)
 
-	bindingFactorList := make([]*BindingFactor, 0, len(c))
-	rhoInputs := make([][]byte, 0, len(c))
-	for _, l := range c {
-		rhoInput := Concatenate(rhoInputPrefix, l.ID.Encode())
-		bindingFactor := cs.H1(contextString, rhoInput)
+	bindingFactorList := make(BindingFactorList, len(c))
+	rhoInputs := make([][]byte, len(c))
 
-		bindingFactorList = append(bindingFactorList, &BindingFactor{
+	for i, l := range c {
+		rhoInput := Concatenate(rhoInputPrefix, l.ID.Encode())
+		bindingFactor := cs.H1(rhoInput)
+
+		bindingFactorList[i] = &BindingFactor{
 			Identifier:    l.ID,
 			BindingFactor: bindingFactor,
-		})
-		rhoInputs = append(rhoInputs, rhoInput)
+		}
+		rhoInputs[i] = rhoInput
 	}
 
 	return bindingFactorList, rhoInputs
 }
 
+// ComputeGroupCommitment creates the group commitment from a commitment list.
 func (c CommitmentList) ComputeGroupCommitment(cs Ciphersuite, list BindingFactorList) *group.Element {
 	if !c.IsSorted() {
 		panic(nil)

@@ -17,9 +17,11 @@ import (
 	"github.com/gtank/ristretto255"
 )
 
+// Ciphersuite combines the group and hashing routines.
 type Ciphersuite struct {
-	Group group.Group
-	Hash  hash.Hashing
+	ContextString []byte
+	Hash          hash.Hashing
+	Group         group.Group
 }
 
 func (c Ciphersuite) hashToNist(input, context, dst []byte) []byte {
@@ -33,20 +35,29 @@ func (c Ciphersuite) hashToNist(input, context, dst []byte) []byte {
 		securityLenth = 123
 	case group.P521Sha512:
 		securityLenth = 123
+	default:
+		panic(ErrInvalidCiphersuite)
 	}
 
-	return hash2curve.HashToFieldXMD(c.Hash.GetCryptoID(), input, append(context, dst...), 1, 1, securityLenth, order)[0].Bytes()
+	return hash2curve.HashToFieldXMD(c.Hash.GetCryptoID(),
+		input,
+		append(context, dst...),
+		1,
+		1,
+		securityLenth, order)[0].Bytes()
 }
 
-func (c Ciphersuite) hx(input, context, dst []byte) *group.Scalar {
+func (c Ciphersuite) hx(input, dst []byte) *group.Scalar {
 	var sc []byte
 
 	switch c.Group {
 	case group.Ristretto255Sha512:
-		h := c.Hash.Hash(context, dst, input)
+		h := c.Hash.Hash(c.ContextString, dst, input)
 		sc = ristretto255.NewScalar().FromUniformBytes(h).Encode(nil)
-	default: // NIST curves
-		sc = c.hashToNist(input, context, dst)
+	case group.P256Sha256: // NIST curves
+		sc = c.hashToNist(input, c.ContextString, dst)
+	default:
+		panic(ErrInvalidParameters)
 	}
 
 	s := c.Group.NewScalar()
@@ -57,22 +68,27 @@ func (c Ciphersuite) hx(input, context, dst []byte) *group.Scalar {
 	return s
 }
 
-func (c Ciphersuite) H1(contextString, input []byte) *group.Scalar {
-	return c.hx(input, contextString, []byte("rho"))
+// H1 hashes the input and proves the "rho" DST.
+func (c Ciphersuite) H1(input []byte) *group.Scalar {
+	return c.hx(input, []byte("rho"))
 }
 
-func (c Ciphersuite) H2(contextString, input []byte) *group.Scalar {
-	return c.hx(input, contextString, []byte("chal"))
+// H2 hashes the input and proves the "chal" DST.
+func (c Ciphersuite) H2(input []byte) *group.Scalar {
+	return c.hx(input, []byte("chal"))
 }
 
-func (c Ciphersuite) H3(contextString, input []byte) *group.Scalar {
-	return c.hx(input, contextString, []byte("nonce"))
+// H3 hashes the input and proves the "nonce" DST.
+func (c Ciphersuite) H3(input []byte) *group.Scalar {
+	return c.hx(input, []byte("nonce"))
 }
 
-func (c Ciphersuite) H4(contextString, msg []byte) []byte {
-	return c.Hash.Hash(contextString, []byte("msg"), msg)
+// H4 hashes the input and proves the "msg" DST.
+func (c Ciphersuite) H4(msg []byte) []byte {
+	return c.Hash.Hash(c.ContextString, []byte("msg"), msg)
 }
 
-func (c Ciphersuite) H5(contextString, msg []byte) []byte {
-	return c.Hash.Hash(contextString, []byte("com"), msg)
+// H5 hashes the input and proves the "com" DST.
+func (c Ciphersuite) H5(msg []byte) []byte {
+	return c.Hash.Hash(c.ContextString, []byte("com"), msg)
 }
