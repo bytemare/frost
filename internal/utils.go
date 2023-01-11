@@ -6,16 +6,30 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
+// Package internal provides values, structures, and functions to operate FROST that are not part of the public API.
 package internal
 
 import (
 	cryptorand "crypto/rand"
+	"errors"
 	"fmt"
 	"math/big"
 
 	group "github.com/bytemare/crypto"
 )
 
+var (
+	// ErrInvalidParameters indicates that wrong input has been provided.
+	ErrInvalidParameters = errors.New("invalid parameters")
+
+	// ErrInvalidCiphersuite indicates a non-supported ciphersuite is being used.
+	ErrInvalidCiphersuite = errors.New("ciphersuite not available")
+
+	// ErrInvalidParticipantBackup indicates a participant's encoded backup is not valid.
+	ErrInvalidParticipantBackup = errors.New("invalid backup")
+)
+
+// Concatenate returns the concatenation of all bytes composing the input elements.
 func Concatenate(input ...[]byte) []byte {
 	if len(input) == 1 {
 		if len(input[0]) == 0 {
@@ -50,6 +64,7 @@ func RandomBytes(length int) []byte {
 	return r
 }
 
+// IntegerToScalar creates a group.Scalar given an int.
 func IntegerToScalar(g group.Group, i int) *group.Scalar {
 	s := g.NewScalar()
 	if err := s.SetInt(big.NewInt(int64(i))); err != nil {

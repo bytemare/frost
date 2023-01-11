@@ -21,7 +21,6 @@ import (
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/frost/internal/shamir"
-	"github.com/bytemare/frost/internal/vss"
 )
 
 func (v test) test(t *testing.T) {
@@ -43,7 +42,7 @@ func (v test) test(t *testing.T) {
 	cpt := len(privateKeyShares)
 	for _, p := range privateKeyShares {
 		for _, p2 := range v.Inputs.Participants {
-			if p2.ID.Equal(p.ID) == 1 {
+			if p2.Identifier.Equal(p.Identifier) == 1 {
 				cpt--
 			}
 		}
@@ -68,30 +67,17 @@ func (v test) test(t *testing.T) {
 	}
 
 	for i, shareI := range privateKeyShares {
-		if !vss.Verify(g, shareI, vssCommitment) {
+		if !frost.Verify(g, shareI, vssCommitment) {
 			t.Fatal(i)
 		}
 	}
 
 	// Create participants
-	participants := make(frost.ParticipantList, len(privateKeyShares))
+	participants := make(ParticipantList, len(privateKeyShares))
+	conf := v.Config.Ciphersuite.Configuration()
+	conf.GroupPublicKey = groupPublicKey
 	for i, pks := range privateKeyShares {
-		participants[i] = &frost.Participant{
-			ParticipantInfo: frost.ParticipantInfo{
-				KeyShare: pks,
-				Lambda:   nil,
-			},
-			Nonce:      [2]*group.Scalar{},
-			Commitment: [2]*group.Element{},
-			Configuration: frost.Configuration{
-				GroupPublicKey: groupPublicKey,
-				ContextString:  v.Config.ContextString,
-				Ciphersuite: internal.Ciphersuite{
-					Group: g,
-					Hash:  v.Config.Hash,
-				},
-			},
-		}
+		participants[i] = conf.Participant(pks.Identifier, pks.SecretKey)
 	}
 
 	// Round One: Commitment
@@ -115,7 +101,7 @@ func (v test) test(t *testing.T) {
 		p.HidingRandom = pv.HidingNonceRandomness
 		p.BindingRandom = pv.BindingNonceRandomness
 
-		p.Commit()
+		commitment := p.Commit()
 
 		if p.Nonce[0].Equal(pv.HidingNonce) != 1 {
 			t.Fatal(i)
@@ -123,23 +109,18 @@ func (v test) test(t *testing.T) {
 		if p.Nonce[1].Equal(pv.BindingNonce) != 1 {
 			t.Fatal(i)
 		}
-		if p.Commitment[0].Equal(pv.HidingNonceCommitment) != 1 {
+		if commitment.HidingNonce.Equal(pv.HidingNonceCommitment) != 1 {
 			t.Fatal(i)
 		}
-		if p.Commitment[1].Equal(pv.BindingNonceCommitment) != 1 {
+		if commitment.BindingNonce.Equal(pv.BindingNonceCommitment) != 1 {
 			t.Fatal(i)
 		}
 
-		commitmentList[i] = internal.Commitment{
-			ID:           p.KeyShare.ID,
-			HidingNonce:  p.Commitment[0],
-			BindingNonce: p.Commitment[1],
-		}
+		commitmentList[i] = *commitment
 	}
 
 	_, rhoInputs := commitmentList.ComputeBindingFactors(
-		internal.Ciphersuite{Group: g, Hash: v.Config.Hash},
-		v.Config.ContextString,
+		conf.Ciphersuite,
 		v.Inputs.Message,
 	)
 	for i, rho := range rhoInputs {
@@ -151,7 +132,7 @@ func (v test) test(t *testing.T) {
 	// Round two: sign
 	sigShares := make([]*group.Scalar, len(v.RoundTwoOutputs.Outputs))
 	for i, pid := range v.RoundTwoOutputs.Outputs {
-		p := participants.Get(pid.ID)
+		p := participants.Get(pid.Identifier)
 		if p == nil {
 			t.Fatal(i)
 		}
@@ -160,8 +141,8 @@ func (v test) test(t *testing.T) {
 	}
 
 	for i, ks := range v.RoundTwoOutputs.Outputs {
-		if ks.SecretKey.Equal(sigShares[i]) != 1 {
-			t.Fatal(i)
+		if ks.SigShare.Equal(sigShares[i]) != 1 {
+			t.Fatal()
 		}
 	}
 
@@ -205,10 +186,6 @@ func TestFrostVectors(t *testing.T) {
 			v, err := loadFrostVectors(t, file)
 			if err != nil || v == nil {
 				t.Fatal(err)
-			}
-
-			if v.Config.Name != "FROST(ristretto255, SHA-512)" {
-				return nil
 			}
 
 			t.Run(fmt.Sprintf("%s / from %s", v.Config.Name, file), v.test)

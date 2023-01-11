@@ -12,32 +12,15 @@ import (
 	"testing"
 
 	group "github.com/bytemare/crypto"
-	"github.com/bytemare/hash"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/frost/internal/schnorr"
 	"github.com/bytemare/frost/internal/shamir"
-	"github.com/bytemare/frost/internal/vss"
 )
 
-var configurationTable = []frost.Configuration{
-	{
-		Ciphersuite: internal.Ciphersuite{
-			Group: group.Ristretto255Sha512,
-			Hash:  hash.SHA512,
-		},
-		ContextString:  []byte("FROST-RISTRETTO255-SHA512-v11"),
-		GroupPublicKey: nil,
-	},
-	{
-		Ciphersuite: internal.Ciphersuite{
-			Group: group.P256Sha256,
-			Hash:  hash.SHA256,
-		},
-		ContextString:  []byte("FROST-P256-SHA256-v11"),
-		GroupPublicKey: nil,
-	},
+var ciphersuiteTable = []frost.Ciphersuite{
+	frost.Ristretto255, frost.P256,
 }
 
 func TestFrost(t *testing.T) {
@@ -46,7 +29,8 @@ func TestFrost(t *testing.T) {
 	participantListInt := []int{1, 3}
 	message := []byte("test")
 
-	testAll(t, func(t2 *testing.T, configuration *frost.Configuration) {
+	testAll(t, func(t2 *testing.T, ciphersuite frost.Ciphersuite) {
+		configuration := ciphersuite.Configuration()
 		g := configuration.Ciphersuite.Group
 
 		groupSecretKey := g.NewScalar().Random()
@@ -61,8 +45,8 @@ func TestFrost(t *testing.T) {
 			t.Fatal()
 		}
 
-		groupPublicKey, participantPublicKey := frost.DeriveGroupInfo(g, max, vssCommitment)
-		if len(participantPublicKey) != max {
+		groupPublicKey, participantPublicKeys := frost.DeriveGroupInfo(g, max, vssCommitment)
+		if len(participantPublicKeys) != max {
 			t2.Fatal()
 		}
 
@@ -73,7 +57,7 @@ func TestFrost(t *testing.T) {
 		configuration.GroupPublicKey = dealerGroupPubKey
 
 		for i, shareI := range privateKeyShares {
-			if !vss.Verify(g, shareI, vssCommitment) {
+			if !frost.Verify(g, shareI, vssCommitment) {
 				t2.Fatal(i)
 			}
 		}
@@ -90,12 +74,9 @@ func TestFrost(t *testing.T) {
 		}
 
 		// Create Participants
-		participants := make(frost.ParticipantList, len(privateKeyShares))
+		participants := make(ParticipantList, len(privateKeyShares))
 		for i, share := range privateKeyShares {
-			participants[i] = &frost.Participant{
-				Configuration:   *configuration,
-				ParticipantInfo: frost.ParticipantInfo{KeyShare: share},
-			}
+			participants[i] = configuration.Participant(share.Identifier, share.SecretKey)
 		}
 
 		// Round One: Commitment
@@ -108,15 +89,11 @@ func TestFrost(t *testing.T) {
 		for i, id := range participantList {
 			p := participants.Get(id)
 			p.Commit()
-			comList[i] = internal.Commitment{
-				ID:           id,
-				HidingNonce:  p.Commitment[0],
-				BindingNonce: p.Commitment[1],
-			}
+			comList[i] = *p.Commit()
 		}
 
 		comList.Sort()
-		_, _ = comList.ComputeBindingFactors(configuration.Ciphersuite, configuration.ContextString, message)
+		_, _ = comList.ComputeBindingFactors(configuration.Ciphersuite, message)
 
 		// Round Two: Sign
 		sigShares := make([]*group.Scalar, len(participantList))
@@ -127,20 +104,24 @@ func TestFrost(t *testing.T) {
 		}
 
 		// Final step: aggregate
-		_ = participants[1].Aggregate(comList, message, sigShares)
+		signature := participants[1].Aggregate(comList, message, sigShares)
 
 		// Sanity Check
-		singleSig := schnorr.Sign(configuration.Ciphersuite, configuration.ContextString, message, groupSecretKey)
-		if !schnorr.Verify(configuration.Ciphersuite, configuration.ContextString, message, singleSig, groupPublicKey) {
+		if !schnorr.Verify(configuration.Ciphersuite, message, signature, groupPublicKey) {
+			t2.Fatal()
+		}
+
+		singleSig := schnorr.Sign(configuration.Ciphersuite, message, groupSecretKey)
+		if !schnorr.Verify(configuration.Ciphersuite, message, singleSig, groupPublicKey) {
 			t2.Fatal()
 		}
 	})
 }
 
-func testAll(t *testing.T, f func(*testing.T, *frost.Configuration)) {
-	for _, test := range configurationTable {
-		t.Run(string(test.ContextString), func(t *testing.T) {
-			f(t, &test)
+func testAll(t *testing.T, f func(*testing.T, frost.Ciphersuite)) {
+	for _, ciphersuite := range ciphersuiteTable {
+		t.Run(string(ciphersuite), func(t *testing.T) {
+			f(t, ciphersuite)
 		})
 	}
 }

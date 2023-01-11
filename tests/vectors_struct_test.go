@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright (C) 2023 Daniel Bourdrez. All Rights Reserved.
+//
+// This source code is licensed under the MIT license found in the
+// LICENSE file in the root directory of this source tree or at
+// https://spdx.org/licenses/MIT.html
+
 package frost_test
 
 import (
@@ -8,6 +16,7 @@ import (
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/hash"
 
+	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal/shamir"
 )
 
@@ -98,6 +107,7 @@ type testConfig struct {
 	NumParticipants int
 	MinParticipants int
 	Hash            hash.Hashing
+	Ciphersuite     frost.Ciphersuite
 	Group           group.Group
 }
 
@@ -107,7 +117,7 @@ type testInput struct {
 	GroupPublicKey              *group.Element
 	Message                     []byte
 	SharePolynomialCoefficients []*group.Scalar
-	Participants                []*shamir.Share
+	Participants                []*shamir.KeyShare
 }
 
 type testParticipant struct {
@@ -139,5 +149,5 @@ type testRoundOneOutputs struct {
 }
 
 type testRoundTwoOutputs struct {
-	Outputs []*shamir.Share
+	Outputs []*signatureShare
 }
