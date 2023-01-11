@@ -18,9 +18,22 @@ import (
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/hash"
 
+	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/frost/internal/shamir"
 )
+
+type ParticipantList []*frost.Participant
+
+func (p ParticipantList) Get(id *group.Scalar) *frost.Participant {
+	for _, i := range p {
+		if i.ParticipantInfo.KeyShare.Identifier.Equal(id) == 1 {
+			return i
+		}
+	}
+
+	return nil
+}
 
 type testVectorConfig struct {
 	MaxParticipants string `json:"MAX_PARTICIPANTS"`
@@ -135,24 +148,24 @@ func (i testVectorInput) decode(t *testing.T, g group.Group) *testInput {
 		GroupPublicKey:              decodeElement(t, g, i.GroupPublicKey),
 		Message:                     i.Message,
 		SharePolynomialCoefficients: make([]*group.Scalar, len(i.SharePolynomialCoefficients)),
-		Participants:                make([]*shamir.Share, 3),
+		Participants:                make([]*shamir.KeyShare, 3),
 	}
 
 	for j, coeff := range i.SharePolynomialCoefficients {
 		input.SharePolynomialCoefficients[j] = decodeScalar(t, g, coeff)
 	}
 
-	input.Participants[0] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 1),
-		SecretKey: decodeScalar(t, g, i.Participants.Num1.ParticipantShare),
+	input.Participants[0] = &shamir.KeyShare{
+		Identifier: internal.IntegerToScalar(g, 1),
+		SecretKey:  decodeScalar(t, g, i.Participants.Num1.ParticipantShare),
 	}
-	input.Participants[1] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 2),
-		SecretKey: decodeScalar(t, g, i.Participants.Num2.ParticipantShare),
+	input.Participants[1] = &shamir.KeyShare{
+		Identifier: internal.IntegerToScalar(g, 2),
+		SecretKey:  decodeScalar(t, g, i.Participants.Num2.ParticipantShare),
 	}
-	input.Participants[2] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 3),
-		SecretKey: decodeScalar(t, g, i.Participants.Num3.ParticipantShare),
+	input.Participants[2] = &shamir.KeyShare{
+		Identifier: internal.IntegerToScalar(g, 3),
+		SecretKey:  decodeScalar(t, g, i.Participants.Num3.ParticipantShare),
 	}
 
 	return input
@@ -163,7 +176,7 @@ type testInput struct {
 	GroupPublicKey              *group.Element
 	Message                     []byte
 	SharePolynomialCoefficients []*group.Scalar
-	Participants                []*shamir.Share
+	Participants                []*shamir.KeyShare
 }
 
 type testParticipant struct {
@@ -267,20 +280,20 @@ func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoun
 	ids := splitIDString(o.ParticipantList)
 	r := &testRoundTwoOutputs{
 		make([]*group.Scalar, len(ids)),
-		make([]*shamir.Share, len(ids)),
+		make([]*shamir.KeyShare, len(ids)),
 	}
 
 	for i, id := range ids {
 		r.ParticipantList[i] = internal.IntegerToScalar(g, id)
 	}
 
-	r.Participants[0] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 1),
-		SecretKey: decodeScalar(t, g, o.Participants.Num1.SigShare),
+	r.Participants[0] = &shamir.KeyShare{
+		Identifier: internal.IntegerToScalar(g, 1),
+		SecretKey:  decodeScalar(t, g, o.Participants.Num1.SigShare),
 	}
-	r.Participants[1] = &shamir.Share{
-		ID:        internal.IntegerToScalar(g, 3),
-		SecretKey: decodeScalar(t, g, o.Participants.Num3.SigShare),
+	r.Participants[1] = &shamir.KeyShare{
+		Identifier: internal.IntegerToScalar(g, 3),
+		SecretKey:  decodeScalar(t, g, o.Participants.Num3.SigShare),
 	}
 
 	return r
@@ -288,7 +301,7 @@ func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoun
 
 type testRoundTwoOutputs struct {
 	ParticipantList []*group.Scalar
-	Participants    []*shamir.Share
+	Participants    []*shamir.KeyShare
 }
 
 type testVector struct {

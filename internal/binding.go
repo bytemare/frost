@@ -10,13 +10,16 @@ package internal
 
 import group "github.com/bytemare/crypto"
 
+// BindingFactor holds the binding factor scalar for the given identifier.
 type BindingFactor struct {
 	Identifier    *group.Scalar
 	BindingFactor *group.Scalar
 }
 
+// BindingFactorList a list of BindingFactor.
 type BindingFactorList []*BindingFactor
 
+// BindingFactorForParticipant returns the binding factor for a given participant identifier in the list.
 func (b BindingFactorList) BindingFactorForParticipant(id *group.Scalar) *group.Scalar {
 	for _, bf := range b {
 		if id.Equal(bf.Identifier) == 1 {
