@@ -9,33 +9,35 @@
 package shamir
 
 import (
-	"errors"
-
 	group "github.com/bytemare/crypto"
+
+	"github.com/bytemare/frost/internal"
 )
 
+// Polynomial over scalars, represented as a list of t+1 coefficients, where t is the threshold.
+// The constant term is in the first position and the highest degree coefficient is in the last position.
 type Polynomial []*group.Scalar
 
 func verifyInterpolatingInput(x *group.Scalar, p Polynomial) {
 	if x.IsZero() {
-		panic(errors.New("invalid parameters"))
+		panic(internal.ErrInvalidParameters)
 	}
 
-	if p.hasZero() {
-		panic(errors.New("invalid parameters"))
+	if p.HasZero() {
+		panic(internal.ErrInvalidParameters)
 	}
 
-	if !p.has(x) {
-		panic(errors.New("invalid parameters"))
+	if !p.Has(x) {
+		panic(internal.ErrInvalidParameters)
 	}
 
-	// todo: not sure if this is the right test
-	if p.hasDuplicates() {
-		panic(errors.New("invalid parameters"))
+	if p.HasDuplicates() {
+		panic(internal.ErrInvalidParameters)
 	}
 }
 
-func (p Polynomial) has(s *group.Scalar) bool {
+// Has returns whether s is a coefficient of the polynomial.
+func (p Polynomial) Has(s *group.Scalar) bool {
 	for _, si := range p {
 		if si.Equal(s) == 1 {
 			return true
@@ -45,7 +47,8 @@ func (p Polynomial) has(s *group.Scalar) bool {
 	return false
 }
 
-func (p Polynomial) hasZero() bool {
+// HasZero returns whether one of the polynomials coefficients is 0.
+func (p Polynomial) HasZero() bool {
 	for _, xj := range p {
 		if xj.IsZero() {
 			return true
@@ -55,11 +58,13 @@ func (p Polynomial) hasZero() bool {
 	return false
 }
 
-func (p Polynomial) hasDuplicates() bool {
+// HasDuplicates returns whether the polynomial has at least one coefficient that appears more than once.
+func (p Polynomial) HasDuplicates() bool {
 	visited := make(map[string]bool, len(p))
+
 	for _, pi := range p {
 		enc := string(pi.Encode())
-		if visited[enc] == true {
+		if visited[enc] {
 			return true
 		}
 
@@ -69,14 +74,7 @@ func (p Polynomial) hasDuplicates() bool {
 	return false
 }
 
-func (p Polynomial) reverse() Polynomial {
-	for i, j := 0, len(p)-1; i < j; i, j = i+1, j-1 {
-		p[i], p[j] = p[j], p[i]
-	}
-
-	return p
-}
-
+// Evaluate evaluates the polynomial p at point x using Horner's method.
 func (p Polynomial) Evaluate(g group.Group, x *group.Scalar) *group.Scalar {
 	value := g.NewScalar().Zero()
 	for i := len(p) - 1; i >= 0; i-- {
@@ -87,19 +85,21 @@ func (p Polynomial) Evaluate(g group.Group, x *group.Scalar) *group.Scalar {
 	return value
 }
 
-func DeriveInterpolatingValue(g group.Group, xi *group.Scalar, p Polynomial) *group.Scalar {
-	verifyInterpolatingInput(xi, p)
+// DeriveInterpolatingValue derives a value used for polynomial interpolation. xi, and none of the coefficients must be
+// non-zer scalars.
+func DeriveInterpolatingValue(g group.Group, xi *group.Scalar, coeffs Polynomial) *group.Scalar {
+	verifyInterpolatingInput(xi, coeffs)
 
 	numerator := g.NewScalar().One()
 	denominator := g.NewScalar().One()
 
-	for _, xj := range p {
-		if xj.Equal(xi) == 1 {
+	for _, coeff := range coeffs {
+		if coeff.Equal(xi) == 1 {
 			continue
 		}
 
-		numerator.Multiply(xj)
-		denominator.Multiply(xj.Copy().Subtract(xi))
+		numerator.Multiply(coeff)
+		denominator.Multiply(coeff.Copy().Subtract(xi))
 	}
 
 	value := numerator.Multiply(denominator.Invert())
@@ -107,15 +107,18 @@ func DeriveInterpolatingValue(g group.Group, xi *group.Scalar, p Polynomial) *gr
 	return value
 }
 
-func PolynomialInterpolateConstant(g group.Group, points []*Share) *group.Scalar {
+// PolynomialInterpolateConstant recovers the constant term of the interpolating polynomial defined by the set of
+// key shares.
+func PolynomialInterpolateConstant(g group.Group, points []*KeyShare) *group.Scalar {
 	xCoords := make(Polynomial, 0, len(points))
 	for _, p := range points {
-		xCoords = append(xCoords, p.ID)
+		xCoords = append(xCoords, p.Identifier)
 	}
 
 	f0 := g.NewScalar().Zero()
+
 	for _, p := range points {
-		delta := p.SecretKey.Copy().Multiply(DeriveInterpolatingValue(g, p.ID, xCoords))
+		delta := p.SecretKey.Copy().Multiply(DeriveInterpolatingValue(g, p.Identifier, xCoords))
 		f0.Add(delta)
 	}
 
