@@ -30,7 +30,7 @@ type Participant struct {
 // ParticipantInfo holds the participant specific long-term values.
 type ParticipantInfo struct {
 	KeyShare *shamir.KeyShare
-	Lambda   *group.Scalar // lamba can be computed once and reused across FROST signing operations
+	Lambda   *group.Scalar // lambda can be computed once and reused across FROST signing operations
 }
 
 func (p *Participant) generateNonce(s *group.Scalar, random []byte) *group.Scalar {

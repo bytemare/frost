@@ -43,6 +43,8 @@ func stringToInt(t *testing.T, s string) int {
 
 func stringToCiphersuite(t *testing.T, s string) frost.Ciphersuite {
 	switch s {
+	case "FROST(Ed25519, SHA-512)":
+		return frost.Ed25519
 	case "FROST(ristretto255, SHA-512)":
 		return frost.Ristretto255
 	case "FROST(p256, SHA-256)":
@@ -56,6 +58,8 @@ func stringToCiphersuite(t *testing.T, s string) frost.Ciphersuite {
 
 func stringToGroup(t *testing.T, s string) group.Group {
 	switch s {
+	case "ed25519":
+		return group.Edwards25519Sha512
 	case "ristretto255":
 		return group.Ristretto255Sha512
 	case "p256":

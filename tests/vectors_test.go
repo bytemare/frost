@@ -10,6 +10,7 @@ package frost_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -142,7 +143,11 @@ func (v test) test(t *testing.T) {
 
 	for i, ks := range v.RoundTwoOutputs.Outputs {
 		if ks.SigShare.Equal(sigShares[i]) != 1 {
-			t.Fatal()
+			t.Fatalf(
+				"Expected equality in SigShares\n\twant: %v\n\tgot : %v",
+				hex.EncodeToString(ks.SigShare.Encode()),
+				hex.EncodeToString(sigShares[i].Encode()),
+			)
 		}
 	}
 

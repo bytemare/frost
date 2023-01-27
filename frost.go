@@ -22,7 +22,7 @@ type Ciphersuite byte
 
 const (
 	// Ed25519 uses Edwards25519 and SHA-512, producing Ed25519-compliant signatures as specified in RFC8032.
-	ed25519 Ciphersuite = 1 + iota
+	Ed25519 Ciphersuite = 1 + iota
 
 	// Ristretto255 uses Ristretto255 and SHA-512.
 	Ristretto255
@@ -46,9 +46,9 @@ const (
 // Available returns whether the selected ciphersuite is available.
 func (c Ciphersuite) Available() bool {
 	switch c {
-	case Ristretto255, P256:
+	case Ed25519, Ristretto255, P256:
 		return true
-	case ed25519, ed448, secp256k1:
+	case ed448, secp256k1:
 		return false
 	default:
 		return false
@@ -58,7 +58,7 @@ func (c Ciphersuite) Available() bool {
 // String implements the Stringer interface; returns the ciphersuite context string.
 func (c Ciphersuite) String() string {
 	switch c {
-	case ed25519:
+	case Ed25519:
 		return ed25519ContextString
 	case Ristretto255:
 		return ristretto255ContextString
@@ -80,6 +80,16 @@ func (c Ciphersuite) Configuration() *Configuration {
 	}
 
 	switch c {
+	case Ed25519:
+		return &Configuration{
+			GroupPublicKey: nil,
+			ContextString:  nil,
+			Ciphersuite: internal.Ciphersuite{
+				ContextString: []byte(ed25519ContextString),
+				Hash:          hash.SHA512,
+				Group:         group.Edwards25519Sha512,
+			},
+		}
 	case Ristretto255:
 		return &Configuration{
 			GroupPublicKey: nil,
@@ -98,7 +108,7 @@ func (c Ciphersuite) Configuration() *Configuration {
 				ContextString: []byte(p256ContextString),
 			},
 		}
-	case ed25519, ed448, secp256k1:
+	case ed448, secp256k1:
 		return nil
 	default:
 		return nil
