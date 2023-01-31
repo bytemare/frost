@@ -47,7 +47,7 @@ func stringToCiphersuite(t *testing.T, s string) frost.Ciphersuite {
 		return frost.Ed25519
 	case "FROST(ristretto255, SHA-512)":
 		return frost.Ristretto255
-	case "FROST(p256, SHA-256)":
+	case "FROST(P-256, SHA-256)":
 		return frost.P256
 	default:
 		t.Fatalf("group not supported: %s", s)
@@ -62,7 +62,7 @@ func stringToGroup(t *testing.T, s string) group.Group {
 		return group.Edwards25519Sha512
 	case "ristretto255":
 		return group.Ristretto255Sha512
-	case "p256":
+	case "P-256":
 		return group.P256Sha256
 	default:
 		t.Fatalf("group not supported: %s", s)

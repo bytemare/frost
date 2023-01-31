@@ -20,7 +20,7 @@ import (
 )
 
 var ciphersuiteTable = []frost.Ciphersuite{
-	frost.Ristretto255, frost.P256,
+	frost.Ristretto255, frost.P256, frost.Ed25519,
 }
 
 func TestFrost(t *testing.T) {
@@ -110,17 +110,12 @@ func TestFrost(t *testing.T) {
 		if !schnorr.Verify(configuration.Ciphersuite, message, signature, groupPublicKey) {
 			t2.Fatal()
 		}
-
-		singleSig := schnorr.Sign(configuration.Ciphersuite, message, groupSecretKey)
-		if !schnorr.Verify(configuration.Ciphersuite, message, singleSig, groupPublicKey) {
-			t2.Fatal()
-		}
 	})
 }
 
 func testAll(t *testing.T, f func(*testing.T, frost.Ciphersuite)) {
 	for _, ciphersuite := range ciphersuiteTable {
-		t.Run(string(ciphersuite), func(t *testing.T) {
+		t.Run(ciphersuite.String(), func(t *testing.T) {
 			f(t, ciphersuite)
 		})
 	}

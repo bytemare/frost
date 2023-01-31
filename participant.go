@@ -122,7 +122,9 @@ func (p *Participant) Sign(msg []byte, list internal.CommitmentList) *group.Scal
 
 	// Compute the signature share
 	sigShare := p.Nonce[0].Add(
-		p.Nonce[1].Multiply(bindingFactor).Add(lambdaID.Multiply(p.KeyShare.SecretKey).Multiply(challenge)),
+		p.Nonce[1].Multiply(bindingFactor).Add(
+			lambdaID.Multiply(p.KeyShare.SecretKey).Multiply(challenge),
+		),
 	).Copy()
 
 	// Clean up values

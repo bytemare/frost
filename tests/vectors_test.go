@@ -21,6 +21,7 @@ import (
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/frost/internal/schnorr"
 	"github.com/bytemare/frost/internal/shamir"
 )
 
@@ -53,6 +54,7 @@ func (v test) test(t *testing.T) {
 		t.Fatal("Some key shares do not match.")
 	}
 
+	// Test recovery the full secret signing key
 	recoveredKey := shamir.Combine(g, privateKeyShares, v.Config.MinParticipants)
 	if recoveredKey.Equal(v.Inputs.GroupSecretKey) != 1 {
 		t.Fatal()
@@ -156,6 +158,11 @@ func (v test) test(t *testing.T) {
 	if !bytes.Equal(sig.Encode(), v.FinalOutput) {
 		t.Fatal()
 	}
+
+	// Sanity Check
+	if !schnorr.Verify(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey) {
+		t.Fatal()
+	}
 }
 
 func loadFrostVectors(t *testing.T, filepath string) (*test, error) {
@@ -193,7 +200,7 @@ func TestFrostVectors(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			t.Run(fmt.Sprintf("%s / from %s", v.Config.Name, file), v.test)
+			t.Run(fmt.Sprintf("%s", v.Config.Name), v.test)
 
 			return nil
 		}); err != nil {
