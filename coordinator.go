@@ -18,7 +18,7 @@ import (
 
 // Aggregate allows the coordinator to produce the final signature given all signature shares.
 //
-// Before aggregation, each signature share must be a valid deserialized element. If that validation fails the
+// Before aggregation, each signature share must be a valid, deserialized element. If that validation fails the
 // coordinator must abort the protocol, as the resulting signature will be invalid.
 // The CommitmentList must be sorted in ascending order by identifier.
 //
@@ -41,7 +41,7 @@ func (p *Participant) Aggregate(
 	groupCommitment := list.ComputeGroupCommitment(p.Ciphersuite, bindingFactorList)
 
 	// Compute aggregate signature
-	z := p.Ciphersuite.Group.NewScalar().Zero()
+	z := p.Ciphersuite.Group.NewScalar()
 	for _, zi := range sigShares {
 		z.Add(zi)
 	}

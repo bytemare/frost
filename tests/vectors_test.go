@@ -6,10 +6,11 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-package tests
+package frost_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/frost/internal/schnorr"
 	"github.com/bytemare/frost/internal/shamir"
 )
 
@@ -52,6 +54,7 @@ func (v test) test(t *testing.T) {
 		t.Fatal("Some key shares do not match.")
 	}
 
+	// Test recovery the full secret signing key
 	recoveredKey := shamir.Combine(g, privateKeyShares, v.Config.MinParticipants)
 	if recoveredKey.Equal(v.Inputs.GroupSecretKey) != 1 {
 		t.Fatal()
@@ -74,35 +77,23 @@ func (v test) test(t *testing.T) {
 
 	// Create participants
 	participants := make(ParticipantList, len(privateKeyShares))
+	conf := v.Config.Ciphersuite.Configuration()
+	conf.GroupPublicKey = groupPublicKey
 	for i, pks := range privateKeyShares {
-		participants[i] = &frost.Participant{
-			ParticipantInfo: frost.ParticipantInfo{
-				KeyShare: pks,
-				Lambda:   nil,
-			},
-			Nonce: [2]*group.Scalar{},
-			Configuration: frost.Configuration{
-				GroupPublicKey: groupPublicKey,
-				ContextString:  v.Config.ContextString,
-				Ciphersuite: internal.Ciphersuite{
-					Group: g,
-					Hash:  v.Config.Hash,
-				},
-			},
-		}
+		participants[i] = conf.Participant(pks.Identifier, pks.SecretKey)
 	}
 
 	// Round One: Commitment
-	commitmentList := make(internal.CommitmentList, len(v.RoundOneOutputs.ParticipantList))
-	for i, pid := range v.RoundOneOutputs.ParticipantList {
-		p := participants.Get(pid)
+	commitmentList := make(internal.CommitmentList, len(v.RoundOneOutputs.Outputs))
+	for i, pid := range v.RoundOneOutputs.Outputs {
+		p := participants.Get(pid.ID)
 		if p == nil {
 			t.Fatal(i)
 		}
 
 		var pv *participant
-		for _, pp := range v.RoundOneOutputs.Participants {
-			if pp.ID.Equal(pid) == 1 {
+		for _, pp := range v.RoundOneOutputs.Outputs {
+			if pp.ID.Equal(pid.ID) == 1 {
 				pv = pp
 			}
 		}
@@ -132,19 +123,19 @@ func (v test) test(t *testing.T) {
 	}
 
 	_, rhoInputs := commitmentList.ComputeBindingFactors(
-		internal.Ciphersuite{Group: g, Hash: v.Config.Hash},
+		conf.Ciphersuite,
 		v.Inputs.Message,
 	)
 	for i, rho := range rhoInputs {
-		if !bytes.Equal(rho, v.RoundOneOutputs.Participants[i].BindingFactorInput) {
+		if !bytes.Equal(rho, v.RoundOneOutputs.Outputs[i].BindingFactorInput) {
 			t.Fatal()
 		}
 	}
 
 	// Round two: sign
-	sigShares := make([]*group.Scalar, len(v.RoundTwoOutputs.ParticipantList))
-	for i, pid := range v.RoundTwoOutputs.ParticipantList {
-		p := participants.Get(pid)
+	sigShares := make([]*group.Scalar, len(v.RoundTwoOutputs.Outputs))
+	for i, pid := range v.RoundTwoOutputs.Outputs {
+		p := participants.Get(pid.Identifier)
 		if p == nil {
 			t.Fatal(i)
 		}
@@ -152,15 +143,24 @@ func (v test) test(t *testing.T) {
 		sigShares[i] = p.Sign(v.Inputs.Message, commitmentList)
 	}
 
-	for i, ks := range v.RoundTwoOutputs.Participants {
-		if ks.SecretKey.Equal(sigShares[i]) != 1 {
-			t.Fatal(i)
+	for i, ks := range v.RoundTwoOutputs.Outputs {
+		if ks.SigShare.Equal(sigShares[i]) != 1 {
+			t.Fatalf(
+				"Expected equality in SigShares\n\twant: %v\n\tgot : %v",
+				hex.EncodeToString(ks.SigShare.Encode()),
+				hex.EncodeToString(sigShares[i].Encode()),
+			)
 		}
 	}
 
 	// Aggregate
 	sig := participants[1].Aggregate(commitmentList, v.Inputs.Message, sigShares)
 	if !bytes.Equal(sig.Encode(), v.FinalOutput) {
+		t.Fatal()
+	}
+
+	// Sanity Check
+	if !schnorr.Verify(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey) {
 		t.Fatal()
 	}
 }
@@ -200,11 +200,7 @@ func TestFrostVectors(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if v.Config.Name != "FROST(ristretto255, SHA-512)" {
-				return nil
-			}
-
-			t.Run(fmt.Sprintf("%s - %s", v.Config.Name, v.Config.Group), v.test)
+			t.Run(fmt.Sprintf("%s", v.Config.Name), v.test)
 
 			return nil
 		}); err != nil {

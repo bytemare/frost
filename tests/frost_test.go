@@ -6,13 +6,12 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-package tests
+package frost_test
 
 import (
 	"testing"
 
 	group "github.com/bytemare/crypto"
-	"github.com/bytemare/hash"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
@@ -20,23 +19,8 @@ import (
 	"github.com/bytemare/frost/internal/shamir"
 )
 
-var configurationTable = []frost.Configuration{
-	{
-		Ciphersuite: internal.Ciphersuite{
-			Group: group.Ristretto255Sha512,
-			Hash:  hash.SHA512,
-		},
-		ContextString:  []byte("FROST-RISTRETTO255-SHA512-v11"),
-		GroupPublicKey: nil,
-	},
-	{
-		Ciphersuite: internal.Ciphersuite{
-			Group: group.P256Sha256,
-			Hash:  hash.SHA256,
-		},
-		ContextString:  []byte("FROST-P256-SHA256-v11"),
-		GroupPublicKey: nil,
-	},
+var ciphersuiteTable = []frost.Ciphersuite{
+	frost.Ristretto255, frost.P256, frost.Ed25519,
 }
 
 func TestFrost(t *testing.T) {
@@ -45,7 +29,8 @@ func TestFrost(t *testing.T) {
 	participantListInt := []int{1, 3}
 	message := []byte("test")
 
-	testAll(t, func(t2 *testing.T, configuration *frost.Configuration) {
+	testAll(t, func(t2 *testing.T, ciphersuite frost.Ciphersuite) {
+		configuration := ciphersuite.Configuration()
 		g := configuration.Ciphersuite.Group
 
 		groupSecretKey := g.NewScalar().Random()
@@ -91,10 +76,7 @@ func TestFrost(t *testing.T) {
 		// Create Participants
 		participants := make(ParticipantList, len(privateKeyShares))
 		for i, share := range privateKeyShares {
-			participants[i] = &frost.Participant{
-				Configuration:   *configuration,
-				ParticipantInfo: frost.ParticipantInfo{KeyShare: share},
-			}
+			participants[i] = configuration.Participant(share.Identifier, share.SecretKey)
 		}
 
 		// Round One: Commitment
@@ -122,20 +104,19 @@ func TestFrost(t *testing.T) {
 		}
 
 		// Final step: aggregate
-		_ = participants[1].Aggregate(comList, message, sigShares)
+		signature := participants[1].Aggregate(comList, message, sigShares)
 
 		// Sanity Check
-		singleSig := schnorr.Sign(configuration.Ciphersuite, message, groupSecretKey)
-		if !schnorr.Verify(configuration.Ciphersuite, message, singleSig, groupPublicKey) {
+		if !schnorr.Verify(configuration.Ciphersuite, message, signature, groupPublicKey) {
 			t2.Fatal()
 		}
 	})
 }
 
-func testAll(t *testing.T, f func(*testing.T, *frost.Configuration)) {
-	for _, test := range configurationTable {
-		t.Run(string(test.ContextString), func(t *testing.T) {
-			f(t, &test)
+func testAll(t *testing.T, f func(*testing.T, frost.Ciphersuite)) {
+	for _, ciphersuite := range ciphersuiteTable {
+		t.Run(ciphersuite.String(), func(t *testing.T) {
+			f(t, ciphersuite)
 		})
 	}
 }

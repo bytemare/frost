@@ -11,6 +11,7 @@ package internal
 import (
 	"math/big"
 
+	"filippo.io/edwards25519"
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/hash"
 	"github.com/bytemare/hash2curve"
@@ -24,38 +25,59 @@ type Ciphersuite struct {
 	Group         group.Group
 }
 
-func (c Ciphersuite) hashToNist(input, context, dst []byte) []byte {
-	order, _ := new(big.Int).SetString(c.Group.Order(), 10)
-	var securityLenth int
+// Ed25519ScalarFrom64Bytes reduces the input modulo the Ed25119 prime order, and returns a corresponding scalar.
+func Ed25519ScalarFrom64Bytes(g group.Group, input []byte) *group.Scalar {
+	var s *edwards25519.Scalar
+	var err error
 
-	switch c.Group {
-	case group.P256Sha256:
-		securityLenth = 48
-	case group.P384Sha384:
-		securityLenth = 123
-	case group.P521Sha512:
-		securityLenth = 123
-	default:
-		panic(ErrInvalidCiphersuite)
+	if len(input) < 64 {
+		wide := make([]byte, 64)
+		copy(wide, input)
+		input = wide
 	}
 
-	return hash2curve.HashToFieldXMD(c.Hash.GetCryptoID(),
-		input,
-		append(context, dst...),
-		1,
-		1,
-		securityLenth, order)[0].Bytes()
+	s, err = edwards25519.NewScalar().SetUniformBytes(input)
+	if err != nil {
+		panic(err)
+	}
+
+	scalar := g.NewScalar()
+	if err := scalar.Decode(s.Bytes()); err != nil {
+		panic(err)
+	}
+
+	return scalar
 }
 
-func (c Ciphersuite) hx(input, dst []byte) *group.Scalar {
+func (c Ciphersuite) hx(id byte, input, dst []byte) *group.Scalar {
 	var sc []byte
 
 	switch c.Group {
+	case group.Edwards25519Sha512:
+		var h []byte
+		if id == 2 {
+			h = c.Hash.Hash(input)
+		} else {
+			h = c.Hash.Hash(c.ContextString, dst, input)
+		}
+
+		return Ed25519ScalarFrom64Bytes(group.Edwards25519Sha512, h)
 	case group.Ristretto255Sha512:
 		h := c.Hash.Hash(c.ContextString, dst, input)
 		sc = ristretto255.NewScalar().FromUniformBytes(h).Encode(nil)
 	case group.P256Sha256: // NIST curves
-		sc = c.hashToNist(input, c.ContextString, dst)
+		order, ok := new(big.Int).SetString(c.Group.Order(), 10)
+		if !ok {
+			panic(nil)
+		}
+
+		sc = hash2curve.HashToFieldXMD(c.Hash.GetCryptoID(),
+			input,
+			append(c.ContextString, dst...),
+			1,
+			1,
+			48, order)[0].Bytes()
+
 	default:
 		panic(ErrInvalidParameters)
 	}
@@ -70,17 +92,17 @@ func (c Ciphersuite) hx(input, dst []byte) *group.Scalar {
 
 // H1 hashes the input and proves the "rho" DST.
 func (c Ciphersuite) H1(input []byte) *group.Scalar {
-	return c.hx(input, []byte("rho"))
+	return c.hx(1, input, []byte("rho"))
 }
 
 // H2 hashes the input and proves the "chal" DST.
 func (c Ciphersuite) H2(input []byte) *group.Scalar {
-	return c.hx(input, []byte("chal"))
+	return c.hx(2, input, []byte("chal"))
 }
 
 // H3 hashes the input and proves the "nonce" DST.
 func (c Ciphersuite) H3(input []byte) *group.Scalar {
-	return c.hx(input, []byte("nonce"))
+	return c.hx(3, input, []byte("nonce"))
 }
 
 // H4 hashes the input and proves the "msg" DST.
