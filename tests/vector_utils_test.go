@@ -17,10 +17,10 @@ import (
 
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/hash"
+	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/internal/shamir"
 )
 
 type ParticipantList []*frost.Participant
@@ -51,6 +51,20 @@ func stringToInt(t *testing.T, s string) int {
 	}
 
 	return int(i)
+}
+
+func configToConfiguration(t *testing.T, c *testVectorConfig) *frost.Configuration {
+	switch c.Group {
+	case "ristretto255":
+		return frost.Ristretto255.Configuration()
+
+	case "p256":
+		return frost.P256.Configuration()
+	default:
+		t.Fatalf("group not supported: %s", c.Group)
+	}
+
+	return nil
 }
 
 func stringToGroup(t *testing.T, s string) group.Group {
@@ -90,20 +104,17 @@ func (c testVectorConfig) decode(t *testing.T) *testConfig {
 		NumParticipants: stringToInt(t, c.NumParticipants),
 		MinParticipants: stringToInt(t, c.MinParticipants),
 		Name:            c.Name,
-		Group:           stringToGroup(t, c.Group),
-		Hash:            stringToHash(t, c.Hash),
-		ContextString:   contextString(c.Group),
+		Configuration:   configToConfiguration(t, &c),
 	}
 }
 
 type testConfig struct {
+	*frost.Configuration
 	Name            string
 	ContextString   []byte
 	MaxParticipants int
 	NumParticipants int
 	MinParticipants int
-	Hash            hash.Hashing
-	Group           group.Group
 }
 
 type testVectorInput struct {
@@ -148,22 +159,22 @@ func (i testVectorInput) decode(t *testing.T, g group.Group) *testInput {
 		GroupPublicKey:              decodeElement(t, g, i.GroupPublicKey),
 		Message:                     i.Message,
 		SharePolynomialCoefficients: make([]*group.Scalar, len(i.SharePolynomialCoefficients)),
-		Participants:                make([]*shamir.KeyShare, 3),
+		Participants:                make([]*secretsharing.KeyShare, 3),
 	}
 
 	for j, coeff := range i.SharePolynomialCoefficients {
 		input.SharePolynomialCoefficients[j] = decodeScalar(t, g, coeff)
 	}
 
-	input.Participants[0] = &shamir.KeyShare{
+	input.Participants[0] = &secretsharing.KeyShare{
 		Identifier: internal.IntegerToScalar(g, 1),
 		SecretKey:  decodeScalar(t, g, i.Participants.Num1.ParticipantShare),
 	}
-	input.Participants[1] = &shamir.KeyShare{
+	input.Participants[1] = &secretsharing.KeyShare{
 		Identifier: internal.IntegerToScalar(g, 2),
 		SecretKey:  decodeScalar(t, g, i.Participants.Num2.ParticipantShare),
 	}
-	input.Participants[2] = &shamir.KeyShare{
+	input.Participants[2] = &secretsharing.KeyShare{
 		Identifier: internal.IntegerToScalar(g, 3),
 		SecretKey:  decodeScalar(t, g, i.Participants.Num3.ParticipantShare),
 	}
@@ -176,7 +187,7 @@ type testInput struct {
 	GroupPublicKey              *group.Element
 	Message                     []byte
 	SharePolynomialCoefficients []*group.Scalar
-	Participants                []*shamir.KeyShare
+	Participants                []*secretsharing.KeyShare
 }
 
 type testParticipant struct {
@@ -280,18 +291,18 @@ func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoun
 	ids := splitIDString(o.ParticipantList)
 	r := &testRoundTwoOutputs{
 		make([]*group.Scalar, len(ids)),
-		make([]*shamir.KeyShare, len(ids)),
+		make([]*secretsharing.KeyShare, len(ids)),
 	}
 
 	for i, id := range ids {
 		r.ParticipantList[i] = internal.IntegerToScalar(g, id)
 	}
 
-	r.Participants[0] = &shamir.KeyShare{
+	r.Participants[0] = &secretsharing.KeyShare{
 		Identifier: internal.IntegerToScalar(g, 1),
 		SecretKey:  decodeScalar(t, g, o.Participants.Num1.SigShare),
 	}
-	r.Participants[1] = &shamir.KeyShare{
+	r.Participants[1] = &secretsharing.KeyShare{
 		Identifier: internal.IntegerToScalar(g, 3),
 		SecretKey:  decodeScalar(t, g, o.Participants.Num3.SigShare),
 	}
@@ -301,7 +312,7 @@ func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoun
 
 type testRoundTwoOutputs struct {
 	ParticipantList []*group.Scalar
-	Participants    []*shamir.KeyShare
+	Participants    []*secretsharing.KeyShare
 }
 
 type testVector struct {
@@ -318,9 +329,9 @@ func (v testVector) decode(t *testing.T) *test {
 	conf := v.Config.decode(t)
 	return &test{
 		Config:          conf,
-		Inputs:          v.Inputs.decode(t, conf.Group),
-		RoundOneOutputs: v.RoundOneOutputs.decode(t, conf.Group),
-		RoundTwoOutputs: v.RoundTwoOutputs.decode(t, conf.Group),
+		Inputs:          v.Inputs.decode(t, conf.Ciphersuite.Group),
+		RoundOneOutputs: v.RoundOneOutputs.decode(t, conf.Ciphersuite.Group),
+		RoundTwoOutputs: v.RoundTwoOutputs.decode(t, conf.Ciphersuite.Group),
 		FinalOutput:     v.FinalOutput.Sig,
 	}
 }

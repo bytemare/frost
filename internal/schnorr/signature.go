@@ -33,7 +33,7 @@ func (s *Signature) Decode(g group.Group, encoded []byte) error {
 	eLen := g.ElementLength()
 	sLen := g.ScalarLength()
 
-	if len(encoded) != int(eLen+sLen) {
+	if len(encoded) != eLen+sLen {
 		return internal.ErrInvalidParameters
 	}
 
