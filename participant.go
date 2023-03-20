@@ -12,10 +12,10 @@ import (
 	"fmt"
 
 	group "github.com/bytemare/crypto"
+	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/frost/internal/schnorr"
-	"github.com/bytemare/frost/internal/shamir"
 )
 
 // Participant is a signer of a group.
@@ -29,7 +29,7 @@ type Participant struct {
 
 // ParticipantInfo holds the participant specific long-term values.
 type ParticipantInfo struct {
-	KeyShare *shamir.KeyShare
+	KeyShare *secretsharing.KeyShare
 	Lambda   *group.Scalar // lamba can be computed once and reused across FROST signing operations
 }
 
@@ -59,7 +59,7 @@ func RecoverParticipant(c Ciphersuite, backup []byte) (*Participant, error) {
 	conf := c.Configuration()
 
 	sLen := conf.Ciphersuite.Group.ScalarLength()
-	if len(backup) != int(3*sLen) {
+	if len(backup) != 3*sLen {
 		return nil, internal.ErrInvalidParticipantBackup
 	}
 
@@ -103,7 +103,7 @@ func (p *Participant) Commit() *internal.Commitment {
 // In particular, the Signer MUST validate commitment_list, deserializing each group Element in the list using
 // DeserializeElement from {{dep-pog}}. If deserialization fails, the Signer MUST abort the protocol. Moreover,
 // each participant MUST ensure that its identifier and commitments (from the first round) appear in commitment_list.
-func (p *Participant) Sign(msg []byte, list internal.CommitmentList) *group.Scalar {
+func (p *Participant) Sign(msg []byte, list internal.CommitmentList) (*group.Scalar, error) {
 	// Compute the binding factor(s)
 	bindingFactorList, _ := list.ComputeBindingFactors(p.Ciphersuite, msg)
 	bindingFactor := bindingFactorList.BindingFactorForParticipant(p.KeyShare.Identifier)
@@ -112,8 +112,12 @@ func (p *Participant) Sign(msg []byte, list internal.CommitmentList) *group.Scal
 	groupCommitment := list.ComputeGroupCommitment(p.Ciphersuite, bindingFactorList)
 
 	// Compute the interpolating value
-	participantList := list.Participants()
-	lambdaID := shamir.DeriveInterpolatingValue(p.Ciphersuite.Group, p.KeyShare.Identifier, participantList)
+	participantList := secretsharing.Polynomial(list.Participants())
+
+	lambdaID, err := participantList.DeriveInterpolatingValue(p.Ciphersuite.Group, p.KeyShare.Identifier)
+	if err != nil {
+		return nil, err
+	}
 
 	p.Lambda = lambdaID.Copy()
 
@@ -129,5 +133,5 @@ func (p *Participant) Sign(msg []byte, list internal.CommitmentList) *group.Scal
 	p.Nonce[0].Zero()
 	p.Nonce[1].Zero()
 
-	return sigShare
+	return sigShare, nil
 }
