@@ -12,9 +12,9 @@ package frost
 import (
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/hash"
+	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/internal/shamir"
 )
 
 // Ciphersuite identifies the group and hash to use for FROST.
@@ -101,7 +101,7 @@ type Configuration struct {
 func (c Configuration) Participant(id, keyShare *group.Scalar) *Participant {
 	return &Participant{
 		ParticipantInfo: ParticipantInfo{
-			KeyShare: &shamir.KeyShare{
+			KeyShare: &secretsharing.KeyShare{
 				Identifier: id,
 				SecretKey:  keyShare,
 			},
@@ -118,7 +118,7 @@ func (c Configuration) Participant(id, keyShare *group.Scalar) *Participant {
 type Commitment []*group.Element
 
 // DeriveGroupInfo returns the group public key as well those from all participants.
-func DeriveGroupInfo(g group.Group, max int, coms Commitment) (*group.Element, Commitment) {
+func DeriveGroupInfo(g group.Group, max int, coms secretsharing.Commitment) (*group.Element, Commitment) {
 	pk := coms[0]
 	keys := make(Commitment, max)
 
@@ -138,32 +138,23 @@ func TrustedDealerKeygen(
 	secret *group.Scalar,
 	max, min int,
 	coeffs ...*group.Scalar,
-) ([]*shamir.KeyShare, *group.Element, Commitment) {
-	if coeffs == nil {
-		coeffs = make([]*group.Scalar, min-1)
-		for i := 0; i < min-1; i++ {
-			coeffs[i] = g.NewScalar().Random()
-		}
+) ([]*secretsharing.KeyShare, *group.Element, secretsharing.Commitment, error) {
+	ss, err := secretsharing.New(g, uint(min)-1, coeffs...)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
-	privateKeyShares, coeffs := shamir.Shard(g, secret, coeffs, max, min)
-	coms := Commit(g, coeffs)
-
-	return privateKeyShares, coms[0], coms
-}
-
-// Commit builds a VSS vector commitment to each of the coefficients
-// (of threshold length which uniquely determine the polynomial.)
-func Commit(g group.Group, coeffs shamir.Polynomial) Commitment {
-	coms := make(Commitment, len(coeffs))
-	for i, coeff := range coeffs {
-		coms[i] = g.Base().Multiply(coeff)
+	privateKeyShares, coeffs, err := ss.Shard(secret, uint(max))
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
-	return coms
+	coms := secretsharing.Commit(g, coeffs)
+
+	return privateKeyShares, coms[0], coms, nil
 }
 
-func derivePublicPoint(g group.Group, coms Commitment, i *group.Scalar) *group.Element {
+func derivePublicPoint(g group.Group, coms secretsharing.Commitment, i *group.Scalar) *group.Element {
 	publicPoint := g.NewElement().Identity()
 	one := g.NewScalar().One()
 
@@ -177,10 +168,7 @@ func derivePublicPoint(g group.Group, coms Commitment, i *group.Scalar) *group.E
 }
 
 // Verify allows verification of a participant's secret share given a VSS commitment to the secret polynomial.
-func Verify(g group.Group, share *shamir.KeyShare, coms Commitment) bool {
-	id := share.Identifier
-	ski := g.Base().Multiply(share.SecretKey)
-	prime := derivePublicPoint(g, coms, id)
-
-	return ski.Equal(prime) == 1
+func Verify(g group.Group, share *secretsharing.KeyShare, coms secretsharing.Commitment) bool {
+	pk := g.Base().Multiply(share.SecretKey)
+	return secretsharing.Verify(g, share.Identifier, pk, coms)
 }
