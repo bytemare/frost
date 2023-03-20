@@ -10,6 +10,7 @@ package tests
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,25 +18,29 @@ import (
 	"testing"
 
 	group "github.com/bytemare/crypto"
+	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/internal/shamir"
 )
 
 func (v test) test(t *testing.T) {
-	g := v.Config.Group
+	g := v.Config.Ciphersuite.Group
 
 	coeffs := v.Inputs.SharePolynomialCoefficients
 
-	privateKeyShares, dealerGroupPubKey, vssCommitment := frost.TrustedDealerKeygen(
+	privateKeyShares, dealerGroupPubKey, secretsharingCommitment, err := frost.TrustedDealerKeygen(
 		g,
 		v.Inputs.GroupSecretKey,
 		v.Config.MaxParticipants,
 		v.Config.MinParticipants,
 		coeffs...)
-	if len(vssCommitment) != v.Config.MinParticipants {
-		t.Fatalf("%d / %d", len(vssCommitment), v.Config.MinParticipants)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(secretsharingCommitment) != v.Config.MinParticipants {
+		t.Fatalf("%d / %d", len(secretsharingCommitment), v.Config.MinParticipants)
 	}
 
 	// Check whether key shares are the same
@@ -52,12 +57,16 @@ func (v test) test(t *testing.T) {
 		t.Fatal("Some key shares do not match.")
 	}
 
-	recoveredKey := shamir.Combine(g, privateKeyShares, v.Config.MinParticipants)
+	recoveredKey, err := secretsharing.Combine(g, uint(v.Config.MinParticipants), privateKeyShares)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if recoveredKey.Equal(v.Inputs.GroupSecretKey) != 1 {
 		t.Fatal()
 	}
 
-	groupPublicKey, participantPublicKey := frost.DeriveGroupInfo(g, v.Config.MaxParticipants, vssCommitment)
+	groupPublicKey, participantPublicKey := frost.DeriveGroupInfo(g, v.Config.MaxParticipants, secretsharingCommitment)
 	if len(participantPublicKey) != v.Config.MaxParticipants {
 		t.Fatal()
 	}
@@ -67,7 +76,7 @@ func (v test) test(t *testing.T) {
 	}
 
 	for i, shareI := range privateKeyShares {
-		if !frost.Verify(g, shareI, vssCommitment) {
+		if !frost.Verify(g, shareI, secretsharingCommitment) {
 			t.Fatal(i)
 		}
 	}
@@ -80,16 +89,10 @@ func (v test) test(t *testing.T) {
 				KeyShare: pks,
 				Lambda:   nil,
 			},
-			Nonce: [2]*group.Scalar{},
-			Configuration: frost.Configuration{
-				GroupPublicKey: groupPublicKey,
-				ContextString:  v.Config.ContextString,
-				Ciphersuite: internal.Ciphersuite{
-					Group: g,
-					Hash:  v.Config.Hash,
-				},
-			},
+			Nonce:         [2]*group.Scalar{},
+			Configuration: *v.Config.Configuration,
 		}
+		participants[i].Configuration.GroupPublicKey = groupPublicKey
 	}
 
 	// Round One: Commitment
@@ -116,7 +119,11 @@ func (v test) test(t *testing.T) {
 		commitment := p.Commit()
 
 		if p.Nonce[0].Equal(pv.HidingNonce) != 1 {
-			t.Fatal(i)
+			t.Fatalf(
+				"invalid value\nwant: %v\ngot : %v\n",
+				hex.EncodeToString(pv.HidingNonce.Encode()),
+				hex.EncodeToString(p.Nonce[0].Encode()),
+			)
 		}
 		if p.Nonce[1].Equal(pv.BindingNonce) != 1 {
 			t.Fatal(i)
@@ -132,7 +139,7 @@ func (v test) test(t *testing.T) {
 	}
 
 	_, rhoInputs := commitmentList.ComputeBindingFactors(
-		internal.Ciphersuite{Group: g, Hash: v.Config.Hash},
+		v.Config.Ciphersuite,
 		v.Inputs.Message,
 	)
 	for i, rho := range rhoInputs {
@@ -149,7 +156,10 @@ func (v test) test(t *testing.T) {
 			t.Fatal(i)
 		}
 
-		sigShares[i] = p.Sign(v.Inputs.Message, commitmentList)
+		sigShares[i], err = p.Sign(v.Inputs.Message, commitmentList)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	for i, ks := range v.RoundTwoOutputs.Participants {
@@ -204,7 +214,7 @@ func TestFrostVectors(t *testing.T) {
 				return nil
 			}
 
-			t.Run(fmt.Sprintf("%s - %s", v.Config.Name, v.Config.Group), v.test)
+			t.Run(fmt.Sprintf("%s - %s", v.Config.Name, v.Config.Ciphersuite.Group), v.test)
 
 			return nil
 		}); err != nil {

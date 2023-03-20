@@ -10,10 +10,10 @@ package frost
 
 import (
 	group "github.com/bytemare/crypto"
+	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/frost/internal/schnorr"
-	"github.com/bytemare/frost/internal/shamir"
 )
 
 // Aggregate allows the coordinator to produce the final signature given all signature shares.
@@ -83,8 +83,12 @@ func (p *Participant) VerifySignatureShare(
 	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
 
 	// Compute the interpolating value
-	participantList := coms.Participants()
-	lambdaI := shamir.DeriveInterpolatingValue(p.Ciphersuite.Group, id, participantList)
+	participantList := secretsharing.Polynomial(coms.Participants())
+
+	lambdaI, err := participantList.DeriveInterpolatingValue(p.Ciphersuite.Group, id)
+	if err != nil {
+		panic(err)
+	}
 
 	// Compute relation values
 	l := p.Ciphersuite.Group.Base().Multiply(sigShareI)

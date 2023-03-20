@@ -13,11 +13,11 @@ import (
 
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/hash"
+	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/frost/internal/schnorr"
-	"github.com/bytemare/frost/internal/shamir"
 )
 
 var configurationTable = []frost.Configuration{
@@ -50,17 +50,30 @@ func TestFrost(t *testing.T) {
 
 		groupSecretKey := g.NewScalar().Random()
 
-		privateKeyShares, dealerGroupPubKey, vssCommitment := frost.TrustedDealerKeygen(g, groupSecretKey, max, min)
-		if len(vssCommitment) != min {
-			t2.Fatalf("%d / %d", len(vssCommitment), min)
+		privateKeyShares, dealerGroupPubKey, secretsharingCommitment, err := frost.TrustedDealerKeygen(
+			g,
+			groupSecretKey,
+			max,
+			min,
+		)
+		if err != nil {
+			t.Fatal(err)
 		}
 
-		recoveredKey := shamir.Combine(g, privateKeyShares, min)
+		if len(secretsharingCommitment) != min {
+			t2.Fatalf("%d / %d", len(secretsharingCommitment), min)
+		}
+
+		recoveredKey, err := secretsharing.Combine(g, uint(min), privateKeyShares)
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		if recoveredKey.Equal(groupSecretKey) != 1 {
 			t.Fatal()
 		}
 
-		groupPublicKey, participantPublicKeys := frost.DeriveGroupInfo(g, max, vssCommitment)
+		groupPublicKey, participantPublicKeys := frost.DeriveGroupInfo(g, max, secretsharingCommitment)
 		if len(participantPublicKeys) != max {
 			t2.Fatal()
 		}
@@ -72,7 +85,7 @@ func TestFrost(t *testing.T) {
 		configuration.GroupPublicKey = dealerGroupPubKey
 
 		for i, shareI := range privateKeyShares {
-			if !frost.Verify(g, shareI, vssCommitment) {
+			if !frost.Verify(g, shareI, secretsharingCommitment) {
 				t2.Fatal(i)
 			}
 		}
@@ -117,7 +130,12 @@ func TestFrost(t *testing.T) {
 		sigShares := make([]*group.Scalar, len(participantList))
 		for i, id := range participantList {
 			p := participants.Get(id)
-			sigShare := p.Sign(message, comList)
+
+			sigShare, err := p.Sign(message, comList)
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			sigShares[i] = sigShare
 		}
 
