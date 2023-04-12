@@ -9,8 +9,6 @@
 
 This package implements [FROST](https://datatracker.ietf.org/doc/draft-irtf-cfrg-frost).
 
-It is currently in active development, and utterly useless.
-
 #### What is frost?
 
 > FROST reduces network overhead during threshold signing operations while employing a novel technique to protect
