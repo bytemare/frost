@@ -22,6 +22,14 @@ import (
 
 var configurationTable = []frost.Configuration{
 	{
+		GroupPublicKey: nil,
+		Ciphersuite: internal.Ciphersuite{
+			ContextString: []byte("FROST-ED25519-SHA512-v11"),
+			Hash:          hash.SHA512,
+			Group:         group.Edwards25519Sha512,
+		},
+	},
+	{
 		Ciphersuite: internal.Ciphersuite{
 			Group:         group.Ristretto255Sha512,
 			Hash:          hash.SHA512,

@@ -25,7 +25,7 @@ var (
 	// ErrInvalidCiphersuite indicates a non-supported ciphersuite is being used.
 	ErrInvalidCiphersuite = errors.New("ciphersuite not available")
 
-	// ErrInvalidParticipantBackup indicates the a participant's encoded backup is not valid.
+	// ErrInvalidParticipantBackup indicates the participant's encoded backup is not valid.
 	ErrInvalidParticipantBackup = errors.New("invalid backup")
 )
 
