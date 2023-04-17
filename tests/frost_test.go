@@ -23,19 +23,27 @@ import (
 var configurationTable = []frost.Configuration{
 	{
 		Ciphersuite: internal.Ciphersuite{
-			Group: group.Ristretto255Sha512,
-			Hash:  hash.SHA512,
+			Group:         group.Ristretto255Sha512,
+			Hash:          hash.SHA512,
+			ContextString: []byte("FROST-RISTRETTO255-SHA512-v11"),
 		},
-		ContextString:  []byte("FROST-RISTRETTO255-SHA512-v11"),
 		GroupPublicKey: nil,
 	},
 	{
 		Ciphersuite: internal.Ciphersuite{
-			Group: group.P256Sha256,
-			Hash:  hash.SHA256,
+			Group:         group.P256Sha256,
+			Hash:          hash.SHA256,
+			ContextString: []byte("FROST-P256-SHA256-v11"),
 		},
-		ContextString:  []byte("FROST-P256-SHA256-v11"),
 		GroupPublicKey: nil,
+	},
+	{
+		GroupPublicKey: nil,
+		Ciphersuite: internal.Ciphersuite{
+			ContextString: []byte("FROST-secp256k1-SHA256-v11"),
+			Hash:          hash.SHA256,
+			Group:         group.Secp256k1,
+		},
 	},
 }
 
@@ -152,7 +160,7 @@ func TestFrost(t *testing.T) {
 
 func testAll(t *testing.T, f func(*testing.T, *frost.Configuration)) {
 	for _, test := range configurationTable {
-		t.Run(string(test.ContextString), func(t *testing.T) {
+		t.Run(string(test.Ciphersuite.ContextString), func(t *testing.T) {
 			f(t, &test)
 		})
 	}

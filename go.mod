@@ -3,12 +3,11 @@ module github.com/bytemare/frost
 go 1.20
 
 require (
-	github.com/bytemare/crypto v0.4.4
+	github.com/bytemare/crypto v0.5.1
 	github.com/bytemare/hash v0.1.5
 	github.com/bytemare/hash2curve v0.1.3
 	github.com/bytemare/secret-sharing v0.1.0
 	github.com/gtank/ristretto255 v0.1.2
-
 )
 
 require (

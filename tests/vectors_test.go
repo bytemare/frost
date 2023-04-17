@@ -210,10 +210,6 @@ func TestFrostVectors(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if v.Config.Name != "FROST(ristretto255, SHA-512)" {
-				return nil
-			}
-
 			t.Run(fmt.Sprintf("%s - %s", v.Config.Name, v.Config.Ciphersuite.Group), v.test)
 
 			return nil
