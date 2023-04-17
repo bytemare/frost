@@ -22,7 +22,7 @@ type Ciphersuite byte
 
 const (
 	// Ed25519 uses Edwards25519 and SHA-512, producing Ed25519-compliant signatures as specified in RFC8032.
-	ed25519 Ciphersuite = 1 + iota
+	Ed25519 Ciphersuite = 1 + iota
 
 	// Ristretto255 uses Ristretto255 and SHA-512.
 	Ristretto255
@@ -36,12 +36,13 @@ const (
 	// Secp256k1 uses Secp256k1 and SHA-256.
 	Secp256k1
 
+	ed25519ContextString      = "FROST-ED25519-SHA512-v11"
 	ristretto255ContextString = "FROST-RISTRETTO255-SHA512-v11"
 	p256ContextString         = "FROST-P256-SHA256-v11"
 	secp256k1ContextString    = "FROST-secp256k1-SHA256-v11"
 
 	/*
-		ed25519ContextString      = "FROST-ED25519-SHA512-v11"
+
 		ed448ContextString        = "FROST-ED448-SHAKE256-v11"
 	*/
 )
@@ -49,9 +50,9 @@ const (
 // Available returns whether the selected ciphersuite is available.
 func (c Ciphersuite) Available() bool {
 	switch c {
-	case Ristretto255, P256, Secp256k1:
+	case Ed25519, Ristretto255, P256, Secp256k1:
 		return true
-	case ed25519, ed448:
+	case ed448:
 		return false
 	default:
 		return false
@@ -65,6 +66,15 @@ func (c Ciphersuite) Configuration() *Configuration {
 	}
 
 	switch c {
+	case Ed25519:
+		return &Configuration{
+			GroupPublicKey: nil,
+			Ciphersuite: internal.Ciphersuite{
+				ContextString: []byte(ed25519ContextString),
+				Hash:          hash.SHA512,
+				Group:         group.Edwards25519Sha512,
+			},
+		}
 	case Ristretto255:
 		return &Configuration{
 			GroupPublicKey: nil,
@@ -92,7 +102,7 @@ func (c Ciphersuite) Configuration() *Configuration {
 				Group:         group.Secp256k1,
 			},
 		}
-	case ed25519, ed448:
+	case ed448:
 		return nil
 	default:
 		return nil

@@ -11,6 +11,7 @@ package schnorr
 
 import (
 	"fmt"
+	"math/big"
 
 	group "github.com/bytemare/crypto"
 
@@ -76,6 +77,15 @@ func Verify(cs internal.Ciphersuite, msg []byte, signature *Signature, pk *group
 	c := Challenge(cs, signature.R, pk, msg)
 	l := cs.Group.Base().Multiply(signature.Z)
 	r := signature.R.Add(pk.Copy().Multiply(c))
+
+	if cs.Group == group.Edwards25519Sha512 {
+		cofactor := group.Edwards25519Sha512.NewScalar()
+		if err := cofactor.SetInt(big.NewInt(8)); err != nil {
+			panic(err)
+		}
+
+		return l.Multiply(cofactor).Equal(r.Multiply(cofactor)) == 1
+	}
 
 	return l.Equal(r) == 1
 }
