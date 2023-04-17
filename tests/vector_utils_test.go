@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	group "github.com/bytemare/crypto"
-	"github.com/bytemare/hash"
 	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost"
@@ -55,6 +54,8 @@ func stringToInt(t *testing.T, s string) int {
 
 func configToConfiguration(t *testing.T, c *testVectorConfig) *frost.Configuration {
 	switch c.Group {
+	case "ed25519":
+		return frost.Ed25519.Configuration()
 	case "ristretto255":
 		return frost.Ristretto255.Configuration()
 	case "P-256":
@@ -66,37 +67,6 @@ func configToConfiguration(t *testing.T, c *testVectorConfig) *frost.Configurati
 	}
 
 	return nil
-}
-
-func stringToGroup(t *testing.T, s string) group.Group {
-	switch s {
-	case "ristretto255":
-		return group.Ristretto255Sha512
-	default:
-		t.Fatalf("group not supported: %s", s)
-	}
-
-	return 0
-}
-
-func stringToHash(t *testing.T, s string) hash.Hashing {
-	switch s {
-	case "SHA-512":
-		return hash.SHA512
-	default:
-		t.Fatalf("hash not supported: %s", s)
-	}
-
-	return 0
-}
-
-func contextString(s string) []byte {
-	switch s {
-	case "ristretto255":
-		return []byte("FROST-RISTRETTO255-SHA512-v11")
-	default:
-		return []byte("")
-	}
 }
 
 func (c testVectorConfig) decode(t *testing.T) *testConfig {
