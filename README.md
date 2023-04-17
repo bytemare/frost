@@ -16,6 +16,16 @@ This package implements [FROST](https://datatracker.ietf.org/doc/draft-irtf-cfrg
 > issued after a threshold number of entities cooperate to compute a signature, allowing for improved distribution of
 > trust and redundancy with respect to a secret key.
 
+#### Supported Ciphersuites
+
+| ID  | Name         | Backend                       |
+|-----|--------------|-------------------------------|
+| 1   | Edwards25519 | filippo.io/edwards25519       |
+| 2   | Ristretto255 | github.com/gtank/ristretto255 |
+| 3   | Edwards448   | not yet supported             |
+| 4   | P-256        | filippo.io/nistec             |
+| 5   | Secp256k1    | github.com/bytemare/crypto    |
+
 #### References
 - [The original paper](https://eprint.iacr.org/2020/852.pdf) from @chelseakomlo and Ian Goldberg.
 - [The Github repo](https://github.com/cfrg/draft-irtf-cfrg-frost) where the draft is being specified.

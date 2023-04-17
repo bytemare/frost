@@ -26,15 +26,17 @@ type Ciphersuite struct {
 
 func (c Ciphersuite) hashToNist(input, context, dst []byte) []byte {
 	order, _ := new(big.Int).SetString(c.Group.Order(), 10)
-	var securityLenth int
+	var securityLength int
 
 	switch c.Group {
 	case group.P256Sha256:
-		securityLenth = 48
+		securityLength = 48
 	case group.P384Sha384:
-		securityLenth = 123
+		securityLength = 72
 	case group.P521Sha512:
-		securityLenth = 123
+		securityLength = 98
+	case group.Secp256k1:
+		securityLength = 48
 	default:
 		panic(ErrInvalidCiphersuite)
 	}
@@ -44,7 +46,7 @@ func (c Ciphersuite) hashToNist(input, context, dst []byte) []byte {
 		append(context, dst...),
 		1,
 		1,
-		securityLenth, order)[0].Bytes()
+		securityLength, order)[0].Bytes()
 }
 
 func (c Ciphersuite) hx(input, dst []byte) *group.Scalar {
@@ -54,7 +56,7 @@ func (c Ciphersuite) hx(input, dst []byte) *group.Scalar {
 	case group.Ristretto255Sha512:
 		h := c.Hash.Hash(c.ContextString, dst, input)
 		sc = ristretto255.NewScalar().FromUniformBytes(h).Encode(nil)
-	case group.P256Sha256: // NIST curves
+	case group.P256Sha256, group.Secp256k1: // NIST curves
 		sc = c.hashToNist(input, c.ContextString, dst)
 	default:
 		panic(ErrInvalidParameters)
