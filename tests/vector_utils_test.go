@@ -57,9 +57,10 @@ func configToConfiguration(t *testing.T, c *testVectorConfig) *frost.Configurati
 	switch c.Group {
 	case "ristretto255":
 		return frost.Ristretto255.Configuration()
-
-	case "p256":
+	case "P-256":
 		return frost.P256.Configuration()
+	case "secp256k1":
+		return frost.Secp256k1.Configuration()
 	default:
 		t.Fatalf("group not supported: %s", c.Group)
 	}
