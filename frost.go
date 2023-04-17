@@ -34,24 +34,24 @@ const (
 	P256
 
 	// Secp256k1 uses Secp256k1 and SHA-256.
-	secp256k1
+	Secp256k1
 
 	ristretto255ContextString = "FROST-RISTRETTO255-SHA512-v11"
 	p256ContextString         = "FROST-P256-SHA256-v11"
+	secp256k1ContextString    = "FROST-secp256k1-SHA256-v11"
 
 	/*
 		ed25519ContextString      = "FROST-ED25519-SHA512-v11"
 		ed448ContextString        = "FROST-ED448-SHAKE256-v11"
-		secp256k1ContextString    = "FROST-secp256k1-SHA256-v11"
 	*/
 )
 
 // Available returns whether the selected ciphersuite is available.
 func (c Ciphersuite) Available() bool {
 	switch c {
-	case Ristretto255, P256:
+	case Ristretto255, P256, Secp256k1:
 		return true
-	case ed25519, ed448, secp256k1:
+	case ed25519, ed448:
 		return false
 	default:
 		return false
@@ -83,7 +83,16 @@ func (c Ciphersuite) Configuration() *Configuration {
 				ContextString: []byte(p256ContextString),
 			},
 		}
-	case ed25519, ed448, secp256k1:
+	case Secp256k1:
+		return &Configuration{
+			GroupPublicKey: nil,
+			Ciphersuite: internal.Ciphersuite{
+				ContextString: []byte(secp256k1ContextString),
+				Hash:          hash.SHA256,
+				Group:         group.Secp256k1,
+			},
+		}
+	case ed25519, ed448:
 		return nil
 	default:
 		return nil
@@ -93,7 +102,6 @@ func (c Ciphersuite) Configuration() *Configuration {
 // Configuration holds long term configuration information.
 type Configuration struct {
 	GroupPublicKey *group.Element
-	ContextString  []byte
 	Ciphersuite    internal.Ciphersuite
 }
 
