@@ -6,7 +6,7 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-package tests
+package frost_test
 
 import (
 	"testing"
@@ -55,11 +55,9 @@ var configurationTable = []frost.Configuration{
 	},
 }
 
-func TestFrost(t *testing.T) {
+func TestTrustedDealerKeygen(t *testing.T) {
 	min := 2
 	max := 3
-	participantListInt := []int{1, 3}
-	message := []byte("test")
 
 	testAll(t, func(t2 *testing.T, configuration *frost.Configuration) {
 		g := configuration.Ciphersuite.Group
@@ -116,14 +114,32 @@ func TestFrost(t *testing.T) {
 		if recoveredPK.Equal(groupPublicKey) != 1 {
 			t2.Fatal()
 		}
+	})
+}
+
+func TestFrost(t *testing.T) {
+	max := 3
+	threshold := 2
+	participantListInt := []int{1, 3}
+	message := []byte("test")
+
+	testAll(t, func(t2 *testing.T, configuration *frost.Configuration) {
+		g := configuration.Ciphersuite.Group
+
+		privateKeyShares, groupPublicKey := dkgGenerateKeys(t, configuration, max, threshold)
+		configuration.GroupPublicKey = groupPublicKey
 
 		// Create Participants
-		participants := make(ParticipantList, len(privateKeyShares))
+		participants := make(ParticipantList, max)
 		for i, share := range privateKeyShares {
 			participants[i] = &frost.Participant{
 				Configuration:   *configuration,
 				ParticipantInfo: frost.ParticipantInfo{KeyShare: share},
 			}
+		}
+
+		signatureAggregator := &frost.Participant{
+			Configuration: *configuration,
 		}
 
 		// Round One: Commitment
@@ -135,8 +151,7 @@ func TestFrost(t *testing.T) {
 		comList := make(internal.CommitmentList, len(participantList))
 		for i, id := range participantList {
 			p := participants.Get(id)
-			p.Commit()
-			comList[i] = *p.Commit()
+			comList[i] = p.Commit()
 		}
 
 		comList.Sort()
@@ -156,9 +171,14 @@ func TestFrost(t *testing.T) {
 		}
 
 		// Final step: aggregate
-		_ = participants[1].Aggregate(comList, message, sigShares)
+		_ = signatureAggregator.Aggregate(comList, message, sigShares)
 
 		// Sanity Check
+		groupSecretKey, err := secretsharing.Combine(g, uint(threshold), privateKeyShares)
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		singleSig := schnorr.Sign(configuration.Ciphersuite, message, groupSecretKey)
 		if !schnorr.Verify(configuration.Ciphersuite, message, singleSig, groupPublicKey) {
 			t2.Fatal()

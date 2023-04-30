@@ -22,7 +22,7 @@ type Commitment struct {
 }
 
 // CommitmentList is a sortable list of commitments.
-type CommitmentList []Commitment
+type CommitmentList []*Commitment
 
 // Len implements the sort.Interface Len method.
 func (c CommitmentList) Len() int {
