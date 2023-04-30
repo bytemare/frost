@@ -6,7 +6,7 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-// Package frost implements FROST, the Flexible Round-Optimized Schnorr Threshold (FROST) signing protocol
+// Package frost implements FROST, the Flexible Round-Optimized Schnorr Threshold (FROST) signing protocol.
 package frost
 
 import (
@@ -150,7 +150,8 @@ func DeriveGroupInfo(g group.Group, max int, coms secretsharing.Commitment) (*gr
 }
 
 // TrustedDealerKeygen uses Shamir and Verifiable Secret Sharing to create secret shares of an input group secret.
-// These shares should be distributed securely to relevant participants.
+// These shares should be distributed securely to relevant participants. Note that this is centralized and combines
+// the shared secret at some point. To use a decentralized dealer-less key generation, use the dkg package.
 func TrustedDealerKeygen(
 	g group.Group,
 	secret *group.Scalar,

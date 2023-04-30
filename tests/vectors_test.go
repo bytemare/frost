@@ -6,7 +6,7 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-package tests
+package frost_test
 
 import (
 	"bytes"
@@ -135,7 +135,7 @@ func (v test) test(t *testing.T) {
 			t.Fatal(i)
 		}
 
-		commitmentList[i] = *commitment
+		commitmentList[i] = commitment
 	}
 
 	_, rhoInputs := commitmentList.ComputeBindingFactors(
