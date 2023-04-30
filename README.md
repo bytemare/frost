@@ -1,4 +1,4 @@
-# :SNOWFLAKE: FROST
+# :snowflake: FROST
 
 [![frost](https://github.com/bytemare/frost/actions/workflows/ci.yml/badge.svg)](https://github.com/bytemare/frost/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/bytemare/frost.svg)](https://pkg.go.dev/github.com/bytemare/frost)
