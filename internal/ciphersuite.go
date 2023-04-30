@@ -90,3 +90,8 @@ func (c Ciphersuite) H4(msg []byte) []byte {
 func (c Ciphersuite) H5(msg []byte) []byte {
 	return c.Hash.Hash(c.ContextString, []byte("com"), msg)
 }
+
+// HDKG hashes the input to the "dkg" DST.
+func (c Ciphersuite) HDKG(msg []byte) *group.Scalar {
+	return c.hx(msg, []byte("dkg"))
+}
