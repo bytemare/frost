@@ -13,9 +13,8 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
-	"math/big"
-
 	group "github.com/bytemare/crypto"
+	"math/big"
 )
 
 var (
@@ -25,7 +24,7 @@ var (
 	// ErrInvalidCiphersuite indicates a non-supported ciphersuite is being used.
 	ErrInvalidCiphersuite = errors.New("ciphersuite not available")
 
-	// ErrInvalidParticipantBackup indicates a participant's encoded backup is not valid.
+	// ErrInvalidParticipantBackup indicates the participant's encoded backup is not valid.
 	ErrInvalidParticipantBackup = errors.New("invalid backup")
 )
 

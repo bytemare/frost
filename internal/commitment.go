@@ -9,20 +9,64 @@
 package internal
 
 import (
-	"sort"
-
+	"errors"
+	"fmt"
 	group "github.com/bytemare/crypto"
+	"slices"
 )
 
 // Commitment represent a participant's commitment.
 type Commitment struct {
-	ID           *group.Scalar
+	Identifier   *group.Scalar
 	HidingNonce  *group.Element
 	BindingNonce *group.Element
 }
 
+func (c Commitment) Encode() []byte {
+	id := c.Identifier.Encode()
+	hNonce := c.HidingNonce.Encode()
+	bNonce := c.BindingNonce.Encode()
+
+	out := make([]byte, len(id)+len(hNonce)+len(bNonce))
+	copy(out, id)
+	copy(out[len(id):], hNonce)
+	copy(out[len(id)+len(bNonce):], bNonce)
+
+	return out
+}
+
+func DecodeCommitment(cs Ciphersuite, data []byte) (*Commitment, error) {
+	g := cs.Group
+	scalarLength := g.ScalarLength()
+	elementLength := g.ElementLength()
+
+	if len(data) != scalarLength+2*elementLength {
+		return nil, errors.New("failed to decode commitment: invalid length")
+	}
+
+	c := &Commitment{
+		Identifier:   g.NewScalar(),
+		HidingNonce:  g.NewElement(),
+		BindingNonce: g.NewElement(),
+	}
+
+	if err := c.Identifier.Decode(data[:scalarLength]); err != nil {
+		return nil, fmt.Errorf("failed to decode commitment identifier: %w", err)
+	}
+
+	if err := c.HidingNonce.Decode(data[:scalarLength]); err != nil {
+		return nil, fmt.Errorf("failed to decode commitment hiding nonce: %w", err)
+	}
+
+	if err := c.BindingNonce.Decode(data[:scalarLength]); err != nil {
+		return nil, fmt.Errorf("failed to decode commitment binding nonce: %w", err)
+	}
+
+	return c, nil
+}
+
 // CommitmentList is a sortable list of commitments.
-type CommitmentList []Commitment
+type CommitmentList []*Commitment
 
 // Len implements the sort.Interface Len method.
 func (c CommitmentList) Len() int {
@@ -31,7 +75,7 @@ func (c CommitmentList) Len() int {
 
 // Less implements the sort.Interface Less method.
 func (c CommitmentList) Less(i, j int) bool {
-	return c[i].ID.LessOrEqual(c[j].ID) == 1
+	return c[i].Identifier.LessOrEqual(c[j].Identifier) == 1
 }
 
 // Swap implements the sort.Interface Swap method.
@@ -39,14 +83,25 @@ func (c CommitmentList) Swap(i, j int) {
 	c[i], c[j] = c[j], c[i]
 }
 
+func cmpID(a, b *Commitment) int {
+	switch {
+	case a.Identifier.Equal(b.Identifier) == 1: // a == b
+		return 0
+	case a.Identifier.LessOrEqual(b.Identifier) == 1: // a < b
+		return -1
+	default:
+		return 1
+	}
+}
+
 // Sort sorts the list the ascending order of identifiers.
 func (c CommitmentList) Sort() {
-	sort.Sort(c)
+	slices.SortFunc(c, cmpID)
 }
 
 // IsSorted returns whether the list is sorted in ascending order by identifier.
 func (c CommitmentList) IsSorted() bool {
-	return sort.IsSorted(c)
+	return slices.IsSortedFunc(c, cmpID)
 }
 
 // Encode serializes a whole commitment list.
@@ -54,7 +109,7 @@ func (c CommitmentList) Encode() []byte {
 	var encoded []byte
 
 	for _, l := range c {
-		e := Concatenate(l.ID.Encode(), l.HidingNonce.Encode(), l.BindingNonce.Encode())
+		e := Concatenate(l.Identifier.Encode(), l.HidingNonce.Encode(), l.BindingNonce.Encode())
 		encoded = append(encoded, e...)
 	}
 
@@ -65,52 +120,19 @@ func (c CommitmentList) Encode() []byte {
 func (c CommitmentList) Participants() []*group.Scalar {
 	identifiers := make([]*group.Scalar, len(c))
 	for i, l := range c {
-		identifiers[i] = l.ID
+		identifiers[i] = l.Identifier
 	}
 
 	return identifiers
 }
 
-// ComputeBindingFactors computes binding factors based on the participant commitment list and the message to be signed.
-// The rhoInputs are temporarily added for testing purposes and can be ignored.
-func (c CommitmentList) ComputeBindingFactors(cs Ciphersuite, msg []byte) (l BindingFactorList, r [][]byte) {
-	if !c.IsSorted() {
-		panic(nil)
-	}
-
-	h := cs.H4(msg)
-	encodedCommitHash := cs.H5(c.Encode())
-	rhoInputPrefix := Concatenate(h, encodedCommitHash)
-
-	bindingFactorList := make(BindingFactorList, len(c))
-	rhoInputs := make([][]byte, len(c))
-
-	for i, l := range c {
-		rhoInput := Concatenate(rhoInputPrefix, l.ID.Encode())
-		bindingFactor := cs.H1(rhoInput)
-
-		bindingFactorList[i] = &BindingFactor{
-			Identifier:    l.ID,
-			BindingFactor: bindingFactor,
+// Get returns the commitment of the participant with the corresponding identifier, or nil if it was not found.
+func (c CommitmentList) Get(identifier *group.Scalar) *Commitment {
+	for _, com := range c {
+		if com.Identifier.Equal(identifier) == 1 {
+			return com
 		}
-		rhoInputs[i] = rhoInput
 	}
 
-	return bindingFactorList, rhoInputs
-}
-
-// ComputeGroupCommitment creates the group commitment from a commitment list.
-func (c CommitmentList) ComputeGroupCommitment(cs Ciphersuite, list BindingFactorList) *group.Element {
-	if !c.IsSorted() {
-		panic(nil)
-	}
-
-	gc := cs.Group.NewElement().Identity()
-
-	for _, commitment := range c {
-		factor := list.BindingFactorForParticipant(commitment.ID)
-		gc.Add(commitment.HidingNonce).Add(commitment.BindingNonce.Copy().Multiply(factor))
-	}
-
-	return gc
+	return nil
 }

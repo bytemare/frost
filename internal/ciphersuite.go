@@ -9,12 +9,9 @@
 package internal
 
 import (
-	"math/big"
-
 	"filippo.io/edwards25519"
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/hash"
-	"github.com/bytemare/hash2curve"
 	"github.com/gtank/ristretto255"
 )
 
@@ -25,84 +22,63 @@ type Ciphersuite struct {
 	Group         group.Group
 }
 
-// Ed25519ScalarFrom64Bytes reduces the input modulo the Ed25119 prime order, and returns a corresponding scalar.
-func Ed25519ScalarFrom64Bytes(g group.Group, input []byte) *group.Scalar {
-	var s *edwards25519.Scalar
-	var err error
+func (c Ciphersuite) h1Ed25519(input []byte) *group.Scalar {
+	h := c.Hash.Hash(input)
 
-	if len(input) < 64 {
-		wide := make([]byte, 64)
-		copy(wide, input)
-		input = wide
-	}
-
-	s, err = edwards25519.NewScalar().SetUniformBytes(input)
-	if err != nil {
+	s := edwards25519.NewScalar()
+	if _, err := s.SetUniformBytes(h); err != nil {
 		panic(err)
 	}
 
-	scalar := g.NewScalar()
-	if err := scalar.Decode(s.Bytes()); err != nil {
+	s2 := c.Group.NewScalar()
+	if err := s2.Decode(s.Bytes()); err != nil {
 		panic(err)
 	}
 
-	return scalar
+	return s2
 }
 
-func (c Ciphersuite) hx(id byte, input, dst []byte) *group.Scalar {
-	var sc []byte
+func (c Ciphersuite) hx(input, dst []byte) *group.Scalar {
+	var sc *group.Scalar
 
 	switch c.Group {
 	case group.Edwards25519Sha512:
-		var h []byte
-		if id == 2 {
-			h = c.Hash.Hash(input)
-		} else {
-			h = c.Hash.Hash(c.ContextString, dst, input)
-		}
-
-		return Ed25519ScalarFrom64Bytes(group.Edwards25519Sha512, h)
+		sc = c.h1Ed25519(Concatenate(c.ContextString, dst, input))
 	case group.Ristretto255Sha512:
 		h := c.Hash.Hash(c.ContextString, dst, input)
-		sc = ristretto255.NewScalar().FromUniformBytes(h).Encode(nil)
-	case group.P256Sha256: // NIST curves
-		order, ok := new(big.Int).SetString(c.Group.Order(), 10)
-		if !ok {
-			panic(nil)
+		s := ristretto255.NewScalar().FromUniformBytes(h)
+
+		sc = c.Group.NewScalar()
+		if err := sc.Decode(s.Encode(nil)); err != nil {
+			panic(err)
 		}
-
-		sc = hash2curve.HashToFieldXMD(c.Hash.GetCryptoID(),
-			input,
-			append(c.ContextString, dst...),
-			1,
-			1,
-			48, order)[0].Bytes()
-
+	case group.P256Sha256, group.Secp256k1:
+		sc = c.Group.HashToScalar(input, append(c.ContextString, dst...))
 	default:
 		panic(ErrInvalidParameters)
 	}
 
-	s := c.Group.NewScalar()
-	if err := s.Decode(sc); err != nil {
-		panic(err)
-	}
-
-	return s
+	return sc
 }
 
 // H1 hashes the input and proves the "rho" DST.
 func (c Ciphersuite) H1(input []byte) *group.Scalar {
-	return c.hx(1, input, []byte("rho"))
+	return c.hx(input, []byte("rho"))
 }
 
 // H2 hashes the input and proves the "chal" DST.
 func (c Ciphersuite) H2(input []byte) *group.Scalar {
-	return c.hx(2, input, []byte("chal"))
+	if c.Group == group.Edwards25519Sha512 {
+		// For compatibility with RFC8032 H2 doesn't use a domain separator.
+		return c.h1Ed25519(input)
+	}
+
+	return c.hx(input, []byte("chal"))
 }
 
 // H3 hashes the input and proves the "nonce" DST.
 func (c Ciphersuite) H3(input []byte) *group.Scalar {
-	return c.hx(3, input, []byte("nonce"))
+	return c.hx(input, []byte("nonce"))
 }
 
 // H4 hashes the input and proves the "msg" DST.
@@ -113,4 +89,9 @@ func (c Ciphersuite) H4(msg []byte) []byte {
 // H5 hashes the input and proves the "com" DST.
 func (c Ciphersuite) H5(msg []byte) []byte {
 	return c.Hash.Hash(c.ContextString, []byte("com"), msg)
+}
+
+// HDKG hashes the input to the "dkg" DST.
+func (c Ciphersuite) HDKG(msg []byte) *group.Scalar {
+	return c.hx(msg, []byte("dkg"))
 }

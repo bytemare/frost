@@ -34,7 +34,7 @@ func (s *Signature) Decode(g group.Group, encoded []byte) error {
 	eLen := g.ElementLength()
 	sLen := g.ScalarLength()
 
-	if len(encoded) != int(eLen+sLen) {
+	if len(encoded) != eLen+sLen {
 		return internal.ErrInvalidParameters
 	}
 
@@ -60,10 +60,6 @@ func computeZ(r, challenge, key *group.Scalar) *group.Scalar {
 
 // Sign returns a Schnorr signature over the message msg with the full secret signing key s (as opposed to a key share).
 func Sign(cs internal.Ciphersuite, msg []byte, key *group.Scalar) *Signature {
-	if cs.Group == group.Edwards25519Sha512 {
-		return edSign(cs, msg, key)
-	}
-
 	r := cs.Group.NewScalar().Random()
 	R := cs.Group.Base().Multiply(r)
 	pk := cs.Group.Base().Multiply(key)
@@ -79,49 +75,18 @@ func Sign(cs internal.Ciphersuite, msg []byte, key *group.Scalar) *Signature {
 
 // Verify returns whether the signature of the message msg is valid under the public key pk.
 func Verify(cs internal.Ciphersuite, msg []byte, signature *Signature, pk *group.Element) bool {
-	if cs.Group == group.Edwards25519Sha512 {
-		return edVerify(cs, msg, signature, pk)
-	}
-
 	c := Challenge(cs, signature.R, pk, msg)
 	l := cs.Group.Base().Multiply(signature.Z)
 	r := signature.R.Add(pk.Copy().Multiply(c))
 
+	if cs.Group == group.Edwards25519Sha512 {
+		cofactor := group.Edwards25519Sha512.NewScalar()
+		if err := cofactor.SetInt(big.NewInt(8)); err != nil {
+			panic(err)
+		}
+
+		return l.Multiply(cofactor).Equal(r.Multiply(cofactor)) == 1
+	}
+
 	return l.Equal(r) == 1
-}
-
-func bytesToKeys(g group.Group, input []byte) (*group.Scalar, *group.Element) {
-	scalar := internal.Ed25519ScalarFrom64Bytes(g, input)
-	return scalar, g.Base().Multiply(scalar)
-}
-
-func edSign(cs internal.Ciphersuite, msg []byte, key *group.Scalar) *Signature {
-	h := cs.Hash.Hash(key.Encode())
-	hLen := len(h) / 2
-	_, A := bytesToKeys(cs.Group, h[:hLen])
-	h = cs.Hash.Hash(h[hLen:], msg)
-	r, R := bytesToKeys(cs.Group, h)
-	h = cs.Hash.Hash(R.Encode(), A.Encode(), msg)
-	k := internal.Ed25519ScalarFrom64Bytes(cs.Group, h)
-
-	S := computeZ(r, k, key)
-
-	return &Signature{
-		R: R,
-		Z: S,
-	}
-}
-
-func edVerify(cs internal.Ciphersuite, msg []byte, signature *Signature, pk *group.Element) bool {
-	k := Challenge(cs, signature.R, pk, msg)
-
-	cofactor := cs.Group.NewScalar()
-	if err := cofactor.SetInt(big.NewInt(8)); err != nil {
-		panic(err)
-	}
-
-	left := cs.Group.Base().Multiply(signature.Z).Multiply(cofactor)
-	right := signature.R.Copy().Multiply(cofactor).Add(pk.Copy().Multiply(k).Multiply(cofactor))
-
-	return left.Equal(right) == 1
 }

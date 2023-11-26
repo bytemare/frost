@@ -10,10 +10,10 @@ package frost
 
 import (
 	group "github.com/bytemare/crypto"
+	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/frost/internal/schnorr"
-	"github.com/bytemare/frost/internal/shamir"
 )
 
 // Aggregate allows the coordinator to produce the final signature given all signature shares.
@@ -28,22 +28,22 @@ import (
 func (p *Participant) Aggregate(
 	list internal.CommitmentList,
 	msg []byte,
-	sigShares []*group.Scalar,
+	sigShares []*SignatureShare,
 ) *schnorr.Signature {
 	if !list.IsSorted() {
 		panic("list not sorted")
 	}
 
 	// Compute binding factors
-	bindingFactorList, _ := list.ComputeBindingFactors(p.Ciphersuite, msg)
+	bindingFactorList := p.computeBindingFactors(list, msg)
 
 	// Compute group commitment
-	groupCommitment := list.ComputeGroupCommitment(p.Ciphersuite, bindingFactorList)
+	groupCommitment := p.computeGroupCommitment(list, bindingFactorList)
 
 	// Compute aggregate signature
 	z := p.Ciphersuite.Group.NewScalar()
-	for _, zi := range sigShares {
-		z.Add(zi)
+	for _, share := range sigShares {
+		z.Add(share.SignatureShare)
 	}
 
 	return &schnorr.Signature{
@@ -58,9 +58,8 @@ func (p *Participant) Aggregate(
 //
 // The CommitmentList must be sorted in ascending order by identifier.
 func (p *Participant) VerifySignatureShare(
-	id *group.Scalar,
+	commitment *internal.Commitment,
 	pki *group.Element,
-	commi [2]*group.Element,
 	sigShareI *group.Scalar,
 	coms internal.CommitmentList,
 	msg []byte,
@@ -70,21 +69,25 @@ func (p *Participant) VerifySignatureShare(
 	}
 
 	// Compute Binding Factor(s)
-	bindingFactorList, _ := coms.ComputeBindingFactors(p.Ciphersuite, msg)
-	bindingFactor := bindingFactorList.BindingFactorForParticipant(id)
+	bindingFactorList := p.computeBindingFactors(coms, msg)
+	bindingFactor := bindingFactorList.BindingFactorForParticipant(commitment.Identifier)
 
 	// Compute Group Commitment
-	groupCommitment := coms.ComputeGroupCommitment(p.Ciphersuite, bindingFactorList)
+	groupCommitment := p.computeGroupCommitment(coms, bindingFactorList)
 
 	// Commitment KeyShare
-	commShare := commi[0].Copy().Add(commi[1].Copy().Multiply(bindingFactor))
+	commShare := commitment.HidingNonce.Copy().Add(commitment.BindingNonce.Copy().Multiply(bindingFactor))
 
 	// Compute the challenge
 	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
 
 	// Compute the interpolating value
-	participantList := coms.Participants()
-	lambdaI := shamir.DeriveInterpolatingValue(p.Ciphersuite.Group, id, participantList)
+	participantList := secretsharing.Polynomial(coms.Participants())
+
+	lambdaI, err := participantList.DeriveInterpolatingValue(p.Ciphersuite.Group, commitment.Identifier)
+	if err != nil {
+		panic(err)
+	}
 
 	// Compute relation values
 	l := p.Ciphersuite.Group.Base().Multiply(sigShareI)

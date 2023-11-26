@@ -1,4 +1,5 @@
-# FROST
+# :snowflake: FROST
+
 [![frost](https://github.com/bytemare/frost/actions/workflows/ci.yml/badge.svg)](https://github.com/bytemare/frost/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/bytemare/frost.svg)](https://pkg.go.dev/github.com/bytemare/frost)
 [![codecov](https://codecov.io/gh/bytemare/frost/branch/main/graph/badge.svg?token=5bQfB0OctA)](https://codecov.io/gh/bytemare/frost)
@@ -7,9 +8,8 @@
   import "github.com/bytemare/frost"
 ```
 
-This package implements [FROST](https://datatracker.ietf.org/doc/draft-irtf-cfrg-frost).
-
-It is currently in active development, and utterly useless.
+This package implements [FROST Flexible Round-Optimized Schnorr Threshold](https://datatracker.ietf.org/doc/draft-irtf-cfrg-frost) and the [FROST Distributed Key Generation](https://eprint.iacr.org/2020/852.pdf) protocols.
+FROST provides Two-Round Threshold Schnorr Signatures.
 
 #### What is frost?
 
@@ -18,13 +18,23 @@ It is currently in active development, and utterly useless.
 > issued after a threshold number of entities cooperate to compute a signature, allowing for improved distribution of
 > trust and redundancy with respect to a secret key.
 
+#### Supported Ciphersuites
+
+| ID  | Name         | Backend                       |
+|-----|--------------|-------------------------------|
+| 1   | Edwards25519 | filippo.io/edwards25519       |
+| 2   | Ristretto255 | github.com/gtank/ristretto255 |
+| 3   | Edwards448   | not yet supported             |
+| 4   | P-256        | filippo.io/nistec             |
+| 5   | Secp256k1    | github.com/bytemare/crypto    |
+
 #### References
-- [The original paper](https://eprint.iacr.org/2020/852.pdf) from @chelseakomlo and Ian Goldberg.
+- [The original paper](https://eprint.iacr.org/2020/852.pdf) from Chelsea Komlo and Ian Goldberg.
 - [The Github repo](https://github.com/cfrg/draft-irtf-cfrg-frost) where the draft is being specified.
 
 ## Documentation [![Go Reference](https://pkg.go.dev/badge/github.com/bytemare/frost.svg)](https://pkg.go.dev/github.com/bytemare/frost)
 
-You can find the documentation and usage examples in [the package doc](https://pkg.go.dev/github.com/bytemare/frost) and [the project wiki](https://github.com/bytemare/frost/wiki) .
+You can find the documentation and usage examples in [the package doc](https://pkg.go.dev/github.com/bytemare/frost).
 
 ## Versioning
 
