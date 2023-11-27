@@ -9,7 +9,6 @@
 package frost_test
 
 import (
-	"math/big"
 	"testing"
 
 	group "github.com/bytemare/crypto"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/dkg"
+	"github.com/bytemare/frost/internal"
 )
 
 // testUnit holds a participant and its return and input values during the protocol.
@@ -28,76 +28,6 @@ type testUnit struct {
 	publicKey         *group.Element
 	r2OutputData      []*dkg.Round2Data
 	r2InputData       []*dkg.Round2Data
-}
-
-func idFromInt(t *testing.T, g group.Group, i int) *group.Scalar {
-	id := g.NewScalar()
-	if err := id.SetInt(big.NewInt(int64(i))); err != nil {
-		t.Fatal(err)
-	}
-
-	return id
-}
-
-// dkgGenerateKeys generates sharded keys for maxSigner participant without a trusted dealer, and returns these shares
-// and the group's public key.
-func dkgGenerateKeys(
-	t *testing.T,
-	conf *frost.Configuration,
-	maxSigners, threshold int,
-) ([]*secretsharing.KeyShare, *group.Element) {
-	g := conf.Ciphersuite.Group
-
-	// Create participants.
-	participants := make([]*dkg.Participant, maxSigners)
-	for i := 0; i < maxSigners; i++ {
-		id := idFromInt(t, conf.Ciphersuite.Group, i+1)
-		participants[i] = dkg.NewParticipant(conf.Ciphersuite, id, maxSigners, threshold)
-	}
-
-	// Step 1 & 2.
-	r1Data := make([]*dkg.Round1Data, maxSigners)
-	for i, p := range participants {
-		r1Data[i] = p.Init()
-	}
-
-	// Step 3 & 4.
-	r2Data := make(map[string][]*dkg.Round2Data)
-	for _, p := range participants {
-		id := string(p.Identifier.Encode())
-		r2Data[id] = make([]*dkg.Round2Data, 0, maxSigners-1)
-	}
-
-	for _, p := range participants {
-		r2DataI, err := p.Continue(r1Data)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		for _, r2d := range r2DataI {
-			id := string(r2d.ReceiverIdentifier.Encode())
-			r2Data[id] = append(r2Data[id], r2d)
-		}
-	}
-
-	// Step 5.
-	secretShares := make([]*secretsharing.KeyShare, maxSigners)
-	groupPublicKey := g.NewElement()
-	for i, p := range participants {
-		id := string(p.Identifier.Encode())
-		secret, _, pk, err := p.Finalize(r1Data, r2Data[id])
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		secretShares[i] = &secretsharing.KeyShare{
-			Identifier: p.Identifier,
-			SecretKey:  secret,
-		}
-		groupPublicKey = pk
-	}
-
-	return secretShares, groupPublicKey
 }
 
 // TestDKG verifies
@@ -116,7 +46,7 @@ func TestDKG(t *testing.T) {
 	// Vector of participant units.
 	units := make([]*testUnit, maxSigners)
 	for i := 0; i < maxSigners; i++ {
-		id := idFromInt(t, conf.Ciphersuite.Group, i+1)
+		id := internal.IntegerToScalar(conf.Ciphersuite.Group, i+1)
 		units[i] = &testUnit{
 			participant: dkg.NewParticipant(conf.Ciphersuite, id, maxSigners, len(quals)),
 			r2InputData: make([]*dkg.Round2Data, 0, maxSigners-1),
@@ -188,7 +118,7 @@ func TestDKG(t *testing.T) {
 	// Verify the individual secret shares by combining a subset of them.
 	keyShares := make([]*secretsharing.KeyShare, len(quals))
 	for i, ii := range quals {
-		id := idFromInt(t, conf.Ciphersuite.Group, ii)
+		id := internal.IntegerToScalar(conf.Ciphersuite.Group, ii)
 
 		for _, unit := range units {
 			if id.Equal(unit.participant.Identifier) == 1 {
@@ -235,4 +165,66 @@ func TestDKG_InvalidPOK(t *testing.T) {
 	if _, err := p1.Continue(r1Data); err == nil {
 		t.Fatal("expected error on invalid signature")
 	}
+}
+
+// SimulateDKG generates sharded keys for maxSigners participant without a trusted dealer, and returns these shares
+// and the group's public key. This function is used in tests and examples.
+func SimulateDKG(
+	conf *frost.Configuration,
+	maxSigners, threshold int,
+) ([]*secretsharing.KeyShare, []*group.Element, *group.Element) {
+	g := conf.Ciphersuite.Group
+
+	// Create participants.
+	participants := make([]*dkg.Participant, maxSigners)
+	for i := 0; i < maxSigners; i++ {
+		id := internal.IntegerToScalar(conf.Ciphersuite.Group, i+1)
+		participants[i] = dkg.NewParticipant(conf.Ciphersuite, id, maxSigners, threshold)
+	}
+
+	// Step 1 & 2.
+	r1Data := make([]*dkg.Round1Data, maxSigners)
+	for i, p := range participants {
+		r1Data[i] = p.Init()
+	}
+
+	// Step 3 & 4.
+	r2Data := make(map[string][]*dkg.Round2Data)
+	for _, p := range participants {
+		id := string(p.Identifier.Encode())
+		r2Data[id] = make([]*dkg.Round2Data, 0, maxSigners-1)
+	}
+
+	for _, p := range participants {
+		r2DataI, err := p.Continue(r1Data)
+		if err != nil {
+			panic(err)
+		}
+
+		for _, r2d := range r2DataI {
+			id := string(r2d.ReceiverIdentifier.Encode())
+			r2Data[id] = append(r2Data[id], r2d)
+		}
+	}
+
+	// Step 5.
+	secretShares := make([]*secretsharing.KeyShare, maxSigners)
+	publicShares := make([]*group.Element, maxSigners)
+	groupPublicKey := g.NewElement()
+	for i, p := range participants {
+		id := string(p.Identifier.Encode())
+		secret, public, pk, err := p.Finalize(r1Data, r2Data[id])
+		if err != nil {
+			panic(err)
+		}
+
+		secretShares[i] = &secretsharing.KeyShare{
+			Identifier: p.Identifier,
+			SecretKey:  secret,
+		}
+		publicShares[i] = public
+		groupPublicKey = pk
+	}
+
+	return secretShares, publicShares, groupPublicKey
 }
