@@ -199,5 +199,5 @@ issues:
 run:
   tests: false
 
-#output:
-# format: github-actions
+output:
+ format: github-actions

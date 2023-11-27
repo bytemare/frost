@@ -16,7 +16,6 @@ import (
 	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/internal/schnorr"
 )
 
 // Participant is a signer of a group.
@@ -28,10 +27,13 @@ type Participant struct {
 	Configuration
 }
 
+var errDecodeSignatureShare = errors.New("failed to decode signature share: invalid length")
+
 // ParticipantInfo holds the participant specific long-term values.
 type ParticipantInfo struct {
-	KeyShare *secretsharing.KeyShare
-	Lambda   *group.Scalar // lamba can be computed once and reused across FROST signing operations
+	KeyShare  *secretsharing.KeyShare
+	Lambda    *group.Scalar // lamba can be computed once and reused across FROST signing operations
+	PublicKey *group.Element
 }
 
 func (p *Participant) generateNonce(s *group.Scalar, random []byte) *group.Scalar {
@@ -81,17 +83,18 @@ func RecoverParticipant(c Ciphersuite, backup []byte) (*Participant, error) {
 
 	p := conf.Participant(id, share)
 	p.Lambda = lambda
+	p.PublicKey = conf.Ciphersuite.Group.Base().Multiply(share)
 
 	return p, nil
 }
 
 // Commit generates a participants nonce and commitment, to be used in the second FROST round. The nonce must be kept
 // secret, and the commitment sent to the coordinator.
-func (p *Participant) Commit() *internal.Commitment {
+func (p *Participant) Commit() *Commitment {
 	p.Nonce[0] = p.generateNonce(p.ParticipantInfo.KeyShare.SecretKey, p.HidingRandom)
 	p.Nonce[1] = p.generateNonce(p.ParticipantInfo.KeyShare.SecretKey, p.BindingRandom)
 
-	return &internal.Commitment{
+	return &Commitment{
 		Identifier:   p.ParticipantInfo.KeyShare.Identifier.Copy(),
 		HidingNonce:  p.Ciphersuite.Group.Base().Multiply(p.Nonce[0]),
 		BindingNonce: p.Ciphersuite.Group.Base().Multiply(p.Nonce[1]),
@@ -104,7 +107,7 @@ func (p *Participant) Commit() *internal.Commitment {
 // In particular, the Signer MUST validate commitment_list, deserializing each group Element in the list using
 // DeserializeElement from {{dep-pog}}. If deserialization fails, the Signer MUST abort the protocol. Moreover,
 // each participant MUST ensure that its identifier and commitments (from the first round) appear in commitment_list.
-func (p *Participant) Sign(msg []byte, list internal.CommitmentList) (*SignatureShare, error) {
+func (p *Participant) Sign(msg []byte, list CommitmentList) (*SignatureShare, error) {
 	// Compute the binding factor(s)
 	bindingFactorList := p.computeBindingFactors(list, msg)
 	bindingFactor := bindingFactorList.BindingFactorForParticipant(p.KeyShare.Identifier)
@@ -123,7 +126,7 @@ func (p *Participant) Sign(msg []byte, list internal.CommitmentList) (*Signature
 	p.Lambda = lambdaID.Copy()
 
 	// Compute per message challenge
-	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
+	challenge := challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
 
 	// Compute the signature share
 	sigShare := p.Nonce[0].Add(
@@ -141,14 +144,14 @@ func (p *Participant) Sign(msg []byte, list internal.CommitmentList) (*Signature
 }
 
 // computeBindingFactors computes binding factors based on the participant commitment list and the message to be signed.
-func (p *Participant) computeBindingFactors(l internal.CommitmentList, message []byte) internal.BindingFactorList {
+func (p *Participant) computeBindingFactors(l CommitmentList, message []byte) internal.BindingFactorList {
 	if !l.IsSorted() {
 		panic(nil)
 	}
 
 	h := p.Configuration.Ciphersuite.H4(message)
 	encodedCommitHash := p.Configuration.Ciphersuite.H5(l.Encode())
-	rhoInputPrefix := internal.Concatenate(h, encodedCommitHash)
+	rhoInputPrefix := internal.Concatenate(p.GroupPublicKey.Encode(), h, encodedCommitHash)
 
 	bindingFactorList := make(internal.BindingFactorList, len(l))
 
@@ -165,8 +168,8 @@ func (p *Participant) computeBindingFactors(l internal.CommitmentList, message [
 	return bindingFactorList
 }
 
-// ComputeGroupCommitment creates the group commitment from a commitment list.
-func (p *Participant) computeGroupCommitment(l internal.CommitmentList, list internal.BindingFactorList) *group.Element {
+// computeGroupCommitment creates the group commitment from a commitment list.
+func (p *Participant) computeGroupCommitment(l CommitmentList, list internal.BindingFactorList) *group.Element {
 	if !l.IsSorted() {
 		panic(nil)
 	}
@@ -175,7 +178,8 @@ func (p *Participant) computeGroupCommitment(l internal.CommitmentList, list int
 
 	for _, commitment := range l {
 		factor := list.BindingFactorForParticipant(commitment.Identifier)
-		gc.Add(commitment.HidingNonce).Add(commitment.BindingNonce.Copy().Multiply(factor))
+		bindingNonce := commitment.BindingNonce.Copy().Multiply(factor)
+		gc.Add(commitment.HidingNonce).Add(bindingNonce)
 	}
 
 	return gc
@@ -205,7 +209,7 @@ func (c Configuration) DecodeSignatureShare(data []byte) (*SignatureShare, error
 	scalarLength := g.ScalarLength()
 
 	if len(data) != 2*scalarLength {
-		return nil, errors.New("failed to decode signature share: invalid length")
+		return nil, errDecodeSignatureShare
 	}
 
 	s := &SignatureShare{

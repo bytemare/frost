@@ -19,8 +19,6 @@ import (
 	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost"
-	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/internal/schnorr"
 )
 
 func (v test) test(t *testing.T) {
@@ -91,7 +89,7 @@ func (v test) test(t *testing.T) {
 	}
 
 	// Round One: Commitment
-	commitmentList := make(internal.CommitmentList, len(v.RoundOneOutputs.Outputs))
+	commitmentList := make(frost.CommitmentList, len(v.RoundOneOutputs.Outputs))
 	for i, pid := range v.RoundOneOutputs.Outputs {
 		p := participants.Get(pid.ID)
 		if p == nil {
@@ -166,7 +164,7 @@ func (v test) test(t *testing.T) {
 	}
 
 	// Sanity Check
-	if !schnorr.Verify(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey) {
+	if !frost.Verify(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey) {
 		t.Fatal()
 	}
 }

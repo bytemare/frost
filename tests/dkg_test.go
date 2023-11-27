@@ -9,7 +9,6 @@
 package frost_test
 
 import (
-	"github.com/bytemare/frost/internal"
 	"testing"
 
 	group "github.com/bytemare/crypto"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/dkg"
+	"github.com/bytemare/frost/internal"
 )
 
 // testUnit holds a participant and its return and input values during the protocol.
@@ -167,9 +167,12 @@ func TestDKG_InvalidPOK(t *testing.T) {
 	}
 }
 
-// SimulateDKG generates sharded keys for maxSigner participant without a trusted dealer, and returns these shares
+// SimulateDKG generates sharded keys for maxSigners participant without a trusted dealer, and returns these shares
 // and the group's public key. This function is used in tests and examples.
-func SimulateDKG(conf *frost.Configuration, maxSigners, threshold int) ([]*secretsharing.KeyShare, []*group.Element, *group.Element) {
+func SimulateDKG(
+	conf *frost.Configuration,
+	maxSigners, threshold int,
+) ([]*secretsharing.KeyShare, []*group.Element, *group.Element) {
 	g := conf.Ciphersuite.Group
 
 	// Create participants.

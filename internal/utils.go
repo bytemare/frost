@@ -13,8 +13,9 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
-	group "github.com/bytemare/crypto"
 	"math/big"
+
+	group "github.com/bytemare/crypto"
 )
 
 var (

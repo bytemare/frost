@@ -18,8 +18,8 @@ import (
 	group "github.com/bytemare/crypto"
 	secretsharing "github.com/bytemare/secret-sharing"
 
+	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/internal/schnorr"
 )
 
 var (
@@ -35,14 +35,15 @@ var (
 
 // Round1Data is the output data of the Init() function, to be broadcast to all participants.
 type Round1Data struct {
-	ProofOfKnowledge schnorr.Signature
+	ProofOfKnowledge frost.Signature
 	SenderIdentifier *group.Scalar
 	Commitment       []*group.Element
 }
 
 // Round2Data is an output of the Continue() function, to be sent to the Receiver.
 type Round2Data struct {
-	SenderIdentifier   *group.Scalar
+	SenderIdentifier *group.Scalar
+
 	ReceiverIdentifier *group.Scalar
 	SecretShare        *group.Scalar
 }
@@ -54,14 +55,14 @@ type Participant struct {
 	secretShare  *group.Scalar
 	coefficients secretsharing.Polynomial
 	ciphersuite  internal.Ciphersuite
-	maxSigner    int
+	maxSigners   int
 	threshold    int
 }
 
 // NewParticipant instantiates a new participant with identifier id.
-func NewParticipant(c internal.Ciphersuite, id *group.Scalar, maxSigner, threshold int) *Participant {
+func NewParticipant(c internal.Ciphersuite, id *group.Scalar, maxSigners, threshold int) *Participant {
 	return &Participant{
-		maxSigner:   maxSigner,
+		maxSigners:  maxSigners,
 		threshold:   threshold,
 		ciphersuite: c,
 		Identifier:  id,
@@ -100,7 +101,7 @@ func (p *Participant) Init() *Round1Data {
 	package1 := &Round1Data{
 		SenderIdentifier: p.Identifier,
 		Commitment:       com,
-		ProofOfKnowledge: schnorr.Signature{
+		ProofOfKnowledge: frost.Signature{
 			R: r,
 			Z: mu,
 		},
@@ -112,13 +113,17 @@ func (p *Participant) Init() *Round1Data {
 
 // Continue ingests the broadcast data from other peers and returns a dedicated Round2Data structure for each peer.
 func (p *Participant) Continue(r1data []*Round1Data) ([]*Round2Data, error) {
-	if len(r1data) != p.maxSigner {
+	if len(r1data) != p.maxSigners {
 		return nil, errRound1DataElements
 	}
 
 	r2data := make([]*Round2Data, 0, len(r1data)-1)
 
 	for _, r1package := range r1data {
+		if r1package == nil {
+			continue
+		}
+
 		peer := r1package.SenderIdentifier
 		if peer.Equal(p.Identifier) == 1 {
 			continue
@@ -158,7 +163,7 @@ func (p *Participant) Finalize(
 	r1data []*Round1Data,
 	r2data []*Round2Data,
 ) (signingShare *group.Scalar, verificationShare, groupPublic *group.Element, err error) {
-	if len(r1data) != p.maxSigner {
+	if len(r1data) != p.maxSigners {
 		return nil, nil, nil, errRound1DataElements
 	}
 

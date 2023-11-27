@@ -11,9 +11,6 @@ package frost
 import (
 	group "github.com/bytemare/crypto"
 	secretsharing "github.com/bytemare/secret-sharing"
-
-	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/internal/schnorr"
 )
 
 // Aggregate allows the coordinator to produce the final signature given all signature shares.
@@ -26,10 +23,10 @@ import (
 // This aggregate signature will verify if and only if all signature shares are valid. If an invalid share is identified
 // a reasonable approach is to remove the participant from the set of allowed participants in future runs of FROST.
 func (p *Participant) Aggregate(
-	list internal.CommitmentList,
+	list CommitmentList,
 	msg []byte,
 	sigShares []*SignatureShare,
-) *schnorr.Signature {
+) *Signature {
 	if !list.IsSorted() {
 		panic("list not sorted")
 	}
@@ -46,7 +43,7 @@ func (p *Participant) Aggregate(
 		z.Add(share.SignatureShare)
 	}
 
-	return &schnorr.Signature{
+	return &Signature{
 		R: groupCommitment,
 		Z: z,
 	}
@@ -58,10 +55,10 @@ func (p *Participant) Aggregate(
 //
 // The CommitmentList must be sorted in ascending order by identifier.
 func (p *Participant) VerifySignatureShare(
-	commitment *internal.Commitment,
+	commitment *Commitment,
 	pki *group.Element,
 	sigShareI *group.Scalar,
-	coms internal.CommitmentList,
+	coms CommitmentList,
 	msg []byte,
 ) bool {
 	if !coms.IsSorted() {
@@ -79,7 +76,7 @@ func (p *Participant) VerifySignatureShare(
 	commShare := commitment.HidingNonce.Copy().Add(commitment.BindingNonce.Copy().Multiply(bindingFactor))
 
 	// Compute the challenge
-	challenge := schnorr.Challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
+	challenge := challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
 
 	// Compute the interpolating value
 	participantList := secretsharing.Polynomial(coms.Participants())

@@ -17,14 +17,13 @@ import (
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/internal/schnorr"
 )
 
 var configurationTable = []frost.Configuration{
 	{
 		GroupPublicKey: nil,
 		Ciphersuite: internal.Ciphersuite{
-			ContextString: []byte("FROST-ED25519-SHA512-v11"),
+			ContextString: []byte("FROST-ED25519-SHA512-v1"),
 			Hash:          hash.SHA512,
 			Group:         group.Edwards25519Sha512,
 		},
@@ -33,7 +32,7 @@ var configurationTable = []frost.Configuration{
 		Ciphersuite: internal.Ciphersuite{
 			Group:         group.Ristretto255Sha512,
 			Hash:          hash.SHA512,
-			ContextString: []byte("FROST-RISTRETTO255-SHA512-v11"),
+			ContextString: []byte("FROST-RISTRETTO255-SHA512-v1"),
 		},
 		GroupPublicKey: nil,
 	},
@@ -41,14 +40,14 @@ var configurationTable = []frost.Configuration{
 		Ciphersuite: internal.Ciphersuite{
 			Group:         group.P256Sha256,
 			Hash:          hash.SHA256,
-			ContextString: []byte("FROST-P256-SHA256-v11"),
+			ContextString: []byte("FROST-P256-SHA256-v1"),
 		},
 		GroupPublicKey: nil,
 	},
 	{
 		GroupPublicKey: nil,
 		Ciphersuite: internal.Ciphersuite{
-			ContextString: []byte("FROST-secp256k1-SHA256-v11"),
+			ContextString: []byte("FROST-secp256k1-SHA256-v1"),
 			Hash:          hash.SHA256,
 			Group:         group.Secp256k1,
 		},
@@ -145,7 +144,7 @@ func TestFrost(t *testing.T) {
 			participantList[i] = internal.IntegerToScalar(g, p)
 		}
 
-		comList := make(internal.CommitmentList, len(participantList))
+		comList := make(frost.CommitmentList, len(participantList))
 		for i, id := range participantList {
 			p := participants.Get(id)
 			comList[i] = p.Commit()
@@ -175,8 +174,8 @@ func TestFrost(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		singleSig := schnorr.Sign(configuration.Ciphersuite, message, groupSecretKey)
-		if !schnorr.Verify(configuration.Ciphersuite, message, singleSig, groupPublicKey) {
+		singleSig := frost.Sign(configuration.Ciphersuite, message, groupSecretKey)
+		if !frost.Verify(configuration.Ciphersuite, message, singleSig, groupPublicKey) {
 			t2.Fatal()
 		}
 	})

@@ -6,22 +6,28 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-package internal
+package frost
 
 import (
 	"errors"
 	"fmt"
-	group "github.com/bytemare/crypto"
 	"slices"
+
+	group "github.com/bytemare/crypto"
+
+	"github.com/bytemare/frost/internal"
 )
 
-// Commitment represent a participant's commitment.
+var errDecodeCommitmentLength = errors.New("failed to decode commitment: invalid length")
+
+// Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
 type Commitment struct {
 	Identifier   *group.Scalar
 	HidingNonce  *group.Element
 	BindingNonce *group.Element
 }
 
+// Encode returns the serialized byte encoding of a participant's commitment.
 func (c Commitment) Encode() []byte {
 	id := c.Identifier.Encode()
 	hNonce := c.HidingNonce.Encode()
@@ -30,18 +36,19 @@ func (c Commitment) Encode() []byte {
 	out := make([]byte, len(id)+len(hNonce)+len(bNonce))
 	copy(out, id)
 	copy(out[len(id):], hNonce)
-	copy(out[len(id)+len(bNonce):], bNonce)
+	copy(out[len(id)+len(hNonce):], bNonce)
 
 	return out
 }
 
+// DecodeCommitment attempts to deserialize the encoded commitment given as input, and to return it.
 func DecodeCommitment(cs Ciphersuite, data []byte) (*Commitment, error) {
-	g := cs.Group
+	g := cs.Configuration().Ciphersuite.Group
 	scalarLength := g.ScalarLength()
 	elementLength := g.ElementLength()
 
 	if len(data) != scalarLength+2*elementLength {
-		return nil, errors.New("failed to decode commitment: invalid length")
+		return nil, errDecodeCommitmentLength
 	}
 
 	c := &Commitment{
@@ -109,7 +116,7 @@ func (c CommitmentList) Encode() []byte {
 	var encoded []byte
 
 	for _, l := range c {
-		e := Concatenate(l.Identifier.Encode(), l.HidingNonce.Encode(), l.BindingNonce.Encode())
+		e := internal.Concatenate(l.Identifier.Encode(), l.HidingNonce.Encode(), l.BindingNonce.Encode())
 		encoded = append(encoded, e...)
 	}
 
