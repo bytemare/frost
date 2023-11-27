@@ -8,7 +8,7 @@ linters:
     - contextcheck
     - cyclop
     - deadcode
-    - depguard
+    #- depguard
     - dogsled
     - dupl
     - durationcheck
@@ -199,5 +199,5 @@ issues:
 run:
   tests: false
 
-#output:
-# format: github-actions
+output:
+ format: github-actions

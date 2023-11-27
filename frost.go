@@ -36,14 +36,14 @@ const (
 	// Secp256k1 uses Secp256k1 and SHA-256.
 	Secp256k1
 
-	ed25519ContextString      = "FROST-ED25519-SHA512-v11"
-	ristretto255ContextString = "FROST-RISTRETTO255-SHA512-v11"
-	p256ContextString         = "FROST-P256-SHA256-v11"
-	secp256k1ContextString    = "FROST-secp256k1-SHA256-v11"
+	ed25519ContextString      = "FROST-ED25519-SHA512-v1"
+	ristretto255ContextString = "FROST-RISTRETTO255-SHA512-v1"
+	p256ContextString         = "FROST-P256-SHA256-v1"
+	secp256k1ContextString    = "FROST-secp256k1-SHA256-v1"
 
 	/*
 
-		ed448ContextString        = "FROST-ED448-SHAKE256-v11"
+		ed448ContextString        = "FROST-ED448-SHAKE256-v1"
 	*/
 )
 
@@ -60,15 +60,20 @@ func (c Ciphersuite) Available() bool {
 }
 
 // Configuration returns a configuration created for the ciphersuite.
-func (c Ciphersuite) Configuration() *Configuration {
+func (c Ciphersuite) Configuration(groupPublicKey ...*group.Element) *Configuration {
 	if !c.Available() {
 		return nil
+	}
+
+	var pk *group.Element
+	if len(groupPublicKey) != 0 {
+		pk = groupPublicKey[0]
 	}
 
 	switch c {
 	case Ed25519:
 		return &Configuration{
-			GroupPublicKey: nil,
+			GroupPublicKey: pk,
 			Ciphersuite: internal.Ciphersuite{
 				ContextString: []byte(ed25519ContextString),
 				Hash:          hash.SHA512,
@@ -77,7 +82,7 @@ func (c Ciphersuite) Configuration() *Configuration {
 		}
 	case Ristretto255:
 		return &Configuration{
-			GroupPublicKey: nil,
+			GroupPublicKey: pk,
 			Ciphersuite: internal.Ciphersuite{
 				Group:         group.Ristretto255Sha512,
 				Hash:          hash.SHA512,
@@ -86,7 +91,7 @@ func (c Ciphersuite) Configuration() *Configuration {
 		}
 	case P256:
 		return &Configuration{
-			GroupPublicKey: nil,
+			GroupPublicKey: pk,
 			Ciphersuite: internal.Ciphersuite{
 				Group:         group.P256Sha256,
 				Hash:          hash.SHA256,
@@ -95,7 +100,7 @@ func (c Ciphersuite) Configuration() *Configuration {
 		}
 	case Secp256k1:
 		return &Configuration{
-			GroupPublicKey: nil,
+			GroupPublicKey: pk,
 			Ciphersuite: internal.Ciphersuite{
 				ContextString: []byte(secp256k1ContextString),
 				Hash:          hash.SHA256,
@@ -115,6 +120,22 @@ type Configuration struct {
 	Ciphersuite    internal.Ciphersuite
 }
 
+// IDFromInt returns a valid ID from and integer given the configuration.
+func (c Configuration) IDFromInt(id int) *group.Scalar {
+	s := c.Ciphersuite.Group.NewScalar()
+
+	switch id {
+	case 0:
+		s.Zero()
+	case 1:
+		s.One()
+	default:
+		s = internal.IntegerToScalar(c.Ciphersuite.Group, id)
+	}
+
+	return s
+}
+
 // Participant returns a new participant of the protocol instantiated from the configuration an input.
 func (c Configuration) Participant(id, keyShare *group.Scalar) *Participant {
 	return &Participant{
@@ -123,7 +144,8 @@ func (c Configuration) Participant(id, keyShare *group.Scalar) *Participant {
 				Identifier: id,
 				SecretKey:  keyShare,
 			},
-			Lambda: nil,
+			Lambda:    nil,
+			PublicKey: c.Ciphersuite.Group.Base().Multiply(keyShare),
 		},
 		Nonce:         [2]*group.Scalar{},
 		HidingRandom:  nil,
@@ -132,13 +154,13 @@ func (c Configuration) Participant(id, keyShare *group.Scalar) *Participant {
 	}
 }
 
-// Commitment is the tuple defining a commitment.
-type Commitment []*group.Element
+// PublicKeys is the tuple defining a commitment.
+type PublicKeys []*group.Element
 
 // DeriveGroupInfo returns the group public key as well those from all participants.
-func DeriveGroupInfo(g group.Group, max int, coms secretsharing.Commitment) (*group.Element, Commitment) {
+func DeriveGroupInfo(g group.Group, max int, coms secretsharing.Commitment) (*group.Element, PublicKeys) {
 	pk := coms[0]
-	keys := make(Commitment, max)
+	keys := make(PublicKeys, max)
 
 	for i := 0; i < max; i++ {
 		id := internal.IntegerToScalar(g, i)
@@ -186,8 +208,8 @@ func derivePublicPoint(g group.Group, coms secretsharing.Commitment, i *group.Sc
 	return publicPoint
 }
 
-// Verify allows verification of a participant's secret share given a VSS commitment to the secret polynomial.
-func Verify(g group.Group, share *secretsharing.KeyShare, coms secretsharing.Commitment) bool {
+// VerifyVSS allows verification of a participant's secret share given a VSS commitment to the secret polynomial.
+func VerifyVSS(g group.Group, share *secretsharing.KeyShare, coms secretsharing.Commitment) bool {
 	pk := g.Base().Multiply(share.SecretKey)
 	return secretsharing.Verify(g, share.Identifier, pk, coms)
 }

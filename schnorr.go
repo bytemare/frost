@@ -6,8 +6,7 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-// Package schnorr provides Schnorr signature operations.
-package schnorr
+package frost
 
 import (
 	"fmt"
@@ -49,22 +48,22 @@ func (s *Signature) Decode(g group.Group, encoded []byte) error {
 	return nil
 }
 
-// Challenge computes the per-message challenge.
-func Challenge(cs internal.Ciphersuite, r, pk *group.Element, msg []byte) *group.Scalar {
-	commEnc := r.Encode()
-	pkEnc := pk.Encode()
-	challengeInput := internal.Concatenate(commEnc, pkEnc, msg)
-
-	return cs.H2(challengeInput)
+// challenge computes the per-message challenge.
+func challenge(cs internal.Ciphersuite, r, pk *group.Element, msg []byte) *group.Scalar {
+	return cs.H2(internal.Concatenate(r.Encode(), pk.Encode(), msg))
 }
 
-// Sign returns the signature of message ms with the private key s.
-func Sign(cs internal.Ciphersuite, msg []byte, s *group.Scalar) *Signature {
+func computeZ(r, challenge, key *group.Scalar) *group.Scalar {
+	return r.Add(challenge.Multiply(key))
+}
+
+// Sign returns a Schnorr signature over the message msg with the full secret signing key (as opposed to a key share).
+func Sign(cs internal.Ciphersuite, msg []byte, key *group.Scalar) *Signature {
 	r := cs.Group.NewScalar().Random()
 	R := cs.Group.Base().Multiply(r)
-	pk := cs.Group.Base().Multiply(s)
-	c := Challenge(cs, R, pk, msg)
-	z := r.Add(c.Multiply(s))
+	pk := cs.Group.Base().Multiply(key)
+	c := challenge(cs, R, pk, msg)
+	z := computeZ(r, c, key)
 
 	return &Signature{
 		R: R,
@@ -74,7 +73,7 @@ func Sign(cs internal.Ciphersuite, msg []byte, s *group.Scalar) *Signature {
 
 // Verify returns whether the signature of the message msg is valid under the public key pk.
 func Verify(cs internal.Ciphersuite, msg []byte, signature *Signature, pk *group.Element) bool {
-	c := Challenge(cs, signature.R, pk, msg)
+	c := challenge(cs, signature.R, pk, msg)
 	l := cs.Group.Base().Multiply(signature.Z)
 	r := signature.R.Add(pk.Copy().Multiply(c))
 
