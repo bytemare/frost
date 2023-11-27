@@ -75,21 +75,6 @@ func DecodeCommitment(cs Ciphersuite, data []byte) (*Commitment, error) {
 // CommitmentList is a sortable list of commitments.
 type CommitmentList []*Commitment
 
-// Len implements the sort.Interface Len method.
-func (c CommitmentList) Len() int {
-	return len(c)
-}
-
-// Less implements the sort.Interface Less method.
-func (c CommitmentList) Less(i, j int) bool {
-	return c[i].Identifier.LessOrEqual(c[j].Identifier) == 1
-}
-
-// Swap implements the sort.Interface Swap method.
-func (c CommitmentList) Swap(i, j int) {
-	c[i], c[j] = c[j], c[i]
-}
-
 func cmpID(a, b *Commitment) int {
 	switch {
 	case a.Identifier.Equal(b.Identifier) == 1: // a == b
