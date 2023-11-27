@@ -177,6 +177,10 @@ func (p *Participant) computeGroupCommitment(l CommitmentList, list internal.Bin
 	gc := p.Configuration.Ciphersuite.Group.NewElement().Identity()
 
 	for _, commitment := range l {
+		if commitment.HidingNonce.IsIdentity() || commitment.BindingNonce.IsIdentity() {
+			panic("identity commitment")
+		}
+
 		factor := list.BindingFactorForParticipant(commitment.Identifier)
 		bindingNonce := commitment.BindingNonce.Copy().Multiply(factor)
 		gc.Add(commitment.HidingNonce).Add(bindingNonce)

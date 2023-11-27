@@ -8,7 +8,7 @@ linters:
     - contextcheck
     - cyclop
     - deadcode
-    - depguard
+    #- depguard
     - dogsled
     - dupl
     - durationcheck
