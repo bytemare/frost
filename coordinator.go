@@ -8,12 +8,7 @@
 
 package frost
 
-import (
-	group "github.com/bytemare/crypto"
-	secretsharing "github.com/bytemare/secret-sharing"
-)
-
-// Aggregate allows the coordinator to produce the final signature given all signature shares.
+// AggregateSignatures allows the coordinator to produce the final signature given all signature shares.
 //
 // Before aggregation, each signature share must be a valid, deserialized element. If that validation fails the
 // coordinator must abort the protocol, as the resulting signature will be invalid.
@@ -22,23 +17,17 @@ import (
 // The coordinator should verify this signature using the group public key before publishing or releasing the signature.
 // This aggregate signature will verify if and only if all signature shares are valid. If an invalid share is identified
 // a reasonable approach is to remove the participant from the set of allowed participants in future runs of FROST.
-func (p *Participant) Aggregate(
-	list CommitmentList,
-	msg []byte,
-	sigShares []*SignatureShare,
-) *Signature {
-	if !list.IsSorted() {
-		panic("list not sorted")
-	}
+func (c Configuration) AggregateSignatures(msg []byte, sigShares []*SignatureShare, coms CommitmentList) *Signature {
+	coms.Sort()
 
 	// Compute binding factors
-	bindingFactorList := p.computeBindingFactors(list, msg)
+	bindingFactorList := c.computeBindingFactors(coms, c.GroupPublicKey.Encode(), msg)
 
 	// Compute group commitment
-	groupCommitment := p.computeGroupCommitment(list, bindingFactorList)
+	groupCommitment := c.computeGroupCommitment(coms, bindingFactorList)
 
 	// Compute aggregate signature
-	z := p.Ciphersuite.Group.NewScalar()
+	z := c.Ciphersuite.Group.NewScalar()
 	for _, share := range sigShares {
 		z.Add(share.SignatureShare)
 	}
@@ -50,45 +39,30 @@ func (p *Participant) Aggregate(
 }
 
 // VerifySignatureShare verifies a signature share.
-// id, pki, commi, and sigShareI are, respectively, the identifier, public key, commitment, and signature share of
+// commitment, pki, and sigShareI are, respectively, commitment, public key, and signature share of
 // the participant whose share is to be verified.
 //
 // The CommitmentList must be sorted in ascending order by identifier.
-func (p *Participant) VerifySignatureShare(
-	commitment *Commitment,
-	pki *group.Element,
-	sigShareI *group.Scalar,
-	coms CommitmentList,
-	msg []byte,
+func (c Configuration) VerifySignatureShare(com *Commitment,
+	message []byte,
+	sigShare *SignatureShare,
+	commitments CommitmentList,
 ) bool {
-	if !coms.IsSorted() {
-		panic("list not sorted")
-	}
-
-	// Compute Binding Factor(s)
-	bindingFactorList := p.computeBindingFactors(coms, msg)
-	bindingFactor := bindingFactorList.BindingFactorForParticipant(commitment.Identifier)
-
-	// Compute Group Commitment
-	groupCommitment := p.computeGroupCommitment(coms, bindingFactorList)
-
-	// Commitment KeyShare
-	commShare := commitment.HidingNonce.Copy().Add(commitment.BindingNonce.Copy().Multiply(bindingFactor))
-
-	// Compute the challenge
-	challenge := challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
-
-	// Compute the interpolating value
-	participantList := secretsharing.Polynomial(coms.Participants())
-
-	lambdaI, err := participantList.DeriveInterpolatingValue(p.Ciphersuite.Group, commitment.Identifier)
+	bindingFactor, _, lambdaChall, err := c.do(message, commitments, com.Identifier)
 	if err != nil {
 		panic(err)
 	}
 
+	if com.Identifier != sigShare.Identifier {
+		panic(nil)
+	}
+
+	// Commitment KeyShare
+	commShare := com.HidingNonce.Copy().Add(com.BindingNonce.Copy().Multiply(bindingFactor))
+
 	// Compute relation values
-	l := p.Ciphersuite.Group.Base().Multiply(sigShareI)
-	r := commShare.Add(pki.Multiply(challenge.Multiply(lambdaI)))
+	l := c.Ciphersuite.Group.Base().Multiply(sigShare.SignatureShare)
+	r := commShare.Add(com.PublicKey.Multiply(lambdaChall))
 
 	return l.Equal(r) == 1
 }

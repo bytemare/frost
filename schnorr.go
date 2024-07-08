@@ -10,8 +10,6 @@ package frost
 
 import (
 	"fmt"
-	"math/big"
-
 	group "github.com/bytemare/crypto"
 
 	"github.com/bytemare/frost/internal"
@@ -58,12 +56,13 @@ func computeZ(r, challenge, key *group.Scalar) *group.Scalar {
 }
 
 // Sign returns a Schnorr signature over the message msg with the full secret signing key (as opposed to a key share).
-func Sign(cs internal.Ciphersuite, msg []byte, key *group.Scalar) *Signature {
-	r := cs.Group.NewScalar().Random()
-	R := cs.Group.Base().Multiply(r)
-	pk := cs.Group.Base().Multiply(key)
-	c := challenge(cs, R, pk, msg)
-	z := computeZ(r, c, key)
+func (c Configuration) Sign(msg []byte, key *group.Scalar) *Signature {
+	g := c.Ciphersuite.Group
+	r := g.NewScalar().Random()
+	R := g.Base().Multiply(r)
+	pk := g.Base().Multiply(key)
+	ch := challenge(c.Ciphersuite, R, pk, msg)
+	z := computeZ(r, ch, key)
 
 	return &Signature{
 		R: R,
@@ -71,18 +70,14 @@ func Sign(cs internal.Ciphersuite, msg []byte, key *group.Scalar) *Signature {
 	}
 }
 
-// Verify returns whether the signature of the message msg is valid under the public key pk.
-func Verify(cs internal.Ciphersuite, msg []byte, signature *Signature, pk *group.Element) bool {
-	c := challenge(cs, signature.R, pk, msg)
-	l := cs.Group.Base().Multiply(signature.Z)
-	r := signature.R.Add(pk.Copy().Multiply(c))
+// VerifySignature returns whether the signature of the message msg is valid under the public key pk.
+func (c Configuration) VerifySignature(msg []byte, signature *Signature) bool {
+	ch := challenge(c.Ciphersuite, signature.R, c.GroupPublicKey, msg)
+	l := c.Ciphersuite.Group.Base().Multiply(signature.Z)
+	r := signature.R.Add(c.GroupPublicKey.Copy().Multiply(ch))
 
-	if cs.Group == group.Edwards25519Sha512 {
-		cofactor := group.Edwards25519Sha512.NewScalar()
-		if err := cofactor.SetInt(big.NewInt(8)); err != nil {
-			panic(err)
-		}
-
+	if c.Ciphersuite.Group == group.Edwards25519Sha512 {
+		cofactor := group.Edwards25519Sha512.NewScalar().SetUInt64(8)
 		return l.Multiply(cofactor).Equal(r.Multiply(cofactor)) == 1
 	}
 

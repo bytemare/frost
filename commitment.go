@@ -9,8 +9,10 @@
 package frost
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	secretsharing "github.com/bytemare/secret-sharing"
 	"slices"
 
 	group "github.com/bytemare/crypto"
@@ -22,21 +24,22 @@ var errDecodeCommitmentLength = errors.New("failed to decode commitment: invalid
 
 // Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
 type Commitment struct {
-	Identifier   *group.Scalar
+	Identifier   uint64
+	PublicKey    *group.Element
 	HidingNonce  *group.Element
 	BindingNonce *group.Element
 }
 
 // Encode returns the serialized byte encoding of a participant's commitment.
 func (c Commitment) Encode() []byte {
-	id := c.Identifier.Encode()
+	id := c.Identifier
 	hNonce := c.HidingNonce.Encode()
 	bNonce := c.BindingNonce.Encode()
 
-	out := make([]byte, len(id)+len(hNonce)+len(bNonce))
-	copy(out, id)
-	copy(out[len(id):], hNonce)
-	copy(out[len(id)+len(hNonce):], bNonce)
+	out := make([]byte, 8, 8+len(hNonce)+len(bNonce))
+	binary.LittleEndian.PutUint64(out, id)
+	copy(out[8:], hNonce)
+	copy(out[8+len(hNonce):], bNonce)
 
 	return out
 }
@@ -52,14 +55,12 @@ func DecodeCommitment(cs Ciphersuite, data []byte) (*Commitment, error) {
 	}
 
 	c := &Commitment{
-		Identifier:   g.NewScalar(),
+		Identifier:   0,
 		HidingNonce:  g.NewElement(),
 		BindingNonce: g.NewElement(),
 	}
 
-	if err := c.Identifier.Decode(data[:scalarLength]); err != nil {
-		return nil, fmt.Errorf("failed to decode commitment identifier: %w", err)
-	}
+	c.Identifier = internal.UInt64FromLE(data[:scalarLength])
 
 	if err := c.HidingNonce.Decode(data[:scalarLength]); err != nil {
 		return nil, fmt.Errorf("failed to decode commitment hiding nonce: %w", err)
@@ -77,9 +78,9 @@ type CommitmentList []*Commitment
 
 func cmpID(a, b *Commitment) int {
 	switch {
-	case a.Identifier.Equal(b.Identifier) == 1: // a == b
+	case a.Identifier != b.Identifier: // a == b
 		return 0
-	case a.Identifier.LessOrEqual(b.Identifier) == 1: // a < b
+	case a.Identifier <= b.Identifier: // a < b
 		return -1
 	default:
 		return 1
@@ -101,7 +102,7 @@ func (c CommitmentList) Encode() []byte {
 	var encoded []byte
 
 	for _, l := range c {
-		e := internal.Concatenate(l.Identifier.Encode(), l.HidingNonce.Encode(), l.BindingNonce.Encode())
+		e := internal.Concatenate(internal.UInt64LE(l.Identifier), l.HidingNonce.Encode(), l.BindingNonce.Encode())
 		encoded = append(encoded, e...)
 	}
 
@@ -109,19 +110,16 @@ func (c CommitmentList) Encode() []byte {
 }
 
 // Participants returns the list of participants in the commitment list.
-func (c CommitmentList) Participants() []*group.Scalar {
-	identifiers := make([]*group.Scalar, len(c))
-	for i, l := range c {
-		identifiers[i] = l.Identifier
-	}
-
-	return identifiers
+func (c CommitmentList) Participants(g group.Group) secretsharing.Polynomial {
+	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *group.Scalar {
+		return g.NewScalar().SetUInt64(c.Identifier)
+	})
 }
 
 // Get returns the commitment of the participant with the corresponding identifier, or nil if it was not found.
-func (c CommitmentList) Get(identifier *group.Scalar) *Commitment {
+func (c CommitmentList) Get(identifier uint64) *Commitment {
 	for _, com := range c {
-		if com.Identifier.Equal(identifier) == 1 {
+		if com.Identifier == identifier {
 			return com
 		}
 	}

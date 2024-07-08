@@ -8,11 +8,13 @@
 
 package internal
 
-import group "github.com/bytemare/crypto"
+import (
+	group "github.com/bytemare/crypto"
+)
 
 // BindingFactor holds the binding factor scalar for the given identifier.
 type BindingFactor struct {
-	Identifier    *group.Scalar
+	Identifier    uint64
 	BindingFactor *group.Scalar
 }
 
@@ -20,9 +22,9 @@ type BindingFactor struct {
 type BindingFactorList []*BindingFactor
 
 // BindingFactorForParticipant returns the binding factor for a given participant identifier in the list.
-func (b BindingFactorList) BindingFactorForParticipant(id *group.Scalar) *group.Scalar {
+func (b BindingFactorList) BindingFactorForParticipant(id uint64) *group.Scalar {
 	for _, bf := range b {
-		if id.Equal(bf.Identifier) == 1 {
+		if id == bf.Identifier {
 			return bf.BindingFactor
 		}
 	}

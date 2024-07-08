@@ -9,129 +9,219 @@
 package frost_test
 
 import (
-	"encoding/hex"
 	"fmt"
-
 	group "github.com/bytemare/crypto"
-
+	"github.com/bytemare/dkg"
 	"github.com/bytemare/frost"
-	"github.com/bytemare/frost/dkg"
 )
 
 var (
-	participantGeneratedInDKG    *frost.Participant
+	maxParticipants              uint
+	threshold                    uint
+	ciphersuite                  frost.Ciphersuite
+	participantsGeneratedInDKG   []*frost.Participant
 	commitment                   *frost.Commitment
 	groupPublicKeyGeneratedInDKG *group.Element
 )
 
-// Example_dkg shows the distributed key generation procedure that must be executed by each participant to build the secret key.
 func Example_dkg() {
 	// Each participant must be set to use the same configuration.
-	maximumAmountOfParticipants := 1
-	threshold := 1
-	configuration := frost.Ristretto255.Configuration()
+	if threshold == 0 || maxParticipants == 0 {
+		maxParticipants = 5
+		threshold = 3
+	}
 
-	// Step 1: Initialise your participant. Each participant must be given an identifier that MUST be unique among
-	// all participants. For this example, this participant will have id = 1.
-	participantIdentifier := configuration.IDFromInt(1)
-	dkgParticipant := dkg.NewParticipant(
-		configuration.Ciphersuite,
-		participantIdentifier,
-		maximumAmountOfParticipants,
-		threshold,
-	)
+	if ciphersuite == 0 {
+		ciphersuite = frost.Ristretto255
+	}
 
-	// Step 2: Call Init() on each participant. This will return data that must be broadcast to all other participants
+	dkgCiphersuite := dkg.Ciphersuite(ciphersuite)
+
+	// Step 1: Initialise each participant. Each participant must be given an identifier that MUST be unique among
+	// all participants.
+	participants := make([]*dkg.Participant, 0, maxParticipants)
+	for i := range maxParticipants {
+		p, err := dkgCiphersuite.NewParticipant(uint64(i+1), maxParticipants, threshold)
+		if err != nil {
+			panic(err)
+		}
+
+		participants = append(participants, p)
+	}
+
+	// Step 2: Call Start() on each participant. This will return data that must be broadcast to all other participants
 	// over a secure channel.
-	round1Data := dkgParticipant.Init()
-	if round1Data.SenderIdentifier.Equal(participantIdentifier) != 1 {
-		panic("this is just a test, and it failed")
+	r1 := make([][]byte, 0, maxParticipants)
+	for i := range maxParticipants {
+		r1 = append(r1, participants[i].Start().Encode())
 	}
 
-	// Step 3: First, collect all round1Data from all other participants. Then call Continue() on each participant
-	// providing them with the compiled data.
-	accumulatedRound1Data := make([]*dkg.Round1Data, 0, maximumAmountOfParticipants)
-	accumulatedRound1Data = append(accumulatedRound1Data, round1Data)
+	// Step 3: First, each participant collects all round1Data from all other participants, and decodes them using
+	// NewRound1Data().
+	// Then call Continue() on each participant providing them with the compiled data.
+	accumulatedRound1Data := make([]*dkg.Round1Data, 0, maxParticipants)
+	for i, r := range r1 {
+		decodedRound1 := participants[i].NewRound1Data()
+		if err := decodedRound1.Decode(r); err != nil {
+			panic(err)
+		}
 
-	// This will return a dedicated package for each other participant that must be sent to them over a secure channel.
-	// The intended receiver is specified in the returned data.
-	// We ignore the error for the demo, but execution MUST be aborted upon errors.
-	round2Data, err := dkgParticipant.Continue(accumulatedRound1Data)
-	if err != nil {
-		panic(err)
-	} else if len(round2Data) != len(accumulatedRound1Data)-1 {
-		panic("this is just a test, and it failed")
+		accumulatedRound1Data = append(accumulatedRound1Data, decodedRound1)
 	}
 
-	// Step 3: First, collect all round2Data from all other participants. Then call Finalize() on each participant
-	// providing the same input as for Continue() and the collected data from the second round2.
-	accumulatedRound2Data := round2Data
+	// This will return a dedicated package round2Data for each other participant that must be sent to them over a secure channel.
+	// The intended receiver is specified in round2Data.
+	// Execution MUST be aborted upon errors, and not rewound. If this fails you should probably investigate this.
+	// Since we centrally simulate the setup here, we use a map to keep the messages for participant together.
+	r2 := make(map[uint64][][]byte, maxParticipants)
+	for _, participant := range participants {
+		r, err := participant.Continue(accumulatedRound1Data)
+		if err != nil {
+			panic(err)
+		}
+
+		for id, data := range r {
+			if r2[id] == nil {
+				r2[id] = make([][]byte, 0, maxParticipants-1)
+			}
+			r2[id] = append(r2[id], data.Encode())
+		}
+	}
+
+	// Step 3: First, collect all round2Data from all other participants intended to this participant, and decode them
+	// using NewRound2Data().
+	// Then call Finalize() on each participant providing the same input as for Continue() and the collected data from the second round.
 
 	// This will, for each participant, return their secret key (which is a share of the global secret signing key),
-	// the corresponding verification key, and the global public key.
-	// We ignore the error for the demo, but execution MUST be aborted upon errors.
-	var participantsSecretKey *group.Scalar
-	participantsSecretKey, _, groupPublicKeyGeneratedInDKG, err = dkgParticipant.Finalize(
-		accumulatedRound1Data,
-		accumulatedRound2Data,
-	)
-	if err != nil {
-		panic(err)
+	// the corresponding verification/public key, and the global public key.
+	// In case of errors, execution MUST be aborted.
+
+	keyShares := make([]*frost.KeyShare, maxParticipants)
+	participantsGeneratedInDKG = make([]*frost.Participant, maxParticipants)
+
+	for i, participant := range participants {
+		accumulatedRound2Data := make([]*dkg.Round2Data, 0, maxParticipants)
+		for _, r := range r2[participant.Identifier] {
+			d := participant.NewRound2Data()
+			if err := d.Decode(r); err != nil {
+				panic(err)
+			}
+
+			accumulatedRound2Data = append(accumulatedRound2Data, d)
+		}
+
+		participantKeys, gpk, err := participant.Finalize(accumulatedRound1Data, accumulatedRound2Data)
+		if err != nil {
+			panic(err)
+		}
+
+		if groupPublicKeyGeneratedInDKG == nil {
+			groupPublicKeyGeneratedInDKG = gpk
+		}
+
+		keyShare := &frost.KeyShare{
+			ID:        participantKeys.Identifier,
+			Secret:    participantKeys.SecretKey,
+			PublicKey: participantKeys.PublicKey,
+		}
+
+		keyShares[i] = keyShare
+		participantsGeneratedInDKG[i] = ciphersuite.Configuration(groupPublicKeyGeneratedInDKG).Participant(keyShare)
 	}
 
-	// It is important to set the group's public key.
-	configuration.GroupPublicKey = groupPublicKeyGeneratedInDKG
-
-	// Now you can build a Signing Participant for the FROST protocol with this ID and key.
-	participantGeneratedInDKG = configuration.Participant(participantIdentifier, participantsSecretKey)
-
-	fmt.Printf("Signing keys for participant set up. ID: %s\n", hex.EncodeToString(participantIdentifier.Encode()))
-
-	// Output: Signing keys for participant set up. ID: 0100000000000000000000000000000000000000000000000000000000000000
+	fmt.Println("Signing keys set up in DKG.")
+	// Output: Signing keys set up in DKG.
 }
 
 // Example_signer shows the execution steps of a FROST participant.
 func Example_signer() {
-	// The following are your setup variables and configuration.
-	numberOfParticipants := 1
+	maxParticipants = 5
+	threshold = 3
+	message := []byte("example message")
+	ciphersuite = frost.Ristretto255
 
 	// We assume you already have a pool of participants with distinct non-zero identifiers and their signing share.
 	// See Example_dkg() on how to do generate these shares.
 	Example_dkg()
-	participant := participantGeneratedInDKG
+	participant := participantsGeneratedInDKG[1]
 
 	// Step 1: call Commit() on each participant. This will return the participant's single-use commitment.
 	// Send this to the coordinator or all other participants over an authenticated
 	// channel (confidentiality is not required).
 	// A participant keeps an internal state during the protocol run across the two rounds.
 	commitment = participant.Commit()
-	if commitment.Identifier.Equal(participant.KeyShare.Identifier) != 1 {
+	if commitment.Identifier != participant.KeyShare.ID {
 		panic("this is just a test and it failed")
 	}
 
 	// Step 2: collect the commitments from the other participants and coordinator-chosen the message to sign,
-	// and finalize by signing the message.
-	message := []byte("example")
-	commitments := make(frost.CommitmentList, 0, numberOfParticipants)
+	// and finalize by signing the message. This is a dummy list since we have only one signer.
+	commitments := make(frost.CommitmentList, 0, threshold)
 	commitments = append(commitments, commitment)
 
-	// This will produce a signature share to be sent back to the coordinator.
+	// Step 3: The participant receives the commitments from the other signer and the message to sign.
+	// Sign produce a signature share to be sent back to the coordinator.
 	// We ignore the error for the demo, but execution MUST be aborted upon errors.
-	signatureShare, _ := participant.Sign(message, commitments)
+	signatureShare, err := participant.Sign(message, commitments)
+	if err != nil {
+		panic(err)
+	}
+
+	// This shows how to verify a single signature share
 	if !participant.VerifySignatureShare(
 		commitment,
-		participant.GroupPublicKey,
-		signatureShare.SignatureShare,
-		commitments,
 		message,
+		signatureShare,
+		commitments,
 	) {
-		panic("this is a test and it failed")
+		panic("signature share verification failed")
 	}
 
 	fmt.Println("Signing successful.")
 
-	// Output: Signing keys for participant set up. ID: 0100000000000000000000000000000000000000000000000000000000000000
+	// Output: Signing keys set up in DKG.
 	// Signing successful.
+}
+
+// Example_verification shows how to verify a FROST signature produced by multiple signers.
+func Example_verification() {
+	maxParticipants = 5
+	threshold = 3
+
+	message := []byte("example message")
+	ciphersuite = frost.Ristretto255
+
+	// The following sets up the signer pool and produces a signature to verify.
+	Example_dkg()
+	participants := participantsGeneratedInDKG[:threshold]
+	commitments := make(frost.CommitmentList, threshold)
+	signatureShares := make([]*frost.SignatureShare, threshold)
+	for i, p := range participants {
+		commitments[i] = p.Commit()
+	}
+	for i, p := range participants {
+		var err error
+		signatureShares[i], err = p.Sign(message, commitments)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	configuration := ciphersuite.Configuration(groupPublicKeyGeneratedInDKG)
+	signature := configuration.AggregateSignatures(message, signatureShares, commitments)
+
+	// Verify the signature
+	conf := ciphersuite.Configuration(groupPublicKeyGeneratedInDKG)
+	success := conf.VerifySignature(message, signature)
+
+	if success {
+		fmt.Println("Signature is valid.")
+	} else {
+		fmt.Println("Signature is not valid.")
+	}
+
+	// Output: Signing keys set up in DKG.
+	// Signature is valid.
 }
 
 // Example_coordinator shows the execution steps of a FROST coordinator.
@@ -145,78 +235,62 @@ func Example_coordinator() {
 
 		Note that it is possible to deploy the protocol without a distinguished Coordinator.
 	*/
+	maxParticipants = 5
+	threshold = 3
 
-	// The following are your setup variables and configuration.
-	const (
-		maxParticipants      = 1
-		numberOfParticipants = 1 // Must be >= to the threshold, and <= to the total number of participants.
-	)
+	message := []byte("example message")
+	ciphersuite = frost.Ristretto255
 
-	// 0. We suppose a previous run of DKG with a setup of participants. Here we will only use 1 participant.
+	// 0. We suppose a previous run of a DKG with a setup of participants.
 	Example_dkg()
-	participant := participantGeneratedInDKG
+	participants := participantsGeneratedInDKG[:threshold]
 	groupPublicKey := groupPublicKeyGeneratedInDKG
 
-	// A coordinator CAN be a participant. In this instance, we chose it not to be one.
+	// Set up a coordinator.
 	configuration := frost.Ristretto255.Configuration(groupPublicKey)
-	coordinator := configuration.Participant(nil, nil)
 
-	// 1. Determine which participants will participate (at least MIN_PARTICIPANTS in number).
-	//participantIdentifiers := [numberOfParticipants]*group.Scalar{
-	//	participant.KeyShare.Identifier,
-	//}
-	participantPublicKeys := []*group.Element{
-		participant.ParticipantInfo.PublicKey,
+	// 1. Each participant generates its commitment and sends it to the aggregator.
+	// Then send the message to be signed and the sorted received commitment list to each participant.
+	commitments := make(frost.CommitmentList, threshold)
+	for i, p := range participants {
+		commitments[i] = p.Commit()
 	}
-
-	// 2. Receive the participant's commitments and sort the list. Then send the message to be signed and the sorted
-	// received commitment list to each participant.
-	commitments := frost.CommitmentList{
-		participant.Commit(),
-	}
-	message := []byte("example")
 
 	commitments.Sort()
 
-	// 3. Collect the participants signature shares, and aggregate them to produce the final signature. This signature
-	// SHOULD be verified.
-	p1SignatureShare, _ := participant.Sign(message, commitments)
-	signatureShares := [numberOfParticipants]*frost.SignatureShare{
-		p1SignatureShare,
+	// 2. Each participant signs the message and sends the resulting signature shares to the aggregator/coordinator,
+	// which aggregates them to produce the final signature. This signature SHOULD be verified.
+	var err error
+	signatureShares := make([]*frost.SignatureShare, threshold)
+	for i, participant := range participants {
+		signatureShares[i], err = participant.Sign(message, commitments)
+		if err != nil {
+			panic(err)
+		}
 	}
 
-	signature := coordinator.Aggregate(commitments, message, signatureShares[:])
+	signature := configuration.AggregateSignatures(message, signatureShares[:], commitments)
 
-	if !frost.Verify(configuration.Ciphersuite, message, signature, groupPublicKey) {
-		fmt.Println("invalid signature")
+	if !configuration.VerifySignature(message, signature) {
 		// At this point one should try to identify which participant's signature share is invalid and act on it.
 		// This verification is done as follows:
-		for i, signatureShare := range signatureShares {
+		for _, signatureShare := range signatureShares {
 			// Verify whether we have the participants commitment
 			commitmentI := commitments.Get(signatureShare.Identifier)
 			if commitmentI == nil {
 				panic("commitment not found")
 			}
 
-			// Get the public key corresponding to the signature share's participant
-			pki := participantPublicKeys[i-1]
-
-			if !coordinator.VerifySignatureShare(
-				commitmentI,
-				pki,
-				signatureShare.SignatureShare,
-				commitments,
-				message,
-			) {
-				fmt.Printf("participant %v produced an invalid signature share", signatureShare.Identifier.Encode())
+			if !configuration.VerifySignatureShare(commitmentI, message, signatureShare, commitments) {
+				panic(fmt.Sprintf("participant %v produced an invalid signature share", signatureShare.Identifier))
 			}
 		}
 
-		panic("Failed.")
+		panic("Signature verification failed.")
 	}
 
 	fmt.Printf("Valid signature for %q.", message)
 
-	// Output: Signing keys for participant set up. ID: 0100000000000000000000000000000000000000000000000000000000000000
-	// Valid signature for "example".
+	// Output: Signing keys set up in DKG.
+	// Valid signature for "example message".
 }

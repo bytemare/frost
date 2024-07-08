@@ -14,9 +14,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
-
-	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost"
 )
@@ -26,7 +25,7 @@ func (v test) test(t *testing.T) {
 
 	coeffs := v.Inputs.SharePolynomialCoefficients
 
-	privateKeyShares, dealerGroupPubKey, secretsharingCommitment, err := frost.TrustedDealerKeygen(
+	keyShares, dealerGroupPubKey, secretsharingCommitment, err := frost.TrustedDealerKeygen(
 		g,
 		v.Inputs.GroupSecretKey,
 		v.Config.MaxParticipants,
@@ -42,10 +41,10 @@ func (v test) test(t *testing.T) {
 	}
 
 	// Check whether key shares are the same
-	cpt := len(privateKeyShares)
-	for _, p := range privateKeyShares {
+	cpt := len(keyShares)
+	for _, p := range keyShares {
 		for _, p2 := range v.Inputs.Participants {
-			if p2.Identifier.Equal(p.Identifier) == 1 {
+			if p2.Identifier() == p.Identifier() && p2.SecretKey().Equal(p.Secret) == 1 {
 				cpt--
 			}
 		}
@@ -56,7 +55,7 @@ func (v test) test(t *testing.T) {
 	}
 
 	// Test recovery of the full secret signing key.
-	recoveredKey, err := secretsharing.Combine(g, uint(v.Config.MinParticipants), privateKeyShares)
+	recoveredKey, err := v.Config.Configuration.RecoverGroupSecret(keyShares)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,18 +73,18 @@ func (v test) test(t *testing.T) {
 		t.Fatal()
 	}
 
-	for i, shareI := range privateKeyShares {
+	for i, shareI := range keyShares {
 		if !frost.VerifyVSS(g, shareI, secretsharingCommitment) {
 			t.Fatal(i)
 		}
 	}
 
 	// Create participants
-	participants := make(ParticipantList, len(privateKeyShares))
+	participants := make(ParticipantList, len(keyShares))
 	conf := v.Config
 	conf.GroupPublicKey = groupPublicKey
-	for i, pks := range privateKeyShares {
-		participants[i] = conf.Participant(pks.Identifier, pks.SecretKey)
+	for i, keyShare := range keyShares {
+		participants[i] = conf.Participant(keyShare)
 	}
 
 	// Round One: Commitment
@@ -98,7 +97,7 @@ func (v test) test(t *testing.T) {
 
 		var pv *participant
 		for _, pp := range v.RoundOneOutputs.Outputs {
-			if pp.ID.Equal(pid.ID) == 1 {
+			if pp.ID == pid.ID {
 				pv = pp
 			}
 		}
@@ -139,8 +138,8 @@ func (v test) test(t *testing.T) {
 
 	// Round two: sign
 	sigShares := make([]*frost.SignatureShare, len(v.RoundTwoOutputs.Outputs))
-	for i, pid := range v.RoundTwoOutputs.Outputs {
-		p := participants.Get(pid.Identifier)
+	for i, share := range v.RoundTwoOutputs.Outputs {
+		p := participants.Get(share.Identifier)
 		if p == nil {
 			t.Fatal(i)
 		}
@@ -149,22 +148,29 @@ func (v test) test(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	}
 
-	for i, ks := range v.RoundTwoOutputs.Outputs {
-		if ks.SecretKey.Equal(sigShares[i].SignatureShare) != 1 {
-			t.Fatal(i)
+		j := slices.IndexFunc(commitmentList, func(commitment *frost.Commitment) bool {
+			return commitment.Identifier == p.KeyShare.Identifier()
+		})
+
+		if !conf.Configuration.VerifySignatureShare(commitmentList[j], v.Inputs.Message, sigShares[i], commitmentList) {
+			t.Fatal()
+		}
+
+		// Check against vector
+		if share.SignatureShare.Equal(sigShares[i].SignatureShare) != 1 {
+			t.Fatalf("%s\n%s\n", share.SignatureShare.Hex(), sigShares[i].SignatureShare.Hex())
 		}
 	}
 
-	// Aggregate
-	sig := participants[1].Aggregate(commitmentList, v.Inputs.Message, sigShares)
+	// AggregateSignatures
+	sig := v.Config.AggregateSignatures(v.Inputs.Message, sigShares, commitmentList)
 	if !bytes.Equal(sig.Encode(), v.FinalOutput) {
 		t.Fatal()
 	}
 
 	// Sanity Check
-	if !frost.Verify(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey) {
+	if !conf.VerifySignature(v.Inputs.Message, sig) {
 		t.Fatal()
 	}
 }

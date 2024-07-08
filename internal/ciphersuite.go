@@ -18,7 +18,7 @@ import (
 // Ciphersuite combines the group and hashing routines.
 type Ciphersuite struct {
 	ContextString []byte
-	Hash          hash.Hashing
+	Hash          hash.Hash
 	Group         group.Group
 }
 
@@ -69,7 +69,7 @@ func (c Ciphersuite) H1(input []byte) *group.Scalar {
 // H2 hashes the input and proves the "chal" DST.
 func (c Ciphersuite) H2(input []byte) *group.Scalar {
 	if c.Group == group.Edwards25519Sha512 {
-		// For compatibility with RFC8032 H2 doesn't use a domain separator.
+		// For compatibility with RFC8032 H2 doesn't use a domain separator for Edwards25519.
 		return c.h1Ed25519(input)
 	}
 
@@ -89,9 +89,4 @@ func (c Ciphersuite) H4(msg []byte) []byte {
 // H5 hashes the input and proves the "com" DST.
 func (c Ciphersuite) H5(msg []byte) []byte {
 	return c.Hash.Hash(c.ContextString, []byte("com"), msg)
-}
-
-// HDKG hashes the input to the "dkg" DST.
-func (c Ciphersuite) HDKG(msg []byte) *group.Scalar {
-	return c.hx(msg, []byte("dkg"))
 }

@@ -9,14 +9,13 @@
 package frost_test
 
 import (
+	"fmt"
 	"testing"
 
 	group "github.com/bytemare/crypto"
-	"github.com/bytemare/hash"
-	secretsharing "github.com/bytemare/secret-sharing"
-
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/hash"
 )
 
 var configurationTable = []frost.Configuration{
@@ -55,29 +54,29 @@ var configurationTable = []frost.Configuration{
 }
 
 func TestTrustedDealerKeygen(t *testing.T) {
-	min := 2
-	max := 3
+	threshold := 3
+	maxSigners := 5
 
 	testAll(t, func(t2 *testing.T, configuration *frost.Configuration) {
 		g := configuration.Ciphersuite.Group
 
 		groupSecretKey := g.NewScalar().Random()
 
-		privateKeyShares, dealerGroupPubKey, secretsharingCommitment, err := frost.TrustedDealerKeygen(
+		keyShares, dealerGroupPubKey, secretsharingCommitment, err := frost.TrustedDealerKeygen(
 			g,
 			groupSecretKey,
-			max,
-			min,
+			maxSigners,
+			threshold,
 		)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if len(secretsharingCommitment) != min {
-			t2.Fatalf("%d / %d", len(secretsharingCommitment), min)
+		if len(secretsharingCommitment) != threshold {
+			t2.Fatalf("%d / %d", len(secretsharingCommitment), threshold)
 		}
 
-		recoveredKey, err := secretsharing.Combine(g, uint(min), privateKeyShares)
+		recoveredKey, err := configuration.RecoverGroupSecret(keyShares[:threshold])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,8 +85,8 @@ func TestTrustedDealerKeygen(t *testing.T) {
 			t.Fatal()
 		}
 
-		groupPublicKey, participantPublicKeys := frost.DeriveGroupInfo(g, max, secretsharingCommitment)
-		if len(participantPublicKeys) != max {
+		groupPublicKey, participantPublicKeys := frost.DeriveGroupInfo(g, maxSigners, secretsharingCommitment)
+		if len(participantPublicKeys) != maxSigners {
 			t2.Fatal()
 		}
 
@@ -97,7 +96,7 @@ func TestTrustedDealerKeygen(t *testing.T) {
 
 		configuration.GroupPublicKey = dealerGroupPubKey
 
-		for i, shareI := range privateKeyShares {
+		for i, shareI := range keyShares {
 			if !frost.VerifyVSS(g, shareI, secretsharingCommitment) {
 				t2.Fatal(i)
 			}
@@ -117,65 +116,56 @@ func TestTrustedDealerKeygen(t *testing.T) {
 }
 
 func TestFrost(t *testing.T) {
-	max := 3
+	maxSigner := 3
 	threshold := 2
-	participantListInt := []int{1, 3}
 	message := []byte("test")
 
 	testAll(t, func(t2 *testing.T, configuration *frost.Configuration) {
 		g := configuration.Ciphersuite.Group
 
-		privateKeyShares, _, groupPublicKey := SimulateDKG(configuration, max, threshold)
+		keyShares, groupPublicKey := simulateDKG(t, g, maxSigner, threshold)
 		configuration.GroupPublicKey = groupPublicKey
 
 		// Create Participants
-		participants := make(ParticipantList, max)
-		for i, share := range privateKeyShares {
-			participants[i] = configuration.Participant(share.Identifier, share.SecretKey)
-		}
-
-		signatureAggregator := &frost.Participant{
-			Configuration: *configuration,
+		participants := make(ParticipantList, threshold)
+		for i, share := range keyShares[:threshold] {
+			participants[i] = configuration.Participant(share)
 		}
 
 		// Round One: Commitment
-		participantList := make([]*group.Scalar, len(participantListInt))
-		for i, p := range participantListInt {
-			participantList[i] = internal.IntegerToScalar(g, p)
+		commitments := make(frost.CommitmentList, threshold)
+		for i, p := range participants {
+			commitments[i] = p.Commit()
 		}
 
-		comList := make(frost.CommitmentList, len(participantList))
-		for i, id := range participantList {
-			p := participants.Get(id)
-			comList[i] = p.Commit()
-		}
-
-		comList.Sort()
+		commitments.Sort()
 
 		// Round Two: Sign
-		sigShares := make([]*frost.SignatureShare, len(participantList))
-		for i, id := range participantList {
-			p := participants.Get(id)
-
-			sigShare, err := p.Sign(message, comList)
+		sigShares := make([]*frost.SignatureShare, threshold)
+		for i, p := range participants {
+			var err error
+			sigShares[i], err = p.Sign(message, commitments)
 			if err != nil {
 				t.Fatal(err)
 			}
-
-			sigShares[i] = sigShare
 		}
 
 		// Final step: aggregate
-		_ = signatureAggregator.Aggregate(comList, message, sigShares)
+		signature := configuration.AggregateSignatures(message, sigShares, commitments)
+		if !configuration.VerifySignature(message, signature) {
+			t2.Fatal()
+		}
 
 		// Sanity Check
-		groupSecretKey, err := secretsharing.Combine(g, uint(threshold), privateKeyShares)
+		groupSecretKey, err := configuration.RecoverGroupSecret(keyShares)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		singleSig := frost.Sign(configuration.Ciphersuite, message, groupSecretKey)
-		if !frost.Verify(configuration.Ciphersuite, message, singleSig, groupPublicKey) {
+		fmt.Println(groupSecretKey.Hex())
+
+		singleSig := configuration.Sign(message, groupSecretKey)
+		if !configuration.VerifySignature(message, singleSig) {
 			t2.Fatal()
 		}
 	})
@@ -187,4 +177,8 @@ func testAll(t *testing.T, f func(*testing.T, *frost.Configuration)) {
 			f(t, &test)
 		})
 	}
+}
+
+func TestMaliciousSigner(t *testing.T) {
+
 }

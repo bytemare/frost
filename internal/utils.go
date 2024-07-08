@@ -11,11 +11,9 @@ package internal
 
 import (
 	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
-
-	group "github.com/bytemare/crypto"
 )
 
 var (
@@ -64,12 +62,15 @@ func RandomBytes(length int) []byte {
 	return r
 }
 
-// IntegerToScalar creates a group.Scalar given an int.
-func IntegerToScalar(g group.Group, i int) *group.Scalar {
-	s := g.NewScalar()
-	if err := s.SetInt(big.NewInt(int64(i))); err != nil {
-		panic(err)
-	}
+// UInt64LE returns the 8 byte little endian byte encoding of i.
+func UInt64LE(i uint64) []byte {
+	out := [8]byte{}
+	binary.LittleEndian.PutUint64(out[:], i)
 
-	return s
+	return out[:]
+}
+
+// UInt64FromLE returns the uint64 representation of the first 8 input bytes
+func UInt64FromLE(b []byte) uint64 {
+	return binary.LittleEndian.Uint64(b)
 }
