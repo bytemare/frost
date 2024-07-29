@@ -10,6 +10,7 @@ package frost
 
 import (
 	"fmt"
+
 	group "github.com/bytemare/crypto"
 
 	"github.com/bytemare/frost/internal"
@@ -71,10 +72,10 @@ func (c Configuration) Sign(msg []byte, key *group.Scalar) *Signature {
 }
 
 // VerifySignature returns whether the signature of the message msg is valid under the public key pk.
-func (c Configuration) VerifySignature(msg []byte, signature *Signature) bool {
-	ch := challenge(c.Ciphersuite, signature.R, c.GroupPublicKey, msg)
+func (c Configuration) VerifySignature(msg []byte, signature *Signature, publicKey *group.Element) bool {
+	ch := challenge(c.Ciphersuite, signature.R, publicKey, msg)
 	l := c.Ciphersuite.Group.Base().Multiply(signature.Z)
-	r := signature.R.Add(c.GroupPublicKey.Copy().Multiply(ch))
+	r := signature.R.Add(publicKey.Copy().Multiply(ch))
 
 	if c.Ciphersuite.Group == group.Edwards25519Sha512 {
 		cofactor := group.Edwards25519Sha512.NewScalar().SetUInt64(8)

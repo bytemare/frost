@@ -9,46 +9,60 @@
 package frost_test
 
 import (
-	"fmt"
 	"testing"
 
 	group "github.com/bytemare/crypto"
-	"github.com/bytemare/frost"
-	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/hash"
+
+	"github.com/bytemare/frost"
+	"github.com/bytemare/frost/debug"
+	"github.com/bytemare/frost/internal"
 )
 
-var configurationTable = []frost.Configuration{
+type tableTest struct {
+	frost.Configuration
+	frost.Ciphersuite
+}
+
+var testTable = []tableTest{
 	{
-		GroupPublicKey: nil,
-		Ciphersuite: internal.Ciphersuite{
-			ContextString: []byte("FROST-ED25519-SHA512-v1"),
-			Hash:          hash.SHA512,
-			Group:         group.Edwards25519Sha512,
+		Ciphersuite: frost.Ed25519,
+		Configuration: frost.Configuration{
+			Ciphersuite: internal.Ciphersuite{
+				ContextString: []byte("FROST-ED25519-SHA512-v1"),
+				Hash:          hash.SHA512,
+				Group:         group.Edwards25519Sha512,
+			},
 		},
 	},
 	{
-		Ciphersuite: internal.Ciphersuite{
-			Group:         group.Ristretto255Sha512,
-			Hash:          hash.SHA512,
-			ContextString: []byte("FROST-RISTRETTO255-SHA512-v1"),
+		Ciphersuite: frost.Ristretto255,
+		Configuration: frost.Configuration{
+			Ciphersuite: internal.Ciphersuite{
+				Group:         group.Ristretto255Sha512,
+				Hash:          hash.SHA512,
+				ContextString: []byte("FROST-RISTRETTO255-SHA512-v1"),
+			},
 		},
-		GroupPublicKey: nil,
 	},
 	{
-		Ciphersuite: internal.Ciphersuite{
-			Group:         group.P256Sha256,
-			Hash:          hash.SHA256,
-			ContextString: []byte("FROST-P256-SHA256-v1"),
+		Ciphersuite: frost.P256,
+		Configuration: frost.Configuration{
+			Ciphersuite: internal.Ciphersuite{
+				Group:         group.P256Sha256,
+				Hash:          hash.SHA256,
+				ContextString: []byte("FROST-P256-SHA256-v1"),
+			},
 		},
-		GroupPublicKey: nil,
 	},
 	{
-		GroupPublicKey: nil,
-		Ciphersuite: internal.Ciphersuite{
-			ContextString: []byte("FROST-secp256k1-SHA256-v1"),
-			Hash:          hash.SHA256,
-			Group:         group.Secp256k1,
+		Ciphersuite: frost.Secp256k1,
+		Configuration: frost.Configuration{
+			Ciphersuite: internal.Ciphersuite{
+				ContextString: []byte("FROST-secp256k1-SHA256-v1"),
+				Hash:          hash.SHA256,
+				Group:         group.Secp256k1,
+			},
 		},
 	},
 }
@@ -57,26 +71,23 @@ func TestTrustedDealerKeygen(t *testing.T) {
 	threshold := 3
 	maxSigners := 5
 
-	testAll(t, func(t2 *testing.T, configuration *frost.Configuration) {
-		g := configuration.Ciphersuite.Group
+	testAll(t, func(t *testing.T, test *tableTest) {
+		g := test.Ciphersuite.Group()
 
 		groupSecretKey := g.NewScalar().Random()
 
-		keyShares, dealerGroupPubKey, secretsharingCommitment, err := frost.TrustedDealerKeygen(
-			g,
+		keyShares, dealerGroupPubKey, secretsharingCommitment := debug.TrustedDealerKeygen(
+			frost.Ciphersuite(g),
 			groupSecretKey,
 			maxSigners,
 			threshold,
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
 
 		if len(secretsharingCommitment) != threshold {
-			t2.Fatalf("%d / %d", len(secretsharingCommitment), threshold)
+			t.Fatalf("%d / %d", len(secretsharingCommitment), threshold)
 		}
 
-		recoveredKey, err := configuration.RecoverGroupSecret(keyShares[:threshold])
+		recoveredKey, err := debug.RecoverGroupSecret(g, keyShares[:threshold])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,20 +96,18 @@ func TestTrustedDealerKeygen(t *testing.T) {
 			t.Fatal()
 		}
 
-		groupPublicKey, participantPublicKeys := frost.DeriveGroupInfo(g, maxSigners, secretsharingCommitment)
+		groupPublicKey, participantPublicKeys := debug.RecoverPublicKeys(g, maxSigners, secretsharingCommitment)
 		if len(participantPublicKeys) != maxSigners {
-			t2.Fatal()
+			t.Fatal()
 		}
 
 		if groupPublicKey.Equal(dealerGroupPubKey) != 1 {
-			t2.Fatal()
+			t.Fatal()
 		}
 
-		configuration.GroupPublicKey = dealerGroupPubKey
-
 		for i, shareI := range keyShares {
-			if !frost.VerifyVSS(g, shareI, secretsharingCommitment) {
-				t2.Fatal(i)
+			if !debug.VerifyVSS(g, shareI, secretsharingCommitment) {
+				t.Fatal(i)
 			}
 		}
 
@@ -106,11 +115,11 @@ func TestTrustedDealerKeygen(t *testing.T) {
 
 		recoveredPK := g.NewElement()
 		if err := recoveredPK.Decode(pkEnc); err != nil {
-			t2.Fatal(err)
+			t.Fatal(err)
 		}
 
 		if recoveredPK.Equal(groupPublicKey) != 1 {
-			t2.Fatal()
+			t.Fatal()
 		}
 	})
 }
@@ -120,16 +129,15 @@ func TestFrost(t *testing.T) {
 	threshold := 2
 	message := []byte("test")
 
-	testAll(t, func(t2 *testing.T, configuration *frost.Configuration) {
-		g := configuration.Ciphersuite.Group
+	testAll(t, func(t *testing.T, test *tableTest) {
+		g := test.Ciphersuite.Group()
 
 		keyShares, groupPublicKey := simulateDKG(t, g, maxSigner, threshold)
-		configuration.GroupPublicKey = groupPublicKey
 
 		// Create Participants
 		participants := make(ParticipantList, threshold)
 		for i, share := range keyShares[:threshold] {
-			participants[i] = configuration.Participant(share)
+			participants[i] = test.Ciphersuite.Participant(share)
 		}
 
 		// Round One: Commitment
@@ -144,41 +152,39 @@ func TestFrost(t *testing.T) {
 		sigShares := make([]*frost.SignatureShare, threshold)
 		for i, p := range participants {
 			var err error
-			sigShares[i], err = p.Sign(message, commitments)
+			commitmentID := commitments.Get(p.Identifier()).CommitmentID
+			sigShares[i], err = p.Sign(commitmentID, message, commitments)
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
 
 		// Final step: aggregate
-		signature := configuration.AggregateSignatures(message, sigShares, commitments)
-		if !configuration.VerifySignature(message, signature) {
-			t2.Fatal()
+		signature := test.AggregateSignatures(message, sigShares, commitments, groupPublicKey)
+		if !test.VerifySignature(message, signature, groupPublicKey) {
+			t.Fatal()
 		}
 
 		// Sanity Check
-		groupSecretKey, err := configuration.RecoverGroupSecret(keyShares)
+		groupSecretKey, err := debug.RecoverGroupSecret(g, keyShares)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		fmt.Println(groupSecretKey.Hex())
-
-		singleSig := configuration.Sign(message, groupSecretKey)
-		if !configuration.VerifySignature(message, singleSig) {
-			t2.Fatal()
+		singleSig := test.Sign(message, groupSecretKey)
+		if !test.VerifySignature(message, singleSig, groupPublicKey) {
+			t.Fatal()
 		}
 	})
 }
 
-func testAll(t *testing.T, f func(*testing.T, *frost.Configuration)) {
-	for _, test := range configurationTable {
-		t.Run(string(test.Ciphersuite.ContextString), func(t *testing.T) {
+func testAll(t *testing.T, f func(*testing.T, *tableTest)) {
+	for _, test := range testTable {
+		t.Run(string(test.Configuration.ContextString), func(t *testing.T) {
 			f(t, &test)
 		})
 	}
 }
 
 func TestMaliciousSigner(t *testing.T) {
-
 }

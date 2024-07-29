@@ -14,8 +14,8 @@ import (
 
 // BindingFactor holds the binding factor scalar for the given identifier.
 type BindingFactor struct {
-	Identifier    uint64
 	BindingFactor *group.Scalar
+	Identifier    uint64
 }
 
 // BindingFactorList a list of BindingFactor.

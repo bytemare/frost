@@ -12,19 +12,7 @@ package internal
 import (
 	cryptorand "crypto/rand"
 	"encoding/binary"
-	"errors"
 	"fmt"
-)
-
-var (
-	// ErrInvalidParameters indicates that wrong input has been provided.
-	ErrInvalidParameters = errors.New("invalid parameters")
-
-	// ErrInvalidCiphersuite indicates a non-supported ciphersuite is being used.
-	ErrInvalidCiphersuite = errors.New("ciphersuite not available")
-
-	// ErrInvalidParticipantBackup indicates the participant's encoded backup is not valid.
-	ErrInvalidParticipantBackup = errors.New("invalid backup")
 )
 
 // Concatenate returns the concatenation of all bytes composing the input elements.

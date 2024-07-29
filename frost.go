@@ -10,10 +10,8 @@
 package frost
 
 import (
-	"fmt"
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/hash"
-	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
 )
@@ -24,10 +22,11 @@ import (
 	- more buzz
 	- show supported ciphersuites
 - Check for
-	- FROST2-BTZ
-	- FROST3 (ROAST): https://eprint.iacr.org/2022/550
+	- FROST2-CKM: https://eprint.iacr.org/2021/1375 (has duplicate checks)
+	- FROST2-BTZ: https://eprint.iacr.org/2022/833
+	- FROST3 (ROAST): https://eprint.iacr.org/2022/550 (most efficient variant of FROST)
 		- wrapper increasing robustness and apparently reducing some calculations?
-	- Chu
+	- Chu: https://eprint.iacr.org/2023/899
 	- re-randomize keys: https://eprint.iacr.org/2024/436.pdf
 
 */
@@ -66,16 +65,39 @@ func (c Ciphersuite) Available() bool {
 	switch c {
 	case Ed25519, Ristretto255, P256, Secp256k1:
 		return true
-	case ed448:
-		return false
 	default:
 		return false
 	}
 }
 
-func makeConf(pk *group.Element, context string, h hash.Hash, g group.Group) *Configuration {
+// Group returns the elliptic curve group used in the ciphersuite.
+func (c Ciphersuite) Group() group.Group {
+	if !c.Available() {
+		return 0
+	}
+
+	return group.Group(c)
+}
+
+// Participant returns a new participant of the protocol instantiated from the configuration an input.
+func (c Ciphersuite) Participant(keyShare *KeyShare) *Participant {
+	return &Participant{
+		KeyShare:      keyShare,
+		Lambda:        nil,
+		Nonces:        make(map[uint64][2]*group.Scalar),
+		HidingRandom:  nil,
+		BindingRandom: nil,
+		Configuration: *c.Configuration(),
+	}
+}
+
+// Configuration holds long term configuration information.
+type Configuration struct {
+	internal.Ciphersuite
+}
+
+func makeConf(context string, h hash.Hash, g group.Group) *Configuration {
 	return &Configuration{
-		GroupPublicKey: pk,
 		Ciphersuite: internal.Ciphersuite{
 			ContextString: []byte(context),
 			Hash:          h,
@@ -85,123 +107,21 @@ func makeConf(pk *group.Element, context string, h hash.Hash, g group.Group) *Co
 }
 
 // Configuration returns a configuration created for the ciphersuite.
-func (c Ciphersuite) Configuration(groupPublicKey ...*group.Element) *Configuration {
-	//todo: pubkey as byte slice so that we can check it's a valid point in the group, must be non-nil
+func (c Ciphersuite) Configuration() *Configuration {
 	if !c.Available() {
 		return nil
 	}
 
-	var pk *group.Element
-	if len(groupPublicKey) != 0 {
-		pk = groupPublicKey[0]
-	}
-
 	switch c {
 	case Ed25519:
-		return makeConf(pk, ed25519ContextString, hash.SHA512, group.Edwards25519Sha512)
+		return makeConf(ed25519ContextString, hash.SHA512, group.Edwards25519Sha512)
 	case Ristretto255:
-		return makeConf(pk, ristretto255ContextString, hash.SHA512, group.Ristretto255Sha512)
+		return makeConf(ristretto255ContextString, hash.SHA512, group.Ristretto255Sha512)
 	case P256:
-		return makeConf(pk, p256ContextString, hash.SHA256, group.P256Sha256)
+		return makeConf(p256ContextString, hash.SHA256, group.P256Sha256)
 	case Secp256k1:
-		return makeConf(pk, secp256k1ContextString, hash.SHA256, group.Secp256k1)
+		return makeConf(secp256k1ContextString, hash.SHA256, group.Secp256k1)
 	default:
 		return nil
 	}
-}
-
-// Configuration holds long term configuration information.
-type Configuration struct {
-	GroupPublicKey *group.Element
-	Ciphersuite    internal.Ciphersuite
-}
-
-// RecoverGroupSecret returns the groups secret from at least t-among-n (t = threshold) participant key shares. This is
-// not recommended, as combining all distributed secret shares can put the group secret at risk.
-func (c Configuration) RecoverGroupSecret(keyShares []*KeyShare) (*group.Scalar, error) {
-	keys := make([]secretsharing.KeyShare, len(keyShares))
-	for i, v := range keyShares {
-		keys[i] = secretsharing.KeyShare(v)
-	}
-
-	secret, err := secretsharing.Combine(c.Ciphersuite.Group, keys)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reconstruct group secret: %w", err)
-	}
-
-	return secret, nil
-}
-
-// Participant returns a new participant of the protocol instantiated from the configuration an input.
-func (c Configuration) Participant(keyShare *KeyShare) *Participant {
-	return &Participant{
-		KeyShare:      keyShare,
-		Lambda:        nil,
-		Nonce:         [2]*group.Scalar{},
-		HidingRandom:  nil,
-		BindingRandom: nil,
-		Configuration: c,
-	}
-}
-
-// DeriveGroupInfo returns the group public key as well those from all participants.
-func DeriveGroupInfo(g group.Group, max int, coms secretsharing.Commitment) (*group.Element, []*group.Element) {
-	pk := coms[0]
-	keys := make([]*group.Element, max)
-
-	for i := 1; i <= max; i++ {
-		id := g.NewScalar().SetUInt64(uint64(i))
-		pki := derivePublicPoint(g, coms, id)
-		keys[i-1] = pki
-	}
-
-	return pk, keys
-}
-
-// TrustedDealerKeygen uses Shamir and Verifiable Secret Sharing to create secret shares of an input group secret.
-// These shares should be distributed securely to relevant participants. Note that this is centralized and combines
-// the shared secret at some point. To use a decentralized dealer-less key generation, use the github.com/bytemare/dkg
-// package.
-func TrustedDealerKeygen(
-	g group.Group,
-	secret *group.Scalar,
-	max, min int,
-	coeffs ...*group.Scalar,
-) ([]*KeyShare, *group.Element, secretsharing.Commitment, error) {
-	privateKeyShares, poly, err := secretsharing.ShardReturnPolynomial(g, secret, uint(min), uint(max), coeffs...)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	coms := secretsharing.Commit(g, poly)
-
-	shares := make([]*KeyShare, max)
-	for i, k := range privateKeyShares {
-		shares[i] = &KeyShare{
-			Secret:    k.Secret,
-			PublicKey: g.Base().Multiply(k.Secret),
-			ID:        k.ID,
-		}
-	}
-
-	return shares, coms[0], coms, nil
-}
-
-func derivePublicPoint(g group.Group, coms secretsharing.Commitment, i *group.Scalar) *group.Element {
-	publicPoint := g.NewElement().Identity()
-	one := g.NewScalar().One()
-
-	j := g.NewScalar().Zero()
-	for _, com := range coms {
-		publicPoint.Add(com.Copy().Multiply(i.Copy().Pow(j)))
-		j.Add(one)
-	}
-
-	return publicPoint
-}
-
-// VerifyVSS allows verification of a participant's secret share given a VSS commitment to the secret polynomial.
-func VerifyVSS(g group.Group, share secretsharing.KeyShare, coms secretsharing.Commitment) bool {
-	pk := g.Base().Multiply(share.SecretKey())
-	return secretsharing.Verify(g, share.Identifier(), pk, coms)
 }

@@ -8,6 +8,12 @@
 
 package frost
 
+import (
+	group "github.com/bytemare/crypto"
+
+	"github.com/bytemare/frost/internal"
+)
+
 // AggregateSignatures allows the coordinator to produce the final signature given all signature shares.
 //
 // Before aggregation, each signature share must be a valid, deserialized element. If that validation fails the
@@ -17,17 +23,22 @@ package frost
 // The coordinator should verify this signature using the group public key before publishing or releasing the signature.
 // This aggregate signature will verify if and only if all signature shares are valid. If an invalid share is identified
 // a reasonable approach is to remove the participant from the set of allowed participants in future runs of FROST.
-func (c Configuration) AggregateSignatures(msg []byte, sigShares []*SignatureShare, coms CommitmentList) *Signature {
+func (c Configuration) AggregateSignatures(
+	msg []byte,
+	sigShares []*SignatureShare,
+	coms CommitmentList,
+	publicKey *group.Element,
+) *Signature {
 	coms.Sort()
 
 	// Compute binding factors
-	bindingFactorList := c.computeBindingFactors(coms, c.GroupPublicKey.Encode(), msg)
+	bindingFactorList := c.computeBindingFactors(publicKey, coms, msg)
 
 	// Compute group commitment
-	groupCommitment := c.computeGroupCommitment(coms, bindingFactorList)
+	groupCommitment := computeGroupCommitment(c.Group, coms, bindingFactorList)
 
 	// Compute aggregate signature
-	z := c.Ciphersuite.Group.NewScalar()
+	z := c.Group.NewScalar()
 	for _, share := range sigShares {
 		z.Add(share.SignatureShare)
 	}
@@ -47,22 +58,27 @@ func (c Configuration) VerifySignatureShare(com *Commitment,
 	message []byte,
 	sigShare *SignatureShare,
 	commitments CommitmentList,
-) bool {
-	bindingFactor, _, lambdaChall, err := c.do(message, commitments, com.Identifier)
-	if err != nil {
-		panic(err)
+	publicKey *group.Element,
+) error {
+	if com.ParticipantID != sigShare.Identifier {
+		return internal.ErrWrongVerificationData
 	}
 
-	if com.Identifier != sigShare.Identifier {
-		panic(nil)
+	bindingFactor, lambdaChall, err := c.do(publicKey, nil, message, commitments, com.ParticipantID)
+	if err != nil {
+		return err
 	}
 
 	// Commitment KeyShare
 	commShare := com.HidingNonce.Copy().Add(com.BindingNonce.Copy().Multiply(bindingFactor))
 
 	// Compute relation values
-	l := c.Ciphersuite.Group.Base().Multiply(sigShare.SignatureShare)
+	l := c.Group.Base().Multiply(sigShare.SignatureShare)
 	r := commShare.Add(com.PublicKey.Multiply(lambdaChall))
 
-	return l.Equal(r) == 1
+	if l.Equal(r) != 1 {
+		return internal.ErrInvalidVerificationShare
+	}
+
+	return nil
 }

@@ -1,11 +1,12 @@
 package frost_test
 
 import (
-	"fmt"
+	"testing"
+
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/dkg"
+
 	"github.com/bytemare/frost"
-	"testing"
 )
 
 func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, maxSigners, threshold int) []*dkg.Participant {
@@ -28,13 +29,15 @@ func simulateDKG(t *testing.T, g group.Group, maxSigners, threshold int) ([]*fro
 	// valid r1DataSet set with and without own package
 	participants := dkgMakeParticipants(t, c, maxSigners, threshold)
 	r1 := make([]*dkg.Round1Data, maxSigners)
+	commitments := make([][]*group.Element, maxSigners)
 
 	// Step 1: Start and assemble packages.
 	for i := range maxSigners {
 		r1[i] = participants[i].Start()
+		commitments[i] = r1[i].Commitment
 	}
 
-	pubKey, err := dkg.GroupPublicKey(c, r1)
+	pubKey, err := dkg.GroupPublicKeyFromRound1(c, r1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,37 +68,24 @@ func simulateDKG(t *testing.T, g group.Group, maxSigners, threshold int) ([]*fro
 	keyShares := make([]*frost.KeyShare, 0, maxSigners)
 
 	for _, p := range participants {
-		keyShare, gpk, err := p.Finalize(r1, r2[p.Identifier])
+		keyShare, err := p.Finalize(r1, r2[p.Identifier])
 		if err != nil {
 			t.Fatal()
 		}
 
-		if gpk.Equal(pubKey) != 1 {
+		if keyShare.GroupPublicKey.Equal(pubKey) != 1 {
 			t.Fatalf("expected same public key")
 		}
 
-		if keyShare.PublicKey.Equal(g.Base().Multiply(keyShare.SecretKey)) != 1 {
+		if keyShare.PublicKey.Equal(g.Base().Multiply(keyShare.SecretKey())) != 1 {
 			t.Fatal("expected equality")
 		}
 
-		if err := dkg.VerifyPublicKey(c, p.Identifier, keyShare.PublicKey, r1); err != nil {
+		if err := dkg.VerifyPublicKey(c, p.Identifier, keyShare.PublicKey, commitments); err != nil {
 			t.Fatal(err)
 		}
 
-		keyShares = append(keyShares, &frost.KeyShare{
-			ID:        keyShare.Identifier,
-			Secret:    keyShare.SecretKey,
-			PublicKey: keyShare.PublicKey,
-		})
-	}
-
-	{
-		groupSecretKey, err := frost.Ciphersuite(g).Configuration(pubKey).RecoverGroupSecret(keyShares)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		fmt.Println(groupSecretKey.Hex())
+		keyShares = append(keyShares, (*frost.KeyShare)(keyShare))
 	}
 
 	return keyShares, pubKey

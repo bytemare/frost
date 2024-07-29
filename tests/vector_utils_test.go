@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	group "github.com/bytemare/crypto"
+	secretsharing "github.com/bytemare/secret-sharing"
+
 	"github.com/bytemare/frost"
 )
 
@@ -179,7 +181,6 @@ type test struct {
 }
 
 type participant struct {
-	ID                     uint64
 	HidingNonce            *group.Scalar
 	BindingNonce           *group.Scalar
 	HidingNonceCommitment  *group.Element
@@ -188,6 +189,7 @@ type participant struct {
 	HidingNonceRandomness  []byte
 	BindingNonceRandomness []byte
 	BindingFactorInput     []byte
+	ID                     uint64
 }
 
 type testRoundOneOutputs struct {
@@ -238,7 +240,7 @@ func (i testVectorInput) decode(t *testing.T, g group.Group) *testInput {
 		GroupSecretKey:              decodeScalar(t, g, i.GroupSecretKey),
 		GroupPublicKey:              decodeElement(t, g, i.GroupPublicKey),
 		Message:                     i.Message,
-		SharePolynomialCoefficients: make([]*group.Scalar, len(i.SharePolynomialCoefficients)),
+		SharePolynomialCoefficients: make([]*group.Scalar, len(i.SharePolynomialCoefficients)+1),
 		Participants:                make([]*frost.KeyShare, len(i.ParticipantShares)),
 		ParticipantList:             make([]uint64, len(i.ParticipantList)),
 	}
@@ -247,14 +249,23 @@ func (i testVectorInput) decode(t *testing.T, g group.Group) *testInput {
 		input.ParticipantList[j] = id
 	}
 
+	input.SharePolynomialCoefficients[0] = input.GroupSecretKey
 	for j, coeff := range i.SharePolynomialCoefficients {
-		input.SharePolynomialCoefficients[j] = decodeScalar(t, g, coeff)
+		input.SharePolynomialCoefficients[j+1] = decodeScalar(t, g, coeff)
 	}
 
 	for j, p := range i.ParticipantShares {
+		secret := decodeScalar(t, g, p.ParticipantShare)
+		public := g.Base().Multiply(secret)
 		input.Participants[j] = &frost.KeyShare{
-			ID:     p.Identifier,
-			Secret: decodeScalar(t, g, p.ParticipantShare),
+			Secret:         secret,
+			GroupPublicKey: input.GroupPublicKey,
+			PublicKeyShare: secretsharing.PublicKeyShare{
+				PublicKey:  public,
+				Commitment: nil,
+				ID:         p.Identifier,
+				Group:      g,
+			},
 		}
 	}
 
