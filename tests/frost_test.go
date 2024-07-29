@@ -124,7 +124,66 @@ func TestTrustedDealerKeygen(t *testing.T) {
 	})
 }
 
-func TestFrost(t *testing.T) {
+func TestFrost_WithTrustedDealer(t *testing.T) {
+	maxSigner := 3
+	threshold := 2
+	message := []byte("test")
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		g := test.Ciphersuite.Group()
+		sk := g.NewScalar().Random()
+
+		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, sk, maxSigner, threshold)
+
+		// Create Participants
+		participants := make(ParticipantList, threshold)
+		for i, share := range keyShares[:threshold] {
+			participants[i] = test.Ciphersuite.Participant(share)
+		}
+
+		// Round One: Commitment
+		commitments := make(frost.CommitmentList, threshold)
+		for i, p := range participants {
+			commitments[i] = p.Commit()
+		}
+
+		commitments.Sort()
+
+		// Round Two: Sign
+		sigShares := make([]*frost.SignatureShare, threshold)
+		for i, p := range participants {
+			var err error
+			commitmentID := commitments.Get(p.Identifier()).CommitmentID
+			sigShares[i], err = p.Sign(commitmentID, message, commitments)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Final step: aggregate
+		signature := test.AggregateSignatures(message, sigShares, commitments, groupPublicKey)
+		if !test.VerifySignature(message, signature, groupPublicKey) {
+			t.Fatal()
+		}
+
+		// Sanity Check
+		groupSecretKey, err := debug.RecoverGroupSecret(g, keyShares)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if groupSecretKey.Equal(sk) != 1 {
+			t.Fatal("expected equality in group secret key")
+		}
+
+		singleSig := test.Sign(message, groupSecretKey)
+		if !test.VerifySignature(message, singleSig, groupPublicKey) {
+			t.Fatal()
+		}
+	})
+}
+
+func TestFrost_WithDKG(t *testing.T) {
 	maxSigner := 3
 	threshold := 2
 	message := []byte("test")
@@ -132,7 +191,7 @@ func TestFrost(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		g := test.Ciphersuite.Group()
 
-		keyShares, groupPublicKey := simulateDKG(t, g, maxSigner, threshold)
+		keyShares, groupPublicKey, _ := runDKG(t, g, maxSigner, threshold)
 
 		// Create Participants
 		participants := make(ParticipantList, threshold)

@@ -23,7 +23,7 @@ func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, maxSigners, 
 	return ps
 }
 
-func simulateDKG(t *testing.T, g group.Group, maxSigners, threshold int) ([]*frost.KeyShare, *group.Element) {
+func runDKG(t *testing.T, g group.Group, maxSigners, threshold int) ([]*frost.KeyShare, *group.Element, []*group.Element) {
 	c := dkg.Ciphersuite(g)
 
 	// valid r1DataSet set with and without own package
@@ -88,5 +88,5 @@ func simulateDKG(t *testing.T, g group.Group, maxSigners, threshold int) ([]*fro
 		keyShares = append(keyShares, (*frost.KeyShare)(keyShare))
 	}
 
-	return keyShares, pubKey
+	return keyShares, pubKey, nil
 }
