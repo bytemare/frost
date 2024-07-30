@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+- name: Questions, feature requests, and more 💬
+  url: https://github.com/bytemare/frost/discussions
+  about: Do you need help? Did you make something with FROST? Do you have an idea? Tell us about it!
