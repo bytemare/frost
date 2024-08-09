@@ -9,12 +9,24 @@
 package frost
 
 import (
+	"errors"
+	"fmt"
+
 	group "github.com/bytemare/crypto"
 
+	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/internal"
 )
 
-// AggregateSignatures allows the coordinator to produce the final signature given all signature shares.
+var errInvalidSignature = errors.New("invalid Signature")
+
+// Signature represent a Schnorr signature.
+type Signature struct {
+	R *group.Element
+	Z *group.Scalar
+}
+
+// AggregateSignatures allows a coordinator to produce the final signature given all signature shares.
 //
 // Before aggregation, each signature share must be a valid, deserialized element. If that validation fails the
 // coordinator must abort the protocol, as the resulting signature will be invalid.
@@ -22,62 +34,174 @@ import (
 //
 // The coordinator should verify this signature using the group public key before publishing or releasing the signature.
 // This aggregate signature will verify if and only if all signature shares are valid. If an invalid share is identified
-// a reasonable approach is to remove the participant from the set of allowed participants in future runs of FROST.
-func (c Configuration) AggregateSignatures(
-	msg []byte,
+// a reasonable approach is to remove the signer from the set of allowed participants in future runs of FROST. If verify
+// is set to true, AggregateSignatures will automatically verify the signature shares and produced signatures, and will
+// return an error with the first encountered invalid signature share.
+func (c *Configuration) AggregateSignatures(
+	message []byte,
 	sigShares []*SignatureShare,
-	coms CommitmentList,
-	publicKey *group.Element,
-) *Signature {
-	coms.Sort()
+	commitments commitment.List,
+	verify bool,
+) (*Signature, error) {
+	if !c.verified {
+		if err := c.verify(); err != nil {
+			return nil, err
+		}
+	}
 
-	// Compute binding factors
-	bindingFactorList := c.computeBindingFactors(publicKey, coms, msg)
+	groupCommitment, bindingFactors, err := c.prepSigShareCheck(message, commitments, c.GroupPublicKey)
+	if err != nil {
+		return nil, err
+	}
 
-	// Compute group commitment
-	groupCommitment := computeGroupCommitment(c.Group, coms, bindingFactorList)
+	if verify {
+		for _, share := range sigShares {
+			if err = c.verifySignatureShare(share, message, commitments,
+				groupCommitment, bindingFactors); err != nil {
+				return nil, err
+			}
+		}
+	}
 
-	// Compute aggregate signature
-	z := c.Group.NewScalar()
+	// Aggregate signatures
+	z := group.Group(c.Ciphersuite).NewScalar()
 	for _, share := range sigShares {
 		z.Add(share.SignatureShare)
 	}
 
-	return &Signature{
+	signature := &Signature{
 		R: groupCommitment,
 		Z: z,
 	}
-}
 
-// VerifySignatureShare verifies a signature share.
-// commitment, pki, and sigShareI are, respectively, commitment, public key, and signature share of
-// the participant whose share is to be verified.
-//
-// The CommitmentList must be sorted in ascending order by identifier.
-func (c Configuration) VerifySignatureShare(com *Commitment,
-	message []byte,
-	sigShare *SignatureShare,
-	commitments CommitmentList,
-	publicKey *group.Element,
-) error {
-	if com.ParticipantID != sigShare.Identifier {
-		return internal.ErrWrongVerificationData
+	if verify {
+		if err = VerifySignature(c.Ciphersuite, message, signature, c.GroupPublicKey); err != nil {
+			return nil, err
+		}
 	}
 
-	bindingFactor, lambdaChall, err := c.do(publicKey, nil, message, commitments, com.ParticipantID)
+	return signature, nil
+}
+
+// VerifySignatureShare verifies a signature share. sigShare is the signer's signature share to be verified.
+//
+// The CommitmentList must be sorted in ascending order by identifier.
+func (c *Configuration) VerifySignatureShare(
+	sigShare *SignatureShare,
+	message []byte,
+	commitments commitment.List,
+) error {
+	if !c.verified {
+		if err := c.verify(); err != nil {
+			return err
+		}
+	}
+
+	groupCommitment, bindingFactors, err := c.prepSigShareCheck(message, commitments, c.GroupPublicKey)
 	if err != nil {
 		return err
 	}
 
-	// Commitment KeyShare
-	commShare := com.HidingNonce.Copy().Add(com.BindingNonce.Copy().Multiply(bindingFactor))
+	return c.verifySignatureShare(sigShare, message, commitments, groupCommitment, bindingFactors)
+}
 
-	// Compute relation values
-	l := c.Group.Base().Multiply(sigShare.SignatureShare)
-	r := commShare.Add(com.PublicKey.Multiply(lambdaChall))
+func (c *Configuration) prepSigShareCheck(message []byte,
+	commitments commitment.List,
+	groupPublicKey *group.Element,
+) (*group.Element, internal.BindingFactors, error) {
+	if !c.verified {
+		if err := c.verify(); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if err := internal.VerifyCommitmentList(c.group, commitments, c.Threshold); err != nil {
+		return nil, nil, fmt.Errorf("invalid list of commitments: %w", err)
+	}
+
+	groupCommitment, bindingFactors := internal.GroupCommitmentAndBindingFactors(
+		c.group,
+		message,
+		commitments,
+		groupPublicKey,
+	)
+
+	return groupCommitment, bindingFactors, nil
+}
+
+func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
+	for _, pks := range c.SignerPublicKeys {
+		if pks.ID == id {
+			return pks.PublicKey
+		}
+	}
+
+	return nil
+}
+
+func (c *Configuration) verifySignatureShare(
+	sigShare *SignatureShare,
+	message []byte,
+	commitments commitment.List,
+	groupCommitment *group.Element,
+	bindingFactors internal.BindingFactors,
+) error {
+	com := commitments.Get(sigShare.SignerIdentifier)
+	if com == nil {
+		return fmt.Errorf("commitment not registered for signer %q", sigShare.SignerIdentifier)
+	}
+
+	pk := c.getSignerPubKey(sigShare.SignerIdentifier)
+	if pk == nil {
+		return fmt.Errorf("public key not registered for signer %q", sigShare.SignerIdentifier)
+	}
+
+	lambdaChall, err := internal.ComputeChallengeFactor(
+		c.group,
+		groupCommitment,
+		nil,
+		sigShare.SignerIdentifier,
+		message,
+		commitments,
+		c.GroupPublicKey,
+	)
+	if err != nil {
+		return fmt.Errorf("can't compute challenge: %w", err)
+	}
+
+	// Commitment KeyShare: r = g(h + b*f + l*s)
+	bindingFactor := bindingFactors[sigShare.SignerIdentifier]
+	commShare := com.HidingNonce.Copy().Add(com.BindingNonce.Copy().Multiply(bindingFactor))
+	r := commShare.Add(pk.Copy().Multiply(lambdaChall))
+	l := c.group.Base().Multiply(sigShare.SignatureShare)
 
 	if l.Equal(r) != 1 {
-		return internal.ErrInvalidVerificationShare
+		return fmt.Errorf("invalid signature share for signer %d", sigShare.SignerIdentifier)
+	}
+
+	return nil
+}
+
+// VerifySignature returns whether the signature of the message is valid under publicKey.
+func VerifySignature(c Ciphersuite, message []byte, signature *Signature, publicKey *group.Element) error {
+	g := c.ECGroup()
+	if g == 0 {
+		return internal.ErrInvalidCiphersuite
+	}
+
+	ch := internal.SchnorrChallenge(g, message, signature.R, publicKey)
+	r := signature.R.Copy().Add(publicKey.Copy().Multiply(ch))
+	l := g.Base().Multiply(signature.Z)
+
+	// Clear the cofactor for Edwards25519.
+	if g == group.Edwards25519Sha512 {
+		cofactor := group.Edwards25519Sha512.NewScalar().SetUInt64(8)
+		l.Multiply(cofactor)
+		r.Multiply(cofactor)
+	}
+
+	if l.Equal(r) != 1 {
+		return errInvalidSignature
 	}
 
 	return nil

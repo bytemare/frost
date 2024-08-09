@@ -6,7 +6,8 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-package frost
+// Package commitment defines the FROST Signer commitment.
+package commitment
 
 import (
 	"encoding/binary"
@@ -16,39 +17,49 @@ import (
 
 	group "github.com/bytemare/crypto"
 	secretsharing "github.com/bytemare/secret-sharing"
-
-	"github.com/bytemare/frost/internal"
 )
 
-var errDecodeCommitmentLength = errors.New("failed to decode commitment: invalid length")
+var (
+	errDecodeCommitmentLength = errors.New("failed to decode commitment: invalid length")
+	errInvalidCiphersuite     = errors.New("ciphersuite not available")
+)
 
 // Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
 type Commitment struct {
-	PublicKey     *group.Element
-	HidingNonce   *group.Element
-	BindingNonce  *group.Element
-	CommitmentID  uint64
-	ParticipantID uint64
-	Ciphersuite   Ciphersuite
+	HidingNonce  *group.Element
+	BindingNonce *group.Element
+	CommitmentID uint64
+	SignerID     uint64
+	Group        group.Group
 }
 
-func commitmentEncodedSize(g group.Group) int {
-	return 1 + 8 + 8 + 3*g.ElementLength()
+// Copy returns a new Commitment struct populated with the same values as the receiver.
+func (c *Commitment) Copy() *Commitment {
+	return &Commitment{
+		HidingNonce:  c.HidingNonce.Copy(),
+		BindingNonce: c.BindingNonce.Copy(),
+		CommitmentID: c.CommitmentID,
+		SignerID:     c.SignerID,
+		Group:        c.Group,
+	}
+}
+
+// EncodedSize returns the byte size of the output of Encode().
+func EncodedSize(g group.Group) uint64 {
+	return 1 + 8 + 8 + 2*uint64(g.ElementLength())
 }
 
 // Encode returns the serialized byte encoding of a participant's commitment.
 func (c *Commitment) Encode() []byte {
 	hNonce := c.HidingNonce.Encode()
 	bNonce := c.BindingNonce.Encode()
-	pubKey := c.PublicKey.Encode()
 
-	out := make([]byte, 9, commitmentEncodedSize(group.Group(c.Ciphersuite)))
-	out[0] = byte(c.Ciphersuite)
+	out := make([]byte, 9, EncodedSize(c.Group))
+	out[0] = byte(c.Group)
 	binary.LittleEndian.PutUint64(out[1:], c.CommitmentID)
-	binary.LittleEndian.PutUint64(out[9:], c.ParticipantID)
+	binary.LittleEndian.PutUint64(out[9:], c.SignerID)
 	copy(out[17:], hNonce)
 	copy(out[17+len(hNonce):], bNonce)
-	copy(out[17+len(hNonce)+len(bNonce):], pubKey)
 
 	return out
 }
@@ -59,14 +70,12 @@ func (c *Commitment) Decode(data []byte) error {
 		return errDecodeCommitmentLength
 	}
 
-	cs := Ciphersuite(data[0])
-	if !cs.Available() {
-		return internal.ErrInvalidCiphersuite
+	g := group.Group(data[0])
+	if !g.Available() {
+		return errInvalidCiphersuite
 	}
 
-	g := cs.Group()
-
-	if len(data) != commitmentEncodedSize(g) {
+	if uint64(len(data)) != EncodedSize(g) {
 		return errDecodeCommitmentLength
 	}
 
@@ -84,31 +93,23 @@ func (c *Commitment) Decode(data []byte) error {
 		return fmt.Errorf("invalid encoding of binding nonce: %w", err)
 	}
 
-	offset += g.ElementLength()
-
-	pk := g.NewElement()
-	if err := pk.Decode(data[offset : offset+g.ElementLength()]); err != nil {
-		return fmt.Errorf("invalid encoding of public key: %w", err)
-	}
-
-	c.Ciphersuite = cs
+	c.Group = g
 	c.CommitmentID = cID
-	c.ParticipantID = pID
+	c.SignerID = pID
 	c.HidingNonce = hn
 	c.BindingNonce = bn
-	c.PublicKey = pk
 
 	return nil
 }
 
-// CommitmentList is a sortable list of commitments.
-type CommitmentList []*Commitment
+// List is a sortable list of commitments.
+type List []*Commitment
 
 func cmpID(a, b *Commitment) int {
 	switch {
-	case a.ParticipantID < b.ParticipantID: // a < b
+	case a.SignerID < b.SignerID: // a < b
 		return -1
-	case a.ParticipantID > b.ParticipantID:
+	case a.SignerID > b.SignerID:
 		return 1
 	default:
 		return 0
@@ -116,39 +117,26 @@ func cmpID(a, b *Commitment) int {
 }
 
 // Sort sorts the list the ascending order of identifiers.
-func (c CommitmentList) Sort() {
+func (c List) Sort() {
 	slices.SortFunc(c, cmpID)
 }
 
 // IsSorted returns whether the list is sorted in ascending order by identifier.
-func (c CommitmentList) IsSorted() bool {
+func (c List) IsSorted() bool {
 	return slices.IsSortedFunc(c, cmpID)
 }
 
-// Encode serializes a whole commitment list.
-func (c CommitmentList) Encode(g group.Group) []byte {
-	var encoded []byte
-
-	for _, l := range c {
-		id := g.NewScalar().SetUInt64(l.ParticipantID).Encode()
-		e := internal.Concatenate(id, l.HidingNonce.Encode(), l.BindingNonce.Encode())
-		encoded = append(encoded, e...)
-	}
-
-	return encoded
-}
-
 // Participants returns the list of participants in the commitment list in the form of a polynomial.
-func (c CommitmentList) Participants(g group.Group) secretsharing.Polynomial {
+func (c List) Participants(g group.Group) secretsharing.Polynomial {
 	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *group.Scalar {
-		return g.NewScalar().SetUInt64(c.ParticipantID)
+		return g.NewScalar().SetUInt64(c.SignerID)
 	})
 }
 
 // Get returns the commitment of the participant with the corresponding identifier, or nil if it was not found.
-func (c CommitmentList) Get(identifier uint64) *Commitment {
+func (c List) Get(identifier uint64) *Commitment {
 	for _, com := range c {
-		if com.ParticipantID == identifier {
+		if com.SignerID == identifier {
 			return com
 		}
 	}

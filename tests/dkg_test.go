@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright (C) 2024 Daniel Bourdrez. All Rights Reserved.
+//
+// This source code is licensed under the MIT license found in the
+// LICENSE file in the root directory of this source tree or at
+// https://spdx.org/licenses/MIT.html
+
 package frost_test
 
 import (
@@ -9,9 +17,9 @@ import (
 	"github.com/bytemare/frost"
 )
 
-func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, maxSigners, threshold int) []*dkg.Participant {
+func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, maxSigners, threshold uint64) []*dkg.Participant {
 	ps := make([]*dkg.Participant, 0, maxSigners)
-	for i := range uint64(maxSigners) {
+	for i := range maxSigners {
 		p, err := ciphersuite.NewParticipant(i+1, uint(maxSigners), uint(threshold))
 		if err != nil {
 			t.Fatal(err)
@@ -23,7 +31,11 @@ func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, maxSigners, 
 	return ps
 }
 
-func runDKG(t *testing.T, g group.Group, maxSigners, threshold int) ([]*frost.KeyShare, *group.Element, []*group.Element) {
+func runDKG(
+	t *testing.T,
+	g group.Group,
+	maxSigners, threshold uint64,
+) ([]*frost.KeyShare, *group.Element, []*group.Element) {
 	c := dkg.Ciphersuite(g)
 
 	// valid r1DataSet set with and without own package

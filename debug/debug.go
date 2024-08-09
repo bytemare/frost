@@ -18,16 +18,18 @@ import (
 	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost"
+	"github.com/bytemare/frost/internal"
 )
 
-// TrustedDealerKeygen uses Shamir and Verifiable Secret Sharing to create secret shares of an input group secret.
+// TrustedDealerKeygen uses Shamir and Verifiable Secret Sharing to create secret shares of an input group secret. If
+// secret is not set, a new random secret will be generated.
 // These shares should be distributed securely to relevant participants. Note that this is centralized and combines
 // the shared secret at some point. To use a decentralized dealer-less key generation, use the github.com/bytemare/dkg
 // package.
 func TrustedDealerKeygen(
 	c frost.Ciphersuite,
 	secret *group.Scalar,
-	max, min int,
+	threshold, maxSigners uint64,
 	coeffs ...*group.Scalar,
 ) ([]*frost.KeyShare, *group.Element, []*group.Element) {
 	g := group.Group(c)
@@ -37,14 +39,19 @@ func TrustedDealerKeygen(
 		g.NewScalar().Random()
 	}
 
-	privateKeyShares, poly, err := secretsharing.ShardReturnPolynomial(g, secret, uint(min), uint(max), coeffs...)
+	privateKeyShares, poly, err := secretsharing.ShardReturnPolynomial(
+		g,
+		secret,
+		uint(threshold),
+		uint(maxSigners),
+		coeffs...)
 	if err != nil {
 		panic(err)
 	}
 
 	coms := secretsharing.Commit(g, poly)
 
-	shares := make([]*frost.KeyShare, max)
+	shares := make([]*frost.KeyShare, maxSigners)
 	for i, k := range privateKeyShares {
 		shares[i] = &frost.KeyShare{
 			Secret:         k.Secret,
@@ -63,7 +70,13 @@ func TrustedDealerKeygen(
 
 // RecoverGroupSecret returns the groups secret from at least t-among-n (t = threshold) participant key shares. This is
 // not recommended, as combining all distributed secret shares can put the group secret at risk.
-func RecoverGroupSecret(g group.Group, keyShares []*frost.KeyShare) (*group.Scalar, error) {
+func RecoverGroupSecret(c frost.Ciphersuite, keyShares []*frost.KeyShare) (*group.Scalar, error) {
+	if !c.Available() {
+		return nil, internal.ErrInvalidCiphersuite
+	}
+
+	g := group.Group(c)
+
 	keys := make([]secretsharing.Share, len(keyShares))
 	for i, v := range keyShares {
 		keys[i] = v
@@ -77,20 +90,50 @@ func RecoverGroupSecret(g group.Group, keyShares []*frost.KeyShare) (*group.Scal
 	return secret, nil
 }
 
-// RecoverPublicKeys returns the group public key as well those from all participants.
-func RecoverPublicKeys(g group.Group, max int, commitment []*group.Element) (*group.Element, []*group.Element) {
-	pk := commitment[0]
-	keys := make([]*group.Element, max)
+// Sign returns a Schnorr signature over the message msg with the full secret signing key (as opposed to a key share).
+func Sign(c frost.Ciphersuite, msg []byte, key *group.Scalar) (*frost.Signature, error) {
+	g := c.ECGroup()
+	if g == 0 {
+		return nil, internal.ErrInvalidCiphersuite
+	}
 
-	for i := 1; i <= max; i++ {
-		pki, err := secretsharing.PubKeyForCommitment(g, uint64(i), commitment)
+	r := g.NewScalar().Random()
+	R := g.Base().Multiply(r)
+	pk := g.Base().Multiply(key)
+	challenge := internal.SchnorrChallenge(g, msg, R, pk)
+	z := r.Add(challenge.Multiply(key))
+
+	return &frost.Signature{
+		R: R,
+		Z: z,
+	}, nil
+}
+
+// RecoverPublicKeys returns the group public key as well those from all participants,
+// if the identifiers are 1, 2, ..., maxSigners.
+func RecoverPublicKeys(
+	c frost.Ciphersuite,
+	maxSigners uint64,
+	commitment []*group.Element,
+) (*group.Element, []*group.Element, error) {
+	if !c.Available() {
+		return nil, nil, internal.ErrInvalidCiphersuite
+	}
+
+	g := group.Group(c)
+	pk := commitment[0]
+	keys := make([]*group.Element, maxSigners)
+
+	for i := uint64(1); i <= maxSigners; i++ {
+		pki, err := secretsharing.PubKeyForCommitment(g, i, commitment)
 		if err != nil {
-			panic(err)
+			return nil, nil, err
 		}
+
 		keys[i-1] = pki
 	}
 
-	return pk, keys
+	return pk, keys, nil
 }
 
 // VerifyVSS allows verification of a participant's secret share given a VSS commitment to the secret polynomial.

@@ -19,26 +19,27 @@ import (
 	group "github.com/bytemare/crypto"
 
 	"github.com/bytemare/frost"
+	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/debug"
 )
 
 func (v test) testTrustedDealer(t *testing.T) ([]*frost.KeyShare, *group.Element) {
-	g := v.Config.Ciphersuite.Group
+	g := v.Config.Ciphersuite.ECGroup()
 
 	keyShares, dealerGroupPubKey, secretsharingCommitment := debug.TrustedDealerKeygen(
-		frost.Ciphersuite(g),
+		v.Config.Ciphersuite,
 		v.Inputs.GroupSecretKey,
-		v.Config.MaxParticipants,
-		v.Config.MinParticipants,
+		v.Config.Configuration.Threshold,
+		v.Config.Configuration.MaxSigners,
 		v.Inputs.SharePolynomialCoefficients...)
 
-	if len(secretsharingCommitment) != v.Config.MinParticipants {
+	if uint64(len(secretsharingCommitment)) != v.Config.Configuration.Threshold {
 		t.Fatalf(
-			"%d / %d", len(secretsharingCommitment), v.Config.MinParticipants)
+			"%d / %d", len(secretsharingCommitment), v.Config.Configuration.Threshold)
 	}
 
 	// Test recovery of the full secret signing key.
-	recoveredKey, err := debug.RecoverGroupSecret(g, keyShares)
+	recoveredKey, err := debug.RecoverGroupSecret(v.Config.Ciphersuite, keyShares)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,12 +48,16 @@ func (v test) testTrustedDealer(t *testing.T) ([]*frost.KeyShare, *group.Element
 		t.Fatal()
 	}
 
-	groupPublicKey, participantPublicKey := debug.RecoverPublicKeys(
-		g,
-		v.Config.MaxParticipants,
+	groupPublicKey, participantPublicKey, err := debug.RecoverPublicKeys(
+		v.Config.Ciphersuite,
+		v.Config.Configuration.MaxSigners,
 		secretsharingCommitment,
 	)
-	if len(participantPublicKey) != v.Config.MaxParticipants {
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if uint64(len(participantPublicKey)) != v.Config.Configuration.MaxSigners {
 		t.Fatal()
 	}
 
@@ -86,17 +91,20 @@ func (v test) test(t *testing.T) {
 		t.Fatal("Some key shares do not match.")
 	}
 
-	c := frost.Ciphersuite(v.Config.Group)
-
 	// Create participants
 	participants := make(ParticipantList, len(keyShares))
 	conf := v.Config
 	for i, keyShare := range keyShares {
-		participants[i] = c.Participant(keyShare)
+		signer, err := conf.Configuration.Signer(keyShare)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		participants[i] = signer
 	}
 
 	// Round One: Commitment
-	commitmentList := make(frost.CommitmentList, len(v.RoundOneOutputs.Outputs))
+	commitmentList := make(commitment.List, len(v.RoundOneOutputs.Outputs))
 	for i, pid := range v.RoundOneOutputs.Outputs {
 		p := participants.Get(pid.ID)
 		if p == nil {
@@ -116,34 +124,34 @@ func (v test) test(t *testing.T) {
 		p.HidingRandom = pv.HidingNonceRandomness
 		p.BindingRandom = pv.BindingNonceRandomness
 
-		commitment := p.Commit()
+		com := p.Commit()
 
-		if p.Nonces[commitment.CommitmentID][0].Equal(pv.HidingNonce) != 1 {
+		if p.Commitments[com.CommitmentID].HidingNonceS.Equal(pv.HidingNonce) != 1 {
 			t.Fatal(i)
 		}
-		if p.Nonces[commitment.CommitmentID][1].Equal(pv.BindingNonce) != 1 {
+		if p.Commitments[com.CommitmentID].BindingNonceS.Equal(pv.BindingNonce) != 1 {
 			t.Fatal(i)
 		}
-		if commitment.HidingNonce.Equal(pv.HidingNonceCommitment) != 1 {
+		if com.HidingNonce.Equal(pv.HidingNonceCommitment) != 1 {
 			t.Fatal(i)
 		}
-		if commitment.BindingNonce.Equal(pv.BindingNonceCommitment) != 1 {
+		if com.BindingNonce.Equal(pv.BindingNonceCommitment) != 1 {
 			t.Fatal(i)
 		}
 
-		commitmentList[i] = commitment
+		commitmentList[i] = com
 	}
 
 	// Round two: sign
 	sigShares := make([]*frost.SignatureShare, len(v.RoundTwoOutputs.Outputs))
 	for i, share := range v.RoundTwoOutputs.Outputs {
-		p := participants.Get(share.Identifier)
+		p := participants.Get(share.SignerIdentifier)
 		if p == nil {
 			t.Fatal(i)
 		}
 
-		commitment := commitmentList.Get(p.Identifier())
-		commitmentID := commitment.CommitmentID
+		com := commitmentList.Get(p.Identifier())
+		commitmentID := com.CommitmentID
 
 		var err error
 		sigShares[i], err = p.Sign(commitmentID, v.Inputs.Message, commitmentList)
@@ -156,19 +164,23 @@ func (v test) test(t *testing.T) {
 			t.Fatalf("%s\n%s\n", share.SignatureShare.Hex(), sigShares[i].SignatureShare.Hex())
 		}
 
-		if err := v.Config.VerifySignatureShare(commitment, v.Inputs.Message, sigShares[i], commitmentList, groupPublicKey); err != nil {
+		if err := v.Config.VerifySignatureShare(sigShares[i], v.Inputs.Message, commitmentList); err != nil {
 			t.Fatalf("signature share matched but verification failed: %s", err)
 		}
 	}
 
 	// AggregateSignatures
-	sig := v.Config.AggregateSignatures(v.Inputs.Message, sigShares, commitmentList, groupPublicKey)
+	sig, err := v.Config.AggregateSignatures(v.Inputs.Message, sigShares, commitmentList, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if !bytes.Equal(sig.Encode(), v.FinalOutput) {
-		t.Fatal()
+		t.Fatal("")
 	}
 
 	// Sanity Check
-	if !conf.VerifySignature(v.Inputs.Message, sig, groupPublicKey) {
+	if err := frost.VerifySignature(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey); err != nil {
 		t.Fatal()
 	}
 }

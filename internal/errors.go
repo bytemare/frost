@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright (C) 2024 Daniel Bourdrez. All Rights Reserved.
+//
+// This source code is licensed under the MIT license found in the
+// LICENSE file in the root directory of this source tree or at
+// https://spdx.org/licenses/MIT.html
+
 package internal
 
 import "errors"
@@ -9,13 +17,6 @@ var (
 	// ErrInvalidCiphersuite indicates a non-supported ciphersuite is being used.
 	ErrInvalidCiphersuite = errors.New("ciphersuite not available")
 
-	// ErrInvalidParticipantBackup indicates the participant's encoded backup is not valid.
-	ErrInvalidParticipantBackup = errors.New("invalid backup")
-
 	// ErrInvalidLength indicates that a provided encoded data piece is not of the expected length.
 	ErrInvalidLength = errors.New("invalid encoding length")
-
-	ErrWrongVerificationData = errors.New("the commitment and signature share don't belong the same participant")
-
-	ErrInvalidVerificationShare = errors.New("signature share does not not match")
 )

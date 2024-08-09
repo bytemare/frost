@@ -57,8 +57,3 @@ func UInt64LE(i uint64) []byte {
 
 	return out[:]
 }
-
-// UInt64FromLE returns the uint64 representation of the first 8 input bytes
-func UInt64FromLE(b []byte) uint64 {
-	return binary.LittleEndian.Uint64(b)
-}

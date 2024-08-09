@@ -21,9 +21,9 @@ import (
 	"github.com/bytemare/frost"
 )
 
-type ParticipantList []*frost.Participant
+type ParticipantList []*frost.Signer
 
-func (p ParticipantList) Get(id uint64) *frost.Participant {
+func (p ParticipantList) Get(id uint64) *frost.Signer {
 	for _, i := range p {
 		if i.KeyShare.ID == id {
 			return i
@@ -33,13 +33,13 @@ func (p ParticipantList) Get(id uint64) *frost.Participant {
 	return nil
 }
 
-func stringToInt(t *testing.T, s string) int {
-	i, err := strconv.ParseInt(s, 10, 32)
+func stringToUint(t *testing.T, s string) uint {
+	i, err := strconv.ParseUint(s, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return int(i)
+	return uint(i)
 }
 
 func decodeScalar(t *testing.T, g group.Group, enc []byte) *group.Scalar {
@@ -111,12 +111,13 @@ type testVectorConfig struct {
 }
 
 func (c testVectorConfig) decode(t *testing.T) *testConfig {
+	threshold := stringToUint(t, c.MinParticipants)
+	maxSigners := stringToUint(t, c.MaxParticipants)
+
 	return &testConfig{
-		MaxParticipants: stringToInt(t, c.MaxParticipants),
-		NumParticipants: stringToInt(t, c.NumParticipants),
-		MinParticipants: stringToInt(t, c.MinParticipants),
 		Name:            c.Name,
-		Configuration:   configToConfiguration(t, &c),
+		NumParticipants: stringToUint(t, c.NumParticipants),
+		Configuration:   configToConfiguration(t, &c, threshold, maxSigners),
 	}
 }
 
@@ -158,9 +159,7 @@ type testConfig struct {
 	*frost.Configuration
 	Name            string
 	ContextString   []byte
-	MaxParticipants int
-	NumParticipants int
-	MinParticipants int
+	NumParticipants uint
 }
 
 type testInput struct {
@@ -204,16 +203,26 @@ type testRoundTwoOutputs struct {
 	Parsing and decoding functions.
 */
 
-func configToConfiguration(t *testing.T, c *testVectorConfig) *frost.Configuration {
+func makeFrostConfig(c frost.Ciphersuite, threshold, maxSigners uint) *frost.Configuration {
+	return &frost.Configuration{
+		Ciphersuite:      c,
+		Threshold:        uint64(threshold),
+		MaxSigners:       uint64(maxSigners),
+		GroupPublicKey:   nil,
+		SignerPublicKeys: nil,
+	}
+}
+
+func configToConfiguration(t *testing.T, c *testVectorConfig, threshold, maxSigners uint) *frost.Configuration {
 	switch c.Group {
 	case "ed25519":
-		return frost.Ed25519.Configuration()
+		return makeFrostConfig(frost.Ed25519, threshold, maxSigners)
 	case "ristretto255":
-		return frost.Ristretto255.Configuration()
+		return makeFrostConfig(frost.Ristretto255, threshold, maxSigners)
 	case "P-256":
-		return frost.P256.Configuration()
+		return makeFrostConfig(frost.P256, threshold, maxSigners)
 	case "secp256k1":
-		return frost.Secp256k1.Configuration()
+		return makeFrostConfig(frost.Secp256k1, threshold, maxSigners)
 	default:
 		t.Fatalf("group not supported: %s", c.Group)
 	}
@@ -291,8 +300,8 @@ func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoun
 
 	for i, p := range o.Outputs {
 		r.Outputs[i] = &frost.SignatureShare{
-			Identifier:     p.Identifier,
-			SignatureShare: decodeScalar(t, g, p.SigShare),
+			SignerIdentifier: p.Identifier,
+			SignatureShare:   decodeScalar(t, g, p.SigShare),
 		}
 	}
 
@@ -301,11 +310,24 @@ func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoun
 
 func (v testVector) decode(t *testing.T) *test {
 	conf := v.Config.decode(t)
+	inputs := v.Inputs.decode(t, conf.Ciphersuite.ECGroup())
+
+	conf.GroupPublicKey = inputs.GroupPublicKey
+	conf.SignerPublicKeys = make([]*frost.PublicKeyShare, len(inputs.Participants))
+
+	for i, ks := range inputs.Participants {
+		conf.SignerPublicKeys[i] = ks.Public()
+	}
+
+	if err := conf.Configuration.Init(); err != nil {
+		t.Fatal(err)
+	}
+
 	return &test{
 		Config:          conf,
-		Inputs:          v.Inputs.decode(t, conf.Ciphersuite.Group),
-		RoundOneOutputs: v.RoundOneOutputs.decode(t, conf.Ciphersuite.Group),
-		RoundTwoOutputs: v.RoundTwoOutputs.decode(t, conf.Ciphersuite.Group),
+		Inputs:          inputs,
+		RoundOneOutputs: v.RoundOneOutputs.decode(t, conf.Ciphersuite.ECGroup()),
+		RoundTwoOutputs: v.RoundTwoOutputs.decode(t, conf.Ciphersuite.ECGroup()),
 		FinalOutput:     v.FinalOutput.Sig,
 	}
 }

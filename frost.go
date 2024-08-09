@@ -10,8 +10,11 @@
 package frost
 
 import (
+	"errors"
+	"fmt"
+	"math/big"
+
 	group "github.com/bytemare/crypto"
-	"github.com/bytemare/hash"
 
 	"github.com/bytemare/frost/internal"
 )
@@ -29,6 +32,40 @@ import (
 	- Chu: https://eprint.iacr.org/2023/899
 	- re-randomize keys: https://eprint.iacr.org/2024/436.pdf
 
+Requirements:
+- group MUST be of prime order
+- threshold <= max
+- max < order
+- identifier is in [1:max] and must be distinct form other ids
+- each participant MUST know the group public key
+- each participant MUST know the pub key of each other
+- network channels must be authenticated (confidentiality is not required)
+- Signers have local secret data
+	- secret key and lambda are long term
+	- committed nonces between commitment and signature
+
+- When receiving the commitment list, each elements must be deserialized, and upon error, the signer MUST abort the
+  protocol
+- A signer must check whether their id and commitment appear in the commitment list
+
+- A coordinator aggregates, and then should verify the signature. If signature fails, then check shares.
+
+TODO:
+- verify serialize and deserialize functions of messages, scalars, and elements
+
+Notes:
+- Frost is not robust, i.e.
+	- if aggregated signature is not valid, SHOULD abort
+	- misbehaving signers can DOS the protocol by providing wrong sig shares or not contributing
+- Wrong shares can be identified, and with the authenticated channel associated with the signer, which can then be
+denied of further contributions
+- R255 is recommended
+- the coordinator does not not have any secret or private information
+- the coordinator is assumed to behave honestly
+- the coordinator may further hedge against nonce reuse by tracking the nonce commitments used for a given group key
+- for message pre-hashing, see RFC
+
+
 */
 
 // Ciphersuite identifies the group and hash to use for FROST.
@@ -42,36 +79,33 @@ const (
 	Ristretto255 = Ciphersuite(group.Ristretto255Sha512)
 
 	// Ed448 uses Edwards448 and SHAKE256, producing Ed448-compliant signatures as specified in RFC8032.
-	ed448 = Ciphersuite(2)
+	// ed448 = Ciphersuite(2).
 
 	// P256 uses P-256 and SHA-256.
 	P256 = Ciphersuite(group.P256Sha256)
 
+	// P384 uses P-384 and SHA-384.
+	P384 = Ciphersuite(group.P384Sha384)
+
+	// P521 uses P-521 and SHA-512.
+	P521 = Ciphersuite(group.P521Sha512)
+
 	// Secp256k1 uses Secp256k1 and SHA-256.
 	Secp256k1 = Ciphersuite(group.Secp256k1)
-
-	ed25519ContextString      = "FROST-ED25519-SHA512-v1"
-	ristretto255ContextString = "FROST-RISTRETTO255-SHA512-v1"
-	p256ContextString         = "FROST-P256-SHA256-v1"
-	secp256k1ContextString    = "FROST-secp256k1-SHA256-v1"
-
-	/*
-		ed448ContextString        = "FROST-ED448-SHAKE256-v1"
-	*/
 )
 
 // Available returns whether the selected ciphersuite is available.
 func (c Ciphersuite) Available() bool {
 	switch c {
-	case Ed25519, Ristretto255, P256, Secp256k1:
+	case Ed25519, Ristretto255, P256, P384, P521, Secp256k1:
 		return true
 	default:
 		return false
 	}
 }
 
-// Group returns the elliptic curve group used in the ciphersuite.
-func (c Ciphersuite) Group() group.Group {
+// ECGroup returns the elliptic curve group used in the ciphersuite.
+func (c Ciphersuite) ECGroup() group.Group {
 	if !c.Available() {
 		return 0
 	}
@@ -79,49 +113,110 @@ func (c Ciphersuite) Group() group.Group {
 	return group.Group(c)
 }
 
-// Participant returns a new participant of the protocol instantiated from the configuration an input.
-func (c Ciphersuite) Participant(keyShare *KeyShare) *Participant {
-	return &Participant{
-		KeyShare:      keyShare,
-		Lambda:        nil,
-		Nonces:        make(map[uint64][2]*group.Scalar),
-		HidingRandom:  nil,
-		BindingRandom: nil,
-		Configuration: *c.Configuration(),
-	}
-}
-
 // Configuration holds long term configuration information.
 type Configuration struct {
-	internal.Ciphersuite
+	GroupPublicKey   *group.Element
+	SignerPublicKeys []*PublicKeyShare
+	Threshold        uint64
+	MaxSigners       uint64
+	Ciphersuite      Ciphersuite
+	group            group.Group
+	verified         bool
 }
 
-func makeConf(context string, h hash.Hash, g group.Group) *Configuration {
-	return &Configuration{
-		Ciphersuite: internal.Ciphersuite{
-			ContextString: []byte(context),
-			Hash:          h,
-			Group:         g,
-		},
+var (
+	errInvalidThresholdParameter = errors.New("threshold is 0 or higher than maxSigners")
+	errInvalidMaxSignersOrder    = errors.New("maxSigners is higher than group order")
+	errInvalidGroupPublicKey     = errors.New("invalid group public key (nil, identity, or generator")
+	errInvalidNumberOfPublicKeys = errors.New("number of public keys is lower than threshold")
+)
+
+func (c *Configuration) verify() error {
+	if !c.Ciphersuite.Available() {
+		return internal.ErrInvalidCiphersuite
 	}
+
+	if c.Threshold == 0 || c.Threshold > c.MaxSigners {
+		return errInvalidThresholdParameter
+	}
+
+	order, _ := new(big.Int).SetString(group.Group(c.Ciphersuite).Order(), 0)
+	if order == nil {
+		panic("can't set group order number")
+	}
+
+	bigMax := new(big.Int).SetUint64(c.MaxSigners)
+	if order.Cmp(bigMax) != 1 {
+		return errInvalidMaxSignersOrder
+	}
+
+	g := group.Group(c.Ciphersuite)
+	base := g.Base()
+
+	if c.GroupPublicKey == nil || c.GroupPublicKey.IsIdentity() || c.GroupPublicKey.Equal(base) == 1 {
+		return errInvalidGroupPublicKey
+	}
+
+	if uint64(len(c.SignerPublicKeys)) < c.Threshold {
+		return errInvalidNumberOfPublicKeys
+	}
+
+	// Set to detect duplicate public keys.
+	pkSet := make(map[string]uint64, len(c.SignerPublicKeys))
+	idSet := make(map[uint64]struct{}, len(c.SignerPublicKeys))
+
+	for i, pks := range c.SignerPublicKeys {
+		if pks == nil {
+			return fmt.Errorf("empty public key share at index %d", i)
+		}
+
+		if pks.PublicKey == nil || pks.PublicKey.IsIdentity() || pks.PublicKey.Equal(base) == 1 {
+			return fmt.Errorf("invalid signer public key (nil, identity, or generator) for participant %d", pks.ID)
+		}
+
+		// Verify whether the ID has duplicates
+		if _, exists := idSet[pks.ID]; exists {
+			return fmt.Errorf("found duplicate identifier for signer %d", pks.ID)
+		}
+
+		// Verify whether the public key has duplicates
+		s := string(pks.PublicKey.Encode())
+		if id, exists := pkSet[s]; exists {
+			return fmt.Errorf("found duplicate public keys for signers %d and %d", pks.ID, id)
+		}
+
+		pkSet[s] = pks.ID
+		idSet[pks.ID] = struct{}{}
+	}
+
+	return nil
 }
 
-// Configuration returns a configuration created for the ciphersuite.
-func (c Ciphersuite) Configuration() *Configuration {
-	if !c.Available() {
-		return nil
+func (c *Configuration) Init() error {
+	if err := c.verify(); err != nil {
+		return err
 	}
 
-	switch c {
-	case Ed25519:
-		return makeConf(ed25519ContextString, hash.SHA512, group.Edwards25519Sha512)
-	case Ristretto255:
-		return makeConf(ristretto255ContextString, hash.SHA512, group.Ristretto255Sha512)
-	case P256:
-		return makeConf(p256ContextString, hash.SHA256, group.P256Sha256)
-	case Secp256k1:
-		return makeConf(secp256k1ContextString, hash.SHA256, group.Secp256k1)
-	default:
-		return nil
+	c.verified = true
+	c.group = group.Group(c.Ciphersuite)
+
+	return nil
+}
+
+// Signer returns a new participant of the protocol instantiated from the configuration and the signer's key share.
+func (c *Configuration) Signer(keyShare *KeyShare) (*Signer, error) {
+	if !c.verified {
+		if err := c.Init(); err != nil {
+			return nil, err
+		}
 	}
+
+	return &Signer{
+		KeyShare:      keyShare,
+		Lambda:        nil,
+		Commitments:   make(map[uint64]*NonceCommitment),
+		HidingRandom:  nil,
+		BindingRandom: nil,
+		configuration: c,
+	}, nil
 }
