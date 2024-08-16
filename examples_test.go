@@ -38,7 +38,7 @@ func Example_signer() {
 		publicKeyShares[i] = sk.Public()
 	}
 
-	// This is how to set up the configuration for FROST, the same for every signer and the coordinator.
+	// This is how to set up the Configuration for FROST, the same for every signer and the coordinator.
 	configuration := &frost.Configuration{
 		Ciphersuite:      ciphersuite,
 		Threshold:        threshold,
@@ -125,7 +125,7 @@ func Example_coordinator() {
 		publicKeyShares[i] = sk.Public()
 	}
 
-	// This is how to set up the configuration for FROST, the same for every signer and the coordinator.
+	// This is how to set up the Configuration for FROST, the same for every signer and the coordinator.
 	configuration := &frost.Configuration{
 		Ciphersuite:      ciphersuite,
 		Threshold:        threshold,

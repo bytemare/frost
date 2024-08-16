@@ -23,7 +23,7 @@ import (
 type SignatureShare struct {
 	SignatureShare   *group.Scalar
 	SignerIdentifier uint64
-	group            group.Group
+	Group            group.Group
 }
 
 // Signer is a participant in a signing group.
@@ -31,7 +31,7 @@ type Signer struct {
 	KeyShare      *KeyShare
 	Lambda        *group.Scalar
 	Commitments   map[uint64]*NonceCommitment
-	configuration *Configuration
+	Configuration *Configuration
 	HidingRandom  []byte
 	BindingRandom []byte
 }
@@ -75,7 +75,7 @@ func (s *Signer) generateNonce(secret *group.Scalar, random []byte) *group.Scala
 
 	enc := secret.Encode()
 
-	return internal.H3(s.configuration.group, internal.Concatenate(random, enc))
+	return internal.H3(s.Configuration.group, internal.Concatenate(random, enc))
 }
 
 func (s *Signer) genNonceID() uint64 {
@@ -99,11 +99,11 @@ func (s *Signer) Commit() *commitment.Commitment {
 	hn := s.generateNonce(s.KeyShare.Secret, s.HidingRandom)
 	bn := s.generateNonce(s.KeyShare.Secret, s.BindingRandom)
 	com := &commitment.Commitment{
-		Group:        s.configuration.group,
+		Group:        s.Configuration.group,
 		SignerID:     s.KeyShare.ID,
 		CommitmentID: cid,
-		HidingNonce:  s.configuration.group.Base().Multiply(hn),
-		BindingNonce: s.configuration.group.Base().Multiply(bn),
+		HidingNonce:  s.Configuration.group.Base().Multiply(hn),
+		BindingNonce: s.Configuration.group.Base().Multiply(bn),
 	}
 	s.Commitments[cid] = &NonceCommitment{
 		HidingNonceS:  hn,
@@ -137,7 +137,7 @@ func (s *Signer) verifyNonces(com *commitment.Commitment) error {
 
 // VerifyCommitmentList checks for the Commitment list integrity and the signer's commitment.
 func (s *Signer) VerifyCommitmentList(commitments commitment.List) error {
-	if err := internal.VerifyCommitmentList(s.configuration.group, commitments, s.configuration.Threshold); err != nil {
+	if err := internal.VerifyCommitmentList(s.Configuration.group, commitments, s.Configuration.Threshold); err != nil {
 		return fmt.Errorf("invalid list of commitments: %w", err)
 	}
 
@@ -170,22 +170,22 @@ func (s *Signer) Sign(commitmentID uint64, message []byte, commitments commitmen
 	}
 
 	groupCommitment, bindingFactors := internal.GroupCommitmentAndBindingFactors(
-		s.configuration.group,
+		s.Configuration.group,
 		message,
 		commitments,
-		s.configuration.GroupPublicKey,
+		s.Configuration.GroupPublicKey,
 	)
 
 	bindingFactor := bindingFactors[s.KeyShare.ID]
 
 	lambdaChall, err := internal.ComputeChallengeFactor(
-		s.configuration.group,
+		s.Configuration.group,
 		groupCommitment,
 		s.Lambda,
 		s.KeyShare.ID,
 		message,
 		commitments,
-		s.configuration.GroupPublicKey,
+		s.Configuration.GroupPublicKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("can't compute challenge: %w", err)
@@ -203,7 +203,7 @@ func (s *Signer) Sign(commitmentID uint64, message []byte, commitments commitmen
 	s.ClearNonceCommitment(commitmentID)
 
 	return &SignatureShare{
-		group:            s.configuration.group,
+		Group:            s.Configuration.group,
 		SignerIdentifier: s.KeyShare.ID,
 		SignatureShare:   sigShare,
 	}, nil

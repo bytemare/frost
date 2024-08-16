@@ -22,6 +22,7 @@ import (
 var (
 	errDecodeCommitmentLength = errors.New("failed to decode commitment: invalid length")
 	errInvalidCiphersuite     = errors.New("ciphersuite not available")
+	errInvalidLength          = errors.New("invalid encoding length")
 )
 
 // Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
@@ -54,12 +55,12 @@ func (c *Commitment) Encode() []byte {
 	hNonce := c.HidingNonce.Encode()
 	bNonce := c.BindingNonce.Encode()
 
-	out := make([]byte, 9, EncodedSize(c.Group))
+	out := make([]byte, 17, EncodedSize(c.Group))
 	out[0] = byte(c.Group)
-	binary.LittleEndian.PutUint64(out[1:], c.CommitmentID)
-	binary.LittleEndian.PutUint64(out[9:], c.SignerID)
-	copy(out[17:], hNonce)
-	copy(out[17+len(hNonce):], bNonce)
+	binary.LittleEndian.PutUint64(out[1:9], c.CommitmentID)
+	binary.LittleEndian.PutUint64(out[9:17], c.SignerID)
+	out = append(out, hNonce...)
+	out = append(out, bNonce...)
 
 	return out
 }
@@ -142,4 +143,55 @@ func (c List) Get(identifier uint64) *Commitment {
 	}
 
 	return nil
+}
+
+func (c List) Encode() []byte {
+	n := len(c)
+	if n == 0 {
+		return nil
+	}
+
+	g := c[0].Group
+	size := 8 + uint64(n)*EncodedSize(g)
+	out := make([]byte, 8, size)
+	out[0] = byte(g)
+	binary.LittleEndian.PutUint64(out, uint64(n))
+
+	for _, com := range c {
+		out = append(out, com.Encode()...)
+	}
+
+	return out
+}
+
+func DecodeList(data []byte) (List, error) {
+	if len(data) < 9 {
+		return nil, errInvalidLength
+	}
+
+	n := binary.LittleEndian.Uint64(data[:8])
+	g := group.Group(data[8])
+	if !g.Available() {
+		return nil, errInvalidCiphersuite
+	}
+
+	es := EncodedSize(g)
+	size := 8 + n*es
+
+	if uint64(len(data)) != size {
+		return nil, errInvalidLength
+	}
+
+	c := make(List, n)
+
+	for offset := uint64(8); offset <= uint64(len(data)); offset += es {
+		com := new(Commitment)
+		if err := com.Decode(data[offset : offset+es]); err != nil {
+			return nil, err
+		}
+
+		c = append(c, com)
+	}
+
+	return c, nil
 }

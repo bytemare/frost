@@ -30,7 +30,10 @@ const (
 	encNonceCommitment = byte(6)
 )
 
-var errInvalidConfigEncoding = errors.New("invalid values in configuration encoding")
+var (
+	errInvalidConfigEncoding = errors.New("invalid values in Configuration encoding")
+	errZeroIdentifier        = errors.New("identifier cannot be 0")
+)
 
 func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
 	eLen := uint64(g.ElementLength())
@@ -48,7 +51,7 @@ func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
 	case encPubKeyShare:
 		return 1 + 8 + 4 + eLen + other[0]
 	case encNonceCommitment:
-		return other[0] * (2*sLen + commitment.EncodedSize(g))
+		return 8 + 2*sLen + commitment.EncodedSize(g)
 	default:
 		panic("encoded id not recognized")
 	}
@@ -58,8 +61,9 @@ func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
 func (c *Configuration) Encode() []byte {
 	g := group.Group(c.Ciphersuite)
 	pksLen := encodedLength(encPubKeyShare, g, c.Threshold*uint64(g.ElementLength()))
-	out := make([]byte, 25, encodedLength(encConf, g, uint64(len(c.SignerPublicKeys))*pksLen))
-	out[0] = byte(c.group)
+	size := encodedLength(encConf, g, uint64(len(c.SignerPublicKeys))*pksLen)
+	out := make([]byte, 25, size)
+	out[0] = byte(g)
 	binary.LittleEndian.PutUint64(out[1:9], c.Threshold)
 	binary.LittleEndian.PutUint64(out[9:17], c.MaxSigners)
 	binary.LittleEndian.PutUint64(out[17:25], uint64(len(c.SignerPublicKeys)))
@@ -89,15 +93,21 @@ func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
 	}
 
 	g := group.Group(data[0])
+	t := binary.LittleEndian.Uint64(data[1:9])
+	m := binary.LittleEndian.Uint64(data[9:17])
 	n := binary.LittleEndian.Uint64(data[17:25])
-	pksLen := encodedLength(encPubKeyShare, g, c.Threshold*uint64(g.ElementLength()))
-	length := encodedLength(encConf, g, n*(8+pksLen))
+	pksLen := encodedLength(encPubKeyShare, g, t*uint64(g.ElementLength()))
+	length := encodedLength(encConf, g, n*pksLen)
+
+	if t > math.MaxUint || m > math.MaxUint {
+		return nil, errInvalidConfigEncoding
+	}
 
 	return &confHeader{
 		g:      g,
 		h:      25,
-		t:      binary.LittleEndian.Uint64(data[1:9]),
-		m:      binary.LittleEndian.Uint64(data[9:17]),
+		t:      t,
+		m:      m,
 		n:      n,
 		length: length,
 	}, nil
@@ -106,10 +116,6 @@ func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
 func (c *Configuration) decode(header *confHeader, data []byte) error {
 	if uint64(len(data)) != header.length {
 		return internal.ErrInvalidLength
-	}
-
-	if header.t > math.MaxUint || header.m > math.MaxUint {
-		return errInvalidConfigEncoding
 	}
 
 	gpk := header.g.NewElement()
@@ -154,7 +160,7 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	return nil
 }
 
-// Decode deserializes the input data into the configuration, or returns an error.
+// Decode deserializes the input data into the Configuration, or returns an error.
 func (c *Configuration) Decode(data []byte) error {
 	header, err := c.decodeHeader(data)
 	if err != nil {
@@ -169,8 +175,8 @@ func (c *Configuration) Decode(data []byte) error {
 func (s *Signer) Encode() []byte {
 	g := s.KeyShare.Group
 	ks := s.KeyShare.Encode()
-	nbCommitments := len(s.Commitments)
-	conf := s.configuration.Encode()
+	nCommitments := len(s.Commitments)
+	conf := s.Configuration.Encode()
 	out := make(
 		[]byte,
 		len(conf)+4,
@@ -179,13 +185,18 @@ func (s *Signer) Encode() []byte {
 			g,
 			uint64(len(conf)),
 			uint64(len(ks)),
-			uint64(nbCommitments)*encodedLength(encNonceCommitment, g),
+			uint64(nCommitments)*encodedLength(encNonceCommitment, g),
 		),
 	)
 	copy(out, conf)
-	binary.LittleEndian.PutUint16(out[len(conf):len(conf)+2], uint16(len(ks)))         // key share length
-	binary.LittleEndian.PutUint16(out[len(conf)+2:len(conf)+4], uint16(nbCommitments)) // number of commitments
-	out = append(out, s.Lambda.Encode()...)
+	binary.LittleEndian.PutUint16(out[len(conf):len(conf)+2], uint16(len(ks)))        // key share length
+	binary.LittleEndian.PutUint16(out[len(conf)+2:len(conf)+4], uint16(nCommitments)) // number of commitments
+
+	if s.Lambda != nil {
+		out = append(out, s.Lambda.Encode()...)
+	} else {
+		out = append(out, make([]byte, g.ScalarLength())...)
+	}
 	out = append(out, ks...) // key share
 
 	for id, com := range s.Commitments {
@@ -229,7 +240,7 @@ func (s *Signer) Decode(data []byte) error {
 
 	lambda := g.NewScalar()
 	if err := lambda.Decode(data[offset : offset+uint64(g.ScalarLength())]); err != nil {
-		return fmt.Errorf("failed to decode key share: %w", err)
+		return fmt.Errorf("failed to decode lambda: %w", err)
 	}
 
 	offset += uint64(g.ScalarLength())
@@ -241,9 +252,15 @@ func (s *Signer) Decode(data []byte) error {
 
 	offset += ksLen
 	commitments := make(map[uint64]*NonceCommitment)
+	comLen := commitment.EncodedSize(g)
 
 	for offset < uint64(len(data)) {
 		id := binary.LittleEndian.Uint64(data[offset : offset+8])
+
+		if _, exists := commitments[id]; exists {
+			return fmt.Errorf("multiple encoded commitments with the same id: %d", id)
+		}
+
 		offset += 8
 
 		hs := g.NewScalar()
@@ -261,11 +278,11 @@ func (s *Signer) Decode(data []byte) error {
 		offset += uint64(g.ScalarLength())
 
 		com := new(commitment.Commitment)
-		if err = com.Decode(data[offset : offset+nLen]); err != nil {
+		if err = com.Decode(data[offset : offset+comLen]); err != nil {
 			return fmt.Errorf("can't decode nonce commitment %d: %w", id, err)
 		}
 
-		offset += nLen
+		offset += comLen
 
 		commitments[id] = &NonceCommitment{
 			HidingNonceS:  hs,
@@ -277,7 +294,7 @@ func (s *Signer) Decode(data []byte) error {
 	s.KeyShare = keyShare
 	s.Lambda = lambda
 	s.Commitments = commitments
-	s.configuration = conf
+	s.Configuration = conf
 
 	return nil
 }
@@ -286,10 +303,10 @@ func (s *Signer) Decode(data []byte) error {
 func (s *SignatureShare) Encode() []byte {
 	share := s.SignatureShare.Encode()
 
-	out := make([]byte, 1+8+s.group.ScalarLength())
-	out[0] = byte(s.group)
+	out := make([]byte, 1+8+s.Group.ScalarLength())
+	out[0] = byte(s.Group)
 	binary.LittleEndian.PutUint64(out[1:9], s.SignerIdentifier)
-	copy(out[8:], share)
+	copy(out[9:], share)
 
 	return out
 }
@@ -311,13 +328,18 @@ func (s *SignatureShare) Decode(data []byte) error {
 		return internal.ErrInvalidLength
 	}
 
+	id := binary.LittleEndian.Uint64(data[1:9])
+	if id == 0 {
+		return errZeroIdentifier
+	}
+
 	share := g.NewScalar()
 	if err := share.Decode(data[9:]); err != nil {
 		return fmt.Errorf("failed to decode signature share: %w", err)
 	}
 
-	s.group = g
-	s.SignerIdentifier = binary.LittleEndian.Uint64(data[:1:9])
+	s.Group = g
+	s.SignerIdentifier = id
 	s.SignatureShare = share
 
 	return nil
@@ -334,11 +356,11 @@ func (s *Signature) Encode() []byte {
 
 // Decode attempts to deserialize the encoded input into the signature in the group.
 func (s *Signature) Decode(c Ciphersuite, data []byte) error {
-	if !c.Available() {
+	g := c.ECGroup()
+	if g == 0 {
 		return internal.ErrInvalidCiphersuite
 	}
 
-	g := group.Group(data[0])
 	eLen := g.ElementLength()
 
 	if uint64(len(data)) != encodedLength(encSig, g) {

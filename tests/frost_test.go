@@ -20,20 +20,29 @@ import (
 
 type tableTest struct {
 	frost.Ciphersuite
+	threshold, maxSigners uint64
 }
 
 var testTable = []tableTest{
 	{
 		Ciphersuite: frost.Ed25519,
+		threshold:   2,
+		maxSigners:  3,
 	},
 	{
 		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
 	},
 	{
 		Ciphersuite: frost.P256,
+		threshold:   2,
+		maxSigners:  3,
 	},
 	{
 		Ciphersuite: frost.Secp256k1,
+		threshold:   2,
+		maxSigners:  3,
 	},
 }
 
@@ -110,12 +119,8 @@ func runFrost(
 	keyShares []*frost.KeyShare,
 	groupPublicKey *group.Element,
 ) {
-	// At key generation, each participant must send their public key share to the coordinator, and the collection
-	// must be broadcast to every participant.
-	publicKeyShares := make([]*frost.PublicKeyShare, 0, len(keyShares))
-	for _, ks := range keyShares {
-		publicKeyShares = append(publicKeyShares, ks.Public())
-	}
+	// Collect public keys.
+	publicKeyShares := getPublicKeyShares(keyShares)
 
 	// Set up configuration.
 	configuration := &frost.Configuration{
@@ -141,7 +146,7 @@ func runFrost(
 		participants[i] = signer
 	}
 
-	// Round One: Commitment
+	// Commit
 	commitments := make(commitment.List, threshold)
 	for i, p := range participants {
 		commitments[i] = p.Commit()
@@ -149,7 +154,7 @@ func runFrost(
 
 	commitments.Sort()
 
-	// Round Two: Sign
+	// Sign
 	sigShares := make([]*frost.SignatureShare, threshold)
 	for i, p := range participants {
 		var err error
@@ -160,13 +165,9 @@ func runFrost(
 		}
 	}
 
-	// Final step: aggregate
-	signature, err := configuration.AggregateSignatures(message, sigShares, commitments, true)
+	// Aggregate
+	_, err := configuration.AggregateSignatures(message, sigShares, commitments, true)
 	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err = frost.VerifySignature(test.Ciphersuite, message, signature, groupPublicKey); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,27 +188,23 @@ func runFrost(
 }
 
 func TestFrost_WithTrustedDealer(t *testing.T) {
-	maxSigners := uint64(3)
-	threshold := uint64(2)
 	message := []byte("test")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		g := test.Ciphersuite.ECGroup()
 		sk := g.NewScalar().Random()
-		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, sk, threshold, maxSigners)
-		runFrost(t, test, threshold, maxSigners, message, keyShares, groupPublicKey)
+		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, sk, test.threshold, test.maxSigners)
+		runFrost(t, test, test.threshold, test.maxSigners, message, keyShares, groupPublicKey)
 	})
 }
 
 func TestFrost_WithDKG(t *testing.T) {
-	maxSigners := uint64(3)
-	threshold := uint64(2)
 	message := []byte("test")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		g := test.Ciphersuite.ECGroup()
-		keyShares, groupPublicKey, _ := runDKG(t, g, maxSigners, threshold)
-		runFrost(t, test, threshold, maxSigners, message, keyShares, groupPublicKey)
+		keyShares, groupPublicKey, _ := runDKG(t, g, test.maxSigners, test.threshold)
+		runFrost(t, test, test.threshold, test.maxSigners, message, keyShares, groupPublicKey)
 	})
 }
 

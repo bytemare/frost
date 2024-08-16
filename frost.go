@@ -113,7 +113,7 @@ func (c Ciphersuite) ECGroup() group.Group {
 	return group.Group(c)
 }
 
-// Configuration holds long term configuration information.
+// Configuration holds long term Configuration information.
 type Configuration struct {
 	GroupPublicKey   *group.Element
 	SignerPublicKeys []*PublicKeyShare
@@ -130,6 +130,40 @@ var (
 	errInvalidGroupPublicKey     = errors.New("invalid group public key (nil, identity, or generator")
 	errInvalidNumberOfPublicKeys = errors.New("number of public keys is lower than threshold")
 )
+
+func (c *Configuration) verifySignerPublicKeys() error {
+	// Sets to detect duplicates.
+	pkSet := make(map[string]uint64, len(c.SignerPublicKeys))
+	idSet := make(map[uint64]struct{}, len(c.SignerPublicKeys))
+	g := group.Group(c.Ciphersuite)
+	base := g.Base()
+
+	for i, pks := range c.SignerPublicKeys {
+		if pks == nil {
+			return fmt.Errorf("empty public key share at index %d", i)
+		}
+
+		if pks.PublicKey == nil || pks.PublicKey.IsIdentity() || pks.PublicKey.Equal(base) == 1 {
+			return fmt.Errorf("invalid signer public key (nil, identity, or generator) for participant %d", pks.ID)
+		}
+
+		// Verify whether the ID has duplicates
+		if _, exists := idSet[pks.ID]; exists {
+			return fmt.Errorf("found duplicate identifier for signer %d", pks.ID)
+		}
+
+		// Verify whether the public key has duplicates
+		s := string(pks.PublicKey.Encode())
+		if id, exists := pkSet[s]; exists {
+			return fmt.Errorf("found duplicate public keys for signers %d and %d", pks.ID, id)
+		}
+
+		pkSet[s] = pks.ID
+		idSet[pks.ID] = struct{}{}
+	}
+
+	return nil
+}
 
 func (c *Configuration) verify() error {
 	if !c.Ciphersuite.Available() {
@@ -161,32 +195,8 @@ func (c *Configuration) verify() error {
 		return errInvalidNumberOfPublicKeys
 	}
 
-	// Set to detect duplicate public keys.
-	pkSet := make(map[string]uint64, len(c.SignerPublicKeys))
-	idSet := make(map[uint64]struct{}, len(c.SignerPublicKeys))
-
-	for i, pks := range c.SignerPublicKeys {
-		if pks == nil {
-			return fmt.Errorf("empty public key share at index %d", i)
-		}
-
-		if pks.PublicKey == nil || pks.PublicKey.IsIdentity() || pks.PublicKey.Equal(base) == 1 {
-			return fmt.Errorf("invalid signer public key (nil, identity, or generator) for participant %d", pks.ID)
-		}
-
-		// Verify whether the ID has duplicates
-		if _, exists := idSet[pks.ID]; exists {
-			return fmt.Errorf("found duplicate identifier for signer %d", pks.ID)
-		}
-
-		// Verify whether the public key has duplicates
-		s := string(pks.PublicKey.Encode())
-		if id, exists := pkSet[s]; exists {
-			return fmt.Errorf("found duplicate public keys for signers %d and %d", pks.ID, id)
-		}
-
-		pkSet[s] = pks.ID
-		idSet[pks.ID] = struct{}{}
+	if err := c.verifySignerPublicKeys(); err != nil {
+		return err
 	}
 
 	return nil
@@ -203,7 +213,7 @@ func (c *Configuration) Init() error {
 	return nil
 }
 
-// Signer returns a new participant of the protocol instantiated from the configuration and the signer's key share.
+// Signer returns a new participant of the protocol instantiated from the Configuration and the signer's key share.
 func (c *Configuration) Signer(keyShare *KeyShare) (*Signer, error) {
 	if !c.verified {
 		if err := c.Init(); err != nil {
@@ -217,6 +227,6 @@ func (c *Configuration) Signer(keyShare *KeyShare) (*Signer, error) {
 		Commitments:   make(map[uint64]*NonceCommitment),
 		HidingRandom:  nil,
 		BindingRandom: nil,
-		configuration: c,
+		Configuration: c,
 	}, nil
 }
