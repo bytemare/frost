@@ -34,7 +34,7 @@ func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, maxSigners, 
 func runDKG(
 	t *testing.T,
 	g group.Group,
-	maxSigners, threshold uint64,
+	threshold, maxSigners uint64,
 ) ([]*frost.KeyShare, *group.Element, []*group.Element) {
 	c := dkg.Ciphersuite(g)
 

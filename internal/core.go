@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	group "github.com/bytemare/crypto"
+	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/commitment"
 )
@@ -29,8 +30,14 @@ func GroupCommitmentAndBindingFactors(
 	return groupCommitment, bindingFactors
 }
 
+func participantsFromCommitments(g group.Group, c commitment.List) secretsharing.Polynomial {
+	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *commitment.Commitment) *group.Scalar {
+		return g.NewScalar().SetUInt64(c.SignerID)
+	})
+}
+
 func computeLambda(g group.Group, commitments commitment.List, id uint64) (*group.Scalar, error) {
-	participantList := commitments.Participants(g)
+	participantList := participantsFromCommitments(g, commitments)
 
 	l, err := participantList.DeriveInterpolatingValue(g, g.NewScalar().SetUInt64(id))
 	if err != nil {

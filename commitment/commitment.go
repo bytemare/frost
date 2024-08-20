@@ -16,7 +16,6 @@ import (
 	"slices"
 
 	group "github.com/bytemare/crypto"
-	secretsharing "github.com/bytemare/secret-sharing"
 )
 
 var (
@@ -67,7 +66,7 @@ func (c *Commitment) Encode() []byte {
 
 // Decode attempts to deserialize the encoded commitment given as input, and to return it.
 func (c *Commitment) Decode(data []byte) error {
-	if len(data) < 16 {
+	if len(data) < 17 {
 		return errDecodeCommitmentLength
 	}
 
@@ -82,12 +81,14 @@ func (c *Commitment) Decode(data []byte) error {
 
 	cID := binary.LittleEndian.Uint64(data[1:9])
 	pID := binary.LittleEndian.Uint64(data[9:17])
-	offset := 17 + g.ElementLength()
+	offset := 17
 
 	hn := g.NewElement()
-	if err := hn.Decode(data[17:offset]); err != nil {
+	if err := hn.Decode(data[offset : offset+g.ElementLength()]); err != nil {
 		return fmt.Errorf("invalid encoding of hiding nonce: %w", err)
 	}
+
+	offset += g.ElementLength()
 
 	bn := g.NewElement()
 	if err := bn.Decode(data[offset : offset+g.ElementLength()]); err != nil {
@@ -127,13 +128,6 @@ func (c List) IsSorted() bool {
 	return slices.IsSortedFunc(c, cmpID)
 }
 
-// Participants returns the list of participants in the commitment list in the form of a polynomial.
-func (c List) Participants(g group.Group) secretsharing.Polynomial {
-	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *group.Scalar {
-		return g.NewScalar().SetUInt64(c.SignerID)
-	})
-}
-
 // Get returns the commitment of the participant with the corresponding identifier, or nil if it was not found.
 func (c List) Get(identifier uint64) *Commitment {
 	for _, com := range c {
@@ -152,10 +146,10 @@ func (c List) Encode() []byte {
 	}
 
 	g := c[0].Group
-	size := 8 + uint64(n)*EncodedSize(g)
-	out := make([]byte, 8, size)
+	size := 1 + 8 + uint64(n)*EncodedSize(g)
+	out := make([]byte, 9, size)
 	out[0] = byte(g)
-	binary.LittleEndian.PutUint64(out, uint64(n))
+	binary.LittleEndian.PutUint64(out[1:9], uint64(n))
 
 	for _, com := range c {
 		out = append(out, com.Encode()...)
@@ -169,25 +163,25 @@ func DecodeList(data []byte) (List, error) {
 		return nil, errInvalidLength
 	}
 
-	n := binary.LittleEndian.Uint64(data[:8])
-	g := group.Group(data[8])
+	g := group.Group(data[0])
 	if !g.Available() {
 		return nil, errInvalidCiphersuite
 	}
 
+	n := binary.LittleEndian.Uint64(data[1:9])
 	es := EncodedSize(g)
-	size := 8 + n*es
+	size := 1 + 8 + n*es
 
 	if uint64(len(data)) != size {
 		return nil, errInvalidLength
 	}
 
-	c := make(List, n)
+	c := make(List, 0, n)
 
-	for offset := uint64(8); offset <= uint64(len(data)); offset += es {
+	for offset := uint64(9); offset < uint64(len(data)); offset += es {
 		com := new(Commitment)
 		if err := com.Decode(data[offset : offset+es]); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid encoding of commitment: %w", err)
 		}
 
 		c = append(c, com)

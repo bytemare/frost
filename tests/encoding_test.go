@@ -57,39 +57,53 @@ func badElement(t *testing.T, g group.Group) []byte {
 	return encoded
 }
 
-func comparePublicKeyShare(p1, p2 *frost.PublicKeyShare) error {
-	if p1.PublicKey.Equal(p2.PublicKey) != 1 {
-		return fmt.Errorf("Expected equality on PublicKey:\n\t%s\n\t%s\n", p1.PublicKey.Hex(), p2.PublicKey.Hex())
+func makeConf(t *testing.T, test *tableTest) *frost.Configuration {
+	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
+	publicKeyShares := getPublicKeyShares(keyShares)
+
+	configuration := &frost.Configuration{
+		Ciphersuite:      test.Ciphersuite,
+		Threshold:        test.threshold,
+		MaxSigners:       test.maxSigners,
+		GroupPublicKey:   groupPublicKey,
+		SignerPublicKeys: publicKeyShares,
 	}
 
-	if p1.ID != p2.ID {
-		return fmt.Errorf("Expected equality on ID:\n\t%d\n\t%d\n", p1.ID, p2.ID)
+	if err := configuration.Init(); err != nil {
+		t.Fatal(err)
 	}
 
-	if p1.Group != p2.Group {
-		return fmt.Errorf("Expected equality on Group:\n\t%v\n\t%v\n", p1.Group, p2.Group)
+	return configuration
+}
+
+func makeSigners(t *testing.T, test *tableTest) []*frost.Signer {
+	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
+	publicKeyShares := getPublicKeyShares(keyShares)
+
+	configuration := &frost.Configuration{
+		Ciphersuite:      test.Ciphersuite,
+		Threshold:        test.threshold,
+		MaxSigners:       test.maxSigners,
+		GroupPublicKey:   groupPublicKey,
+		SignerPublicKeys: publicKeyShares,
 	}
 
-	if len(p1.Commitment) != len(p2.Commitment) {
-		return fmt.Errorf(
-			"Expected equality on Commitment length:\n\t%d\n\t%d\n",
-			len(p1.Commitment),
-			len(p1.Commitment),
-		)
+	if err := configuration.Init(); err != nil {
+		t.Fatal(err)
 	}
 
-	for i := range p1.Commitment {
-		if p1.Commitment[i].Equal(p2.Commitment[i]) != 1 {
-			return fmt.Errorf(
-				"Expected equality on Commitment %d:\n\t%s\n\t%s\n",
-				i,
-				p1.Commitment[i].Hex(),
-				p1.Commitment[i].Hex(),
-			)
+	signers := make([]*frost.Signer, test.maxSigners)
+
+	for i, keyShare := range keyShares {
+		s, err := configuration.Signer(keyShare)
+		if err != nil {
+			t.Fatal(err)
 		}
+
+		signers[i] = s
 	}
 
-	return nil
+	return signers
 }
 
 func getPublicKeyShares(keyShares []*frost.KeyShare) []*frost.PublicKeyShare {
@@ -139,23 +153,151 @@ func compareConfigurations(t *testing.T, c1, c2 *frost.Configuration, expectedMa
 	}
 }
 
-func makeConf(t *testing.T, test *tableTest) *frost.Configuration {
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
-	publicKeyShares := getPublicKeyShares(keyShares)
-
-	configuration := &frost.Configuration{
-		Ciphersuite:      test.Ciphersuite,
-		Threshold:        test.threshold,
-		MaxSigners:       test.maxSigners,
-		GroupPublicKey:   groupPublicKey,
-		SignerPublicKeys: publicKeyShares,
+func comparePublicKeyShare(p1, p2 *frost.PublicKeyShare) error {
+	if p1.PublicKey.Equal(p2.PublicKey) != 1 {
+		return fmt.Errorf("Expected equality on PublicKey:\n\t%s\n\t%s\n", p1.PublicKey.Hex(), p2.PublicKey.Hex())
 	}
 
-	if err := configuration.Init(); err != nil {
+	if p1.ID != p2.ID {
+		return fmt.Errorf("Expected equality on ID:\n\t%d\n\t%d\n", p1.ID, p2.ID)
+	}
+
+	if p1.Group != p2.Group {
+		return fmt.Errorf("Expected equality on Group:\n\t%v\n\t%v\n", p1.Group, p2.Group)
+	}
+
+	if len(p1.Commitment) != len(p2.Commitment) {
+		return fmt.Errorf(
+			"Expected equality on Commitment length:\n\t%d\n\t%d\n",
+			len(p1.Commitment),
+			len(p1.Commitment),
+		)
+	}
+
+	for i := range p1.Commitment {
+		if p1.Commitment[i].Equal(p2.Commitment[i]) != 1 {
+			return fmt.Errorf(
+				"Expected equality on Commitment %d:\n\t%s\n\t%s\n",
+				i,
+				p1.Commitment[i].Hex(),
+				p1.Commitment[i].Hex(),
+			)
+		}
+	}
+
+	return nil
+}
+
+func compareKeyShares(s1, s2 *frost.KeyShare) error {
+	if s1.Secret.Equal(s2.Secret) != 1 {
+		return fmt.Errorf("Expected equality on Secret:\n\t%s\n\t%s\n", s1.Secret.Hex(), s2.Secret.Hex())
+	}
+
+	if s1.GroupPublicKey.Equal(s2.GroupPublicKey) != 1 {
+		return fmt.Errorf(
+			"Expected equality on GroupPublicKey:\n\t%s\n\t%s\n",
+			s1.GroupPublicKey.Hex(),
+			s2.GroupPublicKey.Hex(),
+		)
+	}
+
+	return comparePublicKeyShare(s1.Public(), s2.Public())
+}
+
+func compareCommitments(c1, c2 *commitment.Commitment) error {
+	if c1.Group != c2.Group {
+		return errors.New("different groups")
+	}
+
+	if c1.SignerID != c2.SignerID {
+		return errors.New("different SignerID")
+	}
+
+	if c1.CommitmentID != c2.CommitmentID {
+		return errors.New("different CommitmentID")
+	}
+
+	if c1.HidingNonce.Equal(c2.HidingNonce) != 1 {
+		return errors.New("different HidingNonce")
+	}
+
+	if c1.BindingNonce.Equal(c2.BindingNonce) != 1 {
+		return errors.New("different BindingNonce")
+	}
+
+	return nil
+}
+
+func compareNonceCommitments(c1, c2 *frost.NonceCommitment) error {
+	if c1.HidingNonceS.Equal(c2.HidingNonceS) != 1 {
+		return errors.New("different HidingNonceS")
+	}
+
+	if c1.BindingNonceS.Equal(c2.BindingNonceS) != 1 {
+		return errors.New("different BindingNonceS")
+	}
+
+	return compareCommitments(c1.Commitment, c2.Commitment)
+}
+
+func compareSigners(t *testing.T, s1, s2 *frost.Signer) {
+	if err := compareKeyShares(s1.KeyShare, s2.KeyShare); err != nil {
 		t.Fatal(err)
 	}
 
-	return configuration
+	if !((s1.Lambda == nil && (s2.Lambda == nil || s2.Lambda.IsZero())) || (s2.Lambda == nil && (s1.Lambda == nil || s1.Lambda.IsZero()))) {
+		t.Fatalf("expected equality: %v / %v", s1.Lambda, s2.Lambda.IsZero())
+	}
+
+	if len(s1.Commitments) != len(s2.Commitments) {
+		t.Fatal("expected equality")
+	}
+
+	for id, com := range s1.Commitments {
+		if com2, exists := s2.Commitments[id]; !exists {
+			t.Fatalf("com id %d does not exist in s2", id)
+		} else {
+			if err := compareNonceCommitments(com, com2); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	if bytes.Compare(s1.HidingRandom, s2.HidingRandom) != 0 {
+		t.Fatal("expected equality")
+	}
+
+	if bytes.Compare(s1.BindingRandom, s2.BindingRandom) != 0 {
+		t.Fatal("expected equality")
+	}
+
+	compareConfigurations(t, s1.Configuration, s2.Configuration, true)
+}
+
+func compareSignatureShares(t *testing.T, s1, s2 *frost.SignatureShare) {
+	if s1.Group != s2.Group {
+		t.Fatal("unexpected group")
+	}
+
+	if s1.SignerIdentifier != s2.SignerIdentifier {
+		t.Fatal("expected equality")
+	}
+
+	if s1.SignatureShare.Equal(s2.SignatureShare) != 1 {
+		t.Fatal("expected equality")
+	}
+}
+
+func compareSignatures(s1, s2 *frost.Signature, expectEqual bool) error {
+	if s1.R.Equal(s2.R) == 1 != expectEqual {
+		return fmt.Errorf("expected %v R", expectEqual)
+	}
+
+	if s1.Z.Equal(s2.Z) == 1 != expectEqual {
+		return fmt.Errorf("expected %v Z", expectEqual)
+	}
+
+	return nil
 }
 
 func TestEncoding_Configuration(t *testing.T) {
@@ -268,122 +410,6 @@ func TestEncoding_Configuration_InvalidPublicKeyShare(t *testing.T) {
 			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
-}
-
-func compareKeyShares(s1, s2 *frost.KeyShare) error {
-	if s1.Secret.Equal(s2.Secret) != 1 {
-		return fmt.Errorf("Expected equality on Secret:\n\t%s\n\t%s\n", s1.Secret.Hex(), s2.Secret.Hex())
-	}
-
-	if s1.GroupPublicKey.Equal(s2.GroupPublicKey) != 1 {
-		return fmt.Errorf(
-			"Expected equality on GroupPublicKey:\n\t%s\n\t%s\n",
-			s1.GroupPublicKey.Hex(),
-			s2.GroupPublicKey.Hex(),
-		)
-	}
-
-	return comparePublicKeyShare(s1.Public(), s2.Public())
-}
-
-func compareCommitments(c1, c2 *commitment.Commitment) error {
-	if c1.Group != c2.Group {
-		return errors.New("different groups")
-	}
-
-	if c1.SignerID != c2.SignerID {
-		return errors.New("different SignerID")
-	}
-
-	if c1.CommitmentID != c2.CommitmentID {
-		return errors.New("different CommitmentID")
-	}
-
-	if c1.HidingNonce.Equal(c2.HidingNonce) != 1 {
-		return errors.New("different HidingNonce")
-	}
-
-	if c1.BindingNonce.Equal(c2.BindingNonce) != 1 {
-		return errors.New("different BindingNonce")
-	}
-
-	return nil
-}
-
-func compareNonceCommitments(c1, c2 *frost.NonceCommitment) error {
-	if c1.HidingNonceS.Equal(c2.HidingNonceS) != 1 {
-		return errors.New("different HidingNonceS")
-	}
-
-	if c1.BindingNonceS.Equal(c2.BindingNonceS) != 1 {
-		return errors.New("different BindingNonceS")
-	}
-
-	return compareCommitments(c1.Commitment, c2.Commitment)
-}
-
-func makeSigners(t *testing.T, test *tableTest) []*frost.Signer {
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
-	publicKeyShares := getPublicKeyShares(keyShares)
-
-	configuration := &frost.Configuration{
-		Ciphersuite:      test.Ciphersuite,
-		Threshold:        test.threshold,
-		MaxSigners:       test.maxSigners,
-		GroupPublicKey:   groupPublicKey,
-		SignerPublicKeys: publicKeyShares,
-	}
-
-	if err := configuration.Init(); err != nil {
-		t.Fatal(err)
-	}
-
-	signers := make([]*frost.Signer, test.maxSigners)
-
-	for i, keyShare := range keyShares {
-		s, err := configuration.Signer(keyShare)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		signers[i] = s
-	}
-
-	return signers
-}
-
-func compareSigners(t *testing.T, s1, s2 *frost.Signer) {
-	if err := compareKeyShares(s1.KeyShare, s2.KeyShare); err != nil {
-		t.Fatal(err)
-	}
-
-	if !((s1.Lambda == nil && (s2.Lambda == nil || s2.Lambda.IsZero())) || (s2.Lambda == nil && (s1.Lambda == nil || s1.Lambda.IsZero()))) {
-		t.Fatalf("expected equality: %v / %v", s1.Lambda, s2.Lambda.IsZero())
-	}
-
-	if len(s1.Commitments) != len(s2.Commitments) {
-		t.Fatal("expected equality")
-	}
-
-	for id, com := range s1.Commitments {
-		if com2, exists := s2.Commitments[id]; !exists {
-			t.Fatalf("com id %d does not exist in s2", id)
-		} else {
-			if err := compareNonceCommitments(com, com2); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-
-	if bytes.Compare(s1.HidingRandom, s2.HidingRandom) != 0 {
-		t.Fatal("expected equality")
-	}
-
-	if bytes.Compare(s1.BindingRandom, s2.BindingRandom) != 0 {
-		t.Fatal("expected equality")
-	}
-
-	compareConfigurations(t, s1.Configuration, s2.Configuration, true)
 }
 
 func TestEncoding_Signer(t *testing.T) {
@@ -617,34 +643,18 @@ func TestEncoding_Signer_InvalidCommitment(t *testing.T) {
 	})
 }
 
-func compareSignatureShares(t *testing.T, s1, s2 *frost.SignatureShare) {
-	if s1.Group != s2.Group {
-		t.Fatal("unexpected group")
-	}
-
-	if s1.SignerIdentifier != s2.SignerIdentifier {
-		t.Fatal("expected equality")
-	}
-
-	if s1.SignatureShare.Equal(s2.SignatureShare) != 1 {
-		t.Fatal("expected equality")
-	}
-}
-
 func TestEncoding_SignatureShare(t *testing.T) {
 	message := []byte("message")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make([]*commitment.Commitment, len(signers))
-		comsMap := make(map[uint64]*commitment.Commitment, len(signers))
+		coms := make(commitment.List, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
-			comsMap[s.Identifier()] = coms[i]
 		}
 
 		for _, s := range signers {
-			com := comsMap[s.Identifier()].CommitmentID
+			com := coms.Get(s.Identifier()).CommitmentID
 			sigShare, err := s.Sign(com, message, coms)
 			if err != nil {
 				t.Fatal(err)
@@ -709,15 +719,13 @@ func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make([]*commitment.Commitment, len(signers))
-		comsMap := make(map[uint64]*commitment.Commitment, len(signers))
+		coms := make(commitment.List, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
-			comsMap[s.Identifier()] = coms[i]
 		}
 
 		s := signers[0]
-		com := comsMap[s.Identifier()].CommitmentID
+		com := coms.Get(s.Identifier()).CommitmentID
 
 		sigShare, err := s.Sign(com, message, coms)
 		if err != nil {
@@ -732,16 +740,6 @@ func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
-}
-
-func compareSignatures(t *testing.T, s1, s2 *frost.Signature) {
-	if s1.R.Equal(s2.R) != 1 {
-		t.Fatal("expected equality")
-	}
-
-	if s1.Z.Equal(s2.Z) != 1 {
-		t.Fatal("expected equality")
-	}
 }
 
 func TestEncoding_Signature(t *testing.T) {
@@ -761,7 +759,9 @@ func TestEncoding_Signature(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		compareSignatures(t, signature, decoded)
+		if err = compareSignatures(signature, decoded, true); err != nil {
+			t.Fatal(err)
+		}
 	})
 }
 
@@ -824,6 +824,209 @@ func TestEncoding_Signature_InvalidZ(t *testing.T) {
 
 		decoded := new(frost.Signature)
 		if err := decoded.Decode(test.Ciphersuite, encoded); err == nil ||
+			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_Commitment(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+		encoded := com.Encode()
+
+		decoded := new(commitment.Commitment)
+		if err := decoded.Decode(encoded); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := compareCommitments(com, decoded); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestEncoding_Commitment_BadCiphersuite(t *testing.T) {
+	expectedErrorPrefix := internal.ErrInvalidCiphersuite.Error()
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+		encoded := com.Encode()
+		encoded[0] = 0
+
+		decoded := new(commitment.Commitment)
+		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_Commitment_InvalidLength1(t *testing.T) {
+	expectedErrorPrefix := "failed to decode commitment: invalid length"
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+		encoded := com.Encode()
+
+		decoded := new(commitment.Commitment)
+		if err := decoded.Decode(encoded[:16]); err == nil || err.Error() != expectedErrorPrefix {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_Commitment_InvalidLength2(t *testing.T) {
+	expectedErrorPrefix := "failed to decode commitment: invalid length"
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+		encoded := com.Encode()
+
+		decoded := new(commitment.Commitment)
+		if err := decoded.Decode(encoded[:35]); err == nil || err.Error() != expectedErrorPrefix {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_Commitment_InvalidHidingNonce(t *testing.T) {
+	expectedErrorPrefix := "invalid encoding of hiding nonce: "
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+		encoded := com.Encode()
+		bad := badElement(t, test.ECGroup())
+		slices.Replace(encoded, 17, 17+test.ECGroup().ElementLength(), bad...)
+
+		decoded := new(commitment.Commitment)
+		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_Commitment_InvalidBindingNonce(t *testing.T) {
+	expectedErrorPrefix := "invalid encoding of binding nonce: "
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+		encoded := com.Encode()
+		g := test.ECGroup()
+		bad := badElement(t, g)
+		slices.Replace(encoded, 17+g.ElementLength(), 17+2*g.ElementLength(), bad...)
+
+		decoded := new(commitment.Commitment)
+		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_CommitmentList(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signers := makeSigners(t, test)
+		coms := make(commitment.List, len(signers))
+		for i, s := range signers {
+			coms[i] = s.Commit()
+		}
+
+		encoded := coms.Encode()
+
+		list, err := commitment.DecodeList(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(list) != len(coms) {
+			t.Fatalf("want %d, got %d", len(coms), len(list))
+		}
+
+		for i, com := range coms {
+			if err = compareCommitments(com, list[i]); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+}
+
+func TestEncoding_CommitmentList_InvalidCiphersuite(t *testing.T) {
+	expectedErrorPrefix := internal.ErrInvalidCiphersuite.Error()
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signers := makeSigners(t, test)
+		coms := make(commitment.List, len(signers))
+		for i, s := range signers {
+			coms[i] = s.Commit()
+		}
+
+		encoded := coms.Encode()
+		encoded[0] = 0
+
+		if _, err := commitment.DecodeList(encoded); err == nil ||
+			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_CommitmentList_InvalidLength1(t *testing.T) {
+	expectedErrorPrefix := internal.ErrInvalidLength.Error()
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signers := makeSigners(t, test)
+		coms := make(commitment.List, len(signers))
+		for i, s := range signers {
+			coms[i] = s.Commit()
+		}
+
+		encoded := coms.Encode()
+
+		if _, err := commitment.DecodeList(encoded[:8]); err == nil ||
+			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_CommitmentList_InvalidLength2(t *testing.T) {
+	expectedErrorPrefix := internal.ErrInvalidLength.Error()
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signers := makeSigners(t, test)
+		coms := make(commitment.List, len(signers))
+		for i, s := range signers {
+			coms[i] = s.Commit()
+		}
+
+		encoded := coms.Encode()
+
+		if _, err := commitment.DecodeList(encoded[:9]); err == nil ||
+			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_CommitmentList_InvalidCommitment(t *testing.T) {
+	expectedErrorPrefix := "invalid encoding of commitment: " + internal.ErrInvalidCiphersuite.Error()
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signers := makeSigners(t, test)
+		coms := make(commitment.List, len(signers))
+		for i, s := range signers {
+			coms[i] = s.Commit()
+		}
+
+		encoded := coms.Encode()
+		encoded[9] = 0
+
+		if _, err := commitment.DecodeList(encoded); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}

@@ -91,17 +91,25 @@ func RecoverGroupSecret(c frost.Ciphersuite, keyShares []*frost.KeyShare) (*grou
 }
 
 // Sign returns a Schnorr signature over the message msg with the full secret signing key (as opposed to a key share).
-func Sign(c frost.Ciphersuite, msg []byte, key *group.Scalar) (*frost.Signature, error) {
+// The optional random argument is the random k in Schnorr signatures. Setting it allows for reproducible signatures.
+func Sign(c frost.Ciphersuite, msg []byte, key *group.Scalar, random ...*group.Scalar) (*frost.Signature, error) {
 	g := c.ECGroup()
 	if g == 0 {
 		return nil, internal.ErrInvalidCiphersuite
 	}
 
-	r := g.NewScalar().Random()
-	R := g.Base().Multiply(r)
+	var k *group.Scalar
+
+	if len(random) != 0 && random[0] != nil {
+		k = random[0].Copy()
+	} else {
+		k = g.NewScalar().Random()
+	}
+
+	R := g.Base().Multiply(k)
 	pk := g.Base().Multiply(key)
 	challenge := internal.SchnorrChallenge(g, msg, R, pk)
-	z := r.Add(challenge.Multiply(key))
+	z := k.Add(challenge.Multiply(key))
 
 	return &frost.Signature{
 		R: R,
@@ -110,7 +118,7 @@ func Sign(c frost.Ciphersuite, msg []byte, key *group.Scalar) (*frost.Signature,
 }
 
 // RecoverPublicKeys returns the group public key as well those from all participants,
-// if the identifiers are 1, 2, ..., maxSigners.
+// if the identifiers are 1, 2, ..., maxSigners, given the VSS commitment vector.
 func RecoverPublicKeys(
 	c frost.Ciphersuite,
 	maxSigners uint64,

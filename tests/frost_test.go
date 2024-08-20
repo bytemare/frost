@@ -9,6 +9,7 @@
 package frost_test
 
 import (
+	"fmt"
 	"testing"
 
 	group "github.com/bytemare/crypto"
@@ -44,71 +45,6 @@ var testTable = []tableTest{
 		threshold:   2,
 		maxSigners:  3,
 	},
-}
-
-func TestTrustedDealerKeygen(t *testing.T) {
-	threshold := uint64(3)
-	maxSigners := uint64(5)
-
-	testAll(t, func(t *testing.T, test *tableTest) {
-		g := test.Ciphersuite.ECGroup()
-
-		groupSecretKey := g.NewScalar().Random()
-
-		keyShares, dealerGroupPubKey, secretsharingCommitment := debug.TrustedDealerKeygen(
-			test.Ciphersuite,
-			groupSecretKey,
-			threshold,
-			maxSigners,
-		)
-
-		if uint64(len(secretsharingCommitment)) != threshold {
-			t.Fatalf("%d / %d", len(secretsharingCommitment), threshold)
-		}
-
-		recoveredKey, err := debug.RecoverGroupSecret(test.Ciphersuite, keyShares[:threshold])
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if recoveredKey.Equal(groupSecretKey) != 1 {
-			t.Fatal()
-		}
-
-		groupPublicKey, participantPublicKeys, err := debug.RecoverPublicKeys(
-			test.Ciphersuite,
-			maxSigners,
-			secretsharingCommitment,
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if uint64(len(participantPublicKeys)) != maxSigners {
-			t.Fatal()
-		}
-
-		if groupPublicKey.Equal(dealerGroupPubKey) != 1 {
-			t.Fatal()
-		}
-
-		for i, shareI := range keyShares {
-			if !debug.VerifyVSS(g, shareI, secretsharingCommitment) {
-				t.Fatal(i)
-			}
-		}
-
-		pkEnc := groupPublicKey.Encode()
-
-		recoveredPK := g.NewElement()
-		if err := recoveredPK.Decode(pkEnc); err != nil {
-			t.Fatal(err)
-		}
-
-		if recoveredPK.Equal(groupPublicKey) != 1 {
-			t.Fatal()
-		}
-	})
 }
 
 func runFrost(
@@ -203,14 +139,14 @@ func TestFrost_WithDKG(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		g := test.Ciphersuite.ECGroup()
-		keyShares, groupPublicKey, _ := runDKG(t, g, test.maxSigners, test.threshold)
+		keyShares, groupPublicKey, _ := runDKG(t, g, test.threshold, test.maxSigners)
 		runFrost(t, test, test.threshold, test.maxSigners, message, keyShares, groupPublicKey)
 	})
 }
 
 func testAll(t *testing.T, f func(*testing.T, *tableTest)) {
 	for _, test := range testTable {
-		t.Run(string(test.ECGroup()), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s", test.ECGroup()), func(t *testing.T) {
 			f(t, &test)
 		})
 	}
