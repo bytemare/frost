@@ -17,12 +17,17 @@ import (
 
 // Concatenate returns the concatenation of all bytes composing the input elements.
 func Concatenate(input ...[]byte) []byte {
+	if len(input) == 0 {
+		return []byte{}
+	}
+
 	if len(input) == 1 {
 		if len(input[0]) == 0 {
 			return nil
 		}
 
-		return input[0]
+		// shallow clone
+		return append(input[0][:0:0], input[0]...)
 	}
 
 	length := 0

@@ -128,10 +128,15 @@ var (
 	errInvalidThresholdParameter = errors.New("threshold is 0 or higher than maxSigners")
 	errInvalidMaxSignersOrder    = errors.New("maxSigners is higher than group order")
 	errInvalidGroupPublicKey     = errors.New("invalid group public key (nil, identity, or generator")
-	errInvalidNumberOfPublicKeys = errors.New("number of public keys is lower than threshold")
+	errInvalidNumberOfPublicKeys = errors.New("invalid number of public keys (lower than threshold or above maximum)")
 )
 
 func (c *Configuration) verifySignerPublicKeys() error {
+	if uint64(len(c.SignerPublicKeys)) < c.Threshold ||
+		uint64(len(c.SignerPublicKeys)) > c.MaxSigners {
+		return errInvalidNumberOfPublicKeys
+	}
+
 	// Sets to detect duplicates.
 	pkSet := make(map[string]uint64, len(c.SignerPublicKeys))
 	idSet := make(map[uint64]struct{}, len(c.SignerPublicKeys))
@@ -181,6 +186,8 @@ func (c *Configuration) verify() error {
 
 	bigMax := new(big.Int).SetUint64(c.MaxSigners)
 	if order.Cmp(bigMax) != 1 {
+		// This is unlikely to happen, as the usual group orders cannot be represented in a uint64.
+		// Only a new, unregistered group would make it fail here.
 		return errInvalidMaxSignersOrder
 	}
 
@@ -189,10 +196,6 @@ func (c *Configuration) verify() error {
 
 	if c.GroupPublicKey == nil || c.GroupPublicKey.IsIdentity() || c.GroupPublicKey.Equal(base) == 1 {
 		return errInvalidGroupPublicKey
-	}
-
-	if uint64(len(c.SignerPublicKeys)) < c.Threshold {
-		return errInvalidNumberOfPublicKeys
 	}
 
 	if err := c.verifySignerPublicKeys(); err != nil {

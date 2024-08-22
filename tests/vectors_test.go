@@ -19,7 +19,6 @@ import (
 	group "github.com/bytemare/crypto"
 
 	"github.com/bytemare/frost"
-	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/debug"
 )
 
@@ -104,7 +103,7 @@ func (v test) test(t *testing.T) {
 	}
 
 	// Round One: Commitment
-	commitmentList := make(commitment.List, len(v.RoundOneOutputs.Outputs))
+	commitmentList := make(frost.List, len(v.RoundOneOutputs.Outputs))
 	for i, pid := range v.RoundOneOutputs.Outputs {
 		p := participants.Get(pid.ID)
 		if p == nil {

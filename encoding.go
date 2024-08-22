@@ -17,7 +17,6 @@ import (
 
 	group "github.com/bytemare/crypto"
 
-	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/internal"
 )
 
@@ -51,7 +50,7 @@ func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
 	case encPubKeyShare:
 		return 1 + 8 + 4 + eLen + other[0]
 	case encNonceCommitment:
-		return 8 + 2*sLen + commitment.EncodedSize(g)
+		return 8 + 2*sLen + EncodedSize(g)
 	default:
 		panic("encoded id not recognized")
 	}
@@ -252,7 +251,7 @@ func (s *Signer) Decode(data []byte) error {
 
 	offset += ksLen
 	commitments := make(map[uint64]*NonceCommitment)
-	comLen := commitment.EncodedSize(g)
+	comLen := EncodedSize(g)
 
 	for offset < uint64(len(data)) {
 		id := binary.LittleEndian.Uint64(data[offset : offset+8])
@@ -277,7 +276,7 @@ func (s *Signer) Decode(data []byte) error {
 
 		offset += uint64(g.ScalarLength())
 
-		com := new(commitment.Commitment)
+		com := new(Commitment)
 		if err = com.Decode(data[offset : offset+comLen]); err != nil {
 			return fmt.Errorf("can't decode nonce commitment %d: %w", id, err)
 		}

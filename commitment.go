@@ -7,7 +7,7 @@
 // https://spdx.org/licenses/MIT.html
 
 // Package commitment defines the FROST Signer commitment.
-package commitment
+package frost
 
 import (
 	"encoding/binary"
@@ -16,12 +16,17 @@ import (
 	"slices"
 
 	group "github.com/bytemare/crypto"
+	secretsharing "github.com/bytemare/secret-sharing"
+
+	"github.com/bytemare/frost/internal"
 )
 
 var (
 	errDecodeCommitmentLength = errors.New("failed to decode commitment: invalid length")
 	errInvalidCiphersuite     = errors.New("ciphersuite not available")
 	errInvalidLength          = errors.New("invalid encoding length")
+	errHidingNonce            = errors.New("invalid hiding nonce (nil, identity, or generator)")
+	errBindingNonce           = errors.New("invalid binding nonce (nil, identity, or generator)")
 )
 
 // Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
@@ -31,6 +36,30 @@ type Commitment struct {
 	CommitmentID uint64
 	SignerID     uint64
 	Group        group.Group
+}
+
+// Verify returns an error if the commitment is
+func (c *Commitment) Verify(g group.Group) error {
+	if c.Group != g {
+		return fmt.Errorf(
+			"commitment for participant %d has an unexpected ciphersuite: expected %s, got %s",
+			c.SignerID,
+			g,
+			c.Group,
+		)
+	}
+
+	generator := g.Base()
+
+	if c.HidingNonce == nil || c.HidingNonce.IsIdentity() || c.HidingNonce.Equal(generator) == 1 {
+		return errHidingNonce
+	}
+
+	if c.BindingNonce == nil || c.BindingNonce.IsIdentity() || c.BindingNonce.Equal(generator) == 1 {
+		return errBindingNonce
+	}
+
+	return nil
 }
 
 // Copy returns a new Commitment struct populated with the same values as the receiver.
@@ -139,6 +168,66 @@ func (c List) Get(identifier uint64) *Commitment {
 	return nil
 }
 
+// ParticipantsUInt64 returns the uint64 list of participant identifiers in the list.
+func (c List) ParticipantsUInt64() []uint64 {
+	out := make([]uint64, len(c))
+
+	for i, com := range c {
+		out[i] = com.SignerID
+	}
+
+	return out
+}
+
+// ParticipantsScalar returns the group.Scalar list of participant identifier in the list
+func (c List) ParticipantsScalar() []*group.Scalar {
+	if len(c) == 0 {
+		return nil
+	}
+
+	if c[0] == nil {
+		return nil
+	}
+
+	g := c[0].Group
+
+	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *group.Scalar {
+		return g.NewScalar().SetUInt64(c.SignerID)
+	})
+}
+
+// Verify checks for the Commitment list's integrity.
+func (c List) Verify(g group.Group, threshold uint64) error {
+	// Verify number of commitments.
+	if uint64(len(c)) < threshold {
+		return fmt.Errorf("too few commitments: expected at least %d but got %d", threshold, len(c))
+	}
+
+	// Ensure the list is sorted
+	if !c.IsSorted() {
+		c.Sort()
+	}
+
+	// set to detect duplication
+	set := make(map[uint64]struct{}, len(c))
+
+	for _, com := range c {
+		// Check for duplicate participant entries.
+		if _, exists := set[com.SignerID]; exists {
+			return fmt.Errorf("commitment list contains multiple commitments of participant %d", com.SignerID)
+		}
+
+		set[com.SignerID] = struct{}{}
+
+		// Check general consistency.
+		if err := com.Verify(g); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (c List) Encode() []byte {
 	n := len(c)
 	if n == 0 {
@@ -188,4 +277,76 @@ func DecodeList(data []byte) (List, error) {
 	}
 
 	return c, nil
+}
+
+func (c List) GroupCommitmentAndBindingFactors(
+	publicKey *group.Element,
+	message []byte,
+) (*group.Element, BindingFactors) {
+	bindingFactors := c.bindingFactors(publicKey, message)
+	groupCommitment := c.groupCommitment(bindingFactors)
+
+	return groupCommitment, bindingFactors
+}
+
+type commitmentWithEncodedID struct {
+	*Commitment
+	ParticipantID []byte
+}
+
+func commitmentsWithEncodedID(g group.Group, commitments List) []*commitmentWithEncodedID {
+	r := make([]*commitmentWithEncodedID, len(commitments))
+	for i, com := range commitments {
+		r[i] = &commitmentWithEncodedID{
+			ParticipantID: g.NewScalar().SetUInt64(com.SignerID).Encode(),
+			Commitment:    com,
+		}
+	}
+
+	return r
+}
+
+func encodeCommitmentList(g group.Group, commitments []*commitmentWithEncodedID) []byte {
+	size := len(commitments) * (g.ScalarLength() + 2*g.ElementLength())
+	encoded := make([]byte, 0, size)
+
+	for _, com := range commitments {
+		encoded = append(encoded, com.ParticipantID...)
+		encoded = append(encoded, com.HidingNonce.Encode()...)
+		encoded = append(encoded, com.BindingNonce.Encode()...)
+	}
+
+	return encoded
+}
+
+// BindingFactors is a map of participant identifier to BindingFactors.
+type BindingFactors map[uint64]*group.Scalar
+
+func (c List) bindingFactors(publicKey *group.Element, message []byte) BindingFactors {
+	g := c[0].Group
+	coms := commitmentsWithEncodedID(g, c)
+	encodedCommitHash := internal.H5(g, encodeCommitmentList(g, coms))
+	h := internal.H4(g, message)
+	rhoInputPrefix := internal.Concatenate(publicKey.Encode(), h, encodedCommitHash)
+	bindingFactors := make(BindingFactors, len(c))
+
+	for _, com := range coms {
+		rhoInput := internal.Concatenate(rhoInputPrefix, com.ParticipantID)
+		bindingFactors[com.Commitment.SignerID] = internal.H1(g, rhoInput)
+	}
+
+	return bindingFactors
+}
+
+func (c List) groupCommitment(bf BindingFactors) *group.Element {
+	g := c[0].Group
+	gc := g.NewElement()
+
+	for _, com := range c {
+		factor := bf[com.SignerID]
+		bindingNonce := com.BindingNonce.Copy().Multiply(factor)
+		gc.Add(com.HidingNonce).Add(bindingNonce)
+	}
+
+	return gc
 }

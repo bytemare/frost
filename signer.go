@@ -15,7 +15,6 @@ import (
 
 	group "github.com/bytemare/crypto"
 
-	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/internal"
 )
 
@@ -39,7 +38,7 @@ type Signer struct {
 type NonceCommitment struct {
 	HidingNonceS  *group.Scalar
 	BindingNonceS *group.Scalar
-	*commitment.Commitment
+	*Commitment
 }
 
 func (s *Signer) ClearNonceCommitment(commitmentID uint64) {
@@ -94,11 +93,11 @@ func (s *Signer) genNonceID() uint64 {
 
 // Commit generates a signer's nonces and commitment, to be used in the second FROST round. The internal nonce must
 // be kept secret, and the returned commitment sent to the signature aggregator.
-func (s *Signer) Commit() *commitment.Commitment {
+func (s *Signer) Commit() *Commitment {
 	cid := s.genNonceID()
 	hn := s.generateNonce(s.KeyShare.Secret, s.HidingRandom)
 	bn := s.generateNonce(s.KeyShare.Secret, s.BindingRandom)
-	com := &commitment.Commitment{
+	com := &Commitment{
 		Group:        s.Configuration.group,
 		SignerID:     s.KeyShare.ID,
 		CommitmentID: cid,
@@ -114,7 +113,7 @@ func (s *Signer) Commit() *commitment.Commitment {
 	return com.Copy()
 }
 
-func (s *Signer) verifyNonces(com *commitment.Commitment) error {
+func (s *Signer) verifyNonces(com *Commitment) error {
 	nonces, ok := s.Commitments[com.CommitmentID]
 	if !ok {
 		return fmt.Errorf(
@@ -136,8 +135,8 @@ func (s *Signer) verifyNonces(com *commitment.Commitment) error {
 }
 
 // VerifyCommitmentList checks for the Commitment list integrity and the signer's commitment.
-func (s *Signer) VerifyCommitmentList(commitments commitment.List) error {
-	if err := internal.VerifyCommitmentList(s.Configuration.group, commitments, s.Configuration.Threshold); err != nil {
+func (s *Signer) VerifyCommitmentList(commitments List) error {
+	if err := commitments.Verify(s.Configuration.group, s.Configuration.Threshold); err != nil {
 		return fmt.Errorf("invalid list of commitments: %w", err)
 	}
 
@@ -159,7 +158,7 @@ func (s *Signer) VerifyCommitmentList(commitments commitment.List) error {
 // In particular, the Signer MUST validate commitment_list, deserializing each group Element in the list using
 // DeserializeElement from {{dep-pog}}. If deserialization fails, the Signer MUST abort the protocol. Moreover,
 // each signer MUST ensure that its identifier and commitments (from the first round) appear in commitment_list.
-func (s *Signer) Sign(commitmentID uint64, message []byte, commitments commitment.List) (*SignatureShare, error) {
+func (s *Signer) Sign(commitmentID uint64, message []byte, commitments List) (*SignatureShare, error) {
 	com, exists := s.Commitments[commitmentID]
 	if !exists {
 		return nil, fmt.Errorf("commitmentID %d not registered", commitmentID)
@@ -169,14 +168,13 @@ func (s *Signer) Sign(commitmentID uint64, message []byte, commitments commitmen
 		return nil, err
 	}
 
-	groupCommitment, bindingFactors := internal.GroupCommitmentAndBindingFactors(
-		s.Configuration.group,
-		message,
-		commitments,
+	groupCommitment, bindingFactors := commitments.GroupCommitmentAndBindingFactors(
 		s.Configuration.GroupPublicKey,
+		message,
 	)
 
 	bindingFactor := bindingFactors[s.KeyShare.ID]
+	participants := commitments.ParticipantsScalar()
 
 	lambdaChall, err := internal.ComputeChallengeFactor(
 		s.Configuration.group,
@@ -184,7 +182,7 @@ func (s *Signer) Sign(commitmentID uint64, message []byte, commitments commitmen
 		s.Lambda,
 		s.KeyShare.ID,
 		message,
-		commitments,
+		participants,
 		s.Configuration.GroupPublicKey,
 	)
 	if err != nil {

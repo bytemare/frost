@@ -10,7 +10,6 @@ package frost_test
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -18,62 +17,14 @@ import (
 	"github.com/bytemare/dkg"
 
 	"github.com/bytemare/frost"
-	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
 )
 
-var (
-	errNoPanic        = errors.New("no panic")
-	errNoPanicMessage = errors.New("panic but no message")
-)
-
-func hasPanic(f func()) (has bool, err error) {
-	defer func() {
-		var report any
-		if report = recover(); report != nil {
-			has = true
-			err = fmt.Errorf("%v", report)
-		}
-	}()
-
-	f()
-
-	return has, err
-}
-
-// testPanic executes the function f with the expectation to recover from a panic. If no panic occurred or if the
-// panic message is not the one expected, ExpectPanic returns an error.
-func testPanic(s string, expectedError error, f func()) error {
-	hasPanic, err := hasPanic(f)
-
-	// if there was no panic
-	if !hasPanic {
-		return errNoPanic
-	}
-
-	// panic, and we don't expect a particular message
-	if expectedError == nil {
-		return nil
-	}
-
-	// panic, but the panic value is empty
-	if err == nil {
-		return errNoPanicMessage
-	}
-
-	// panic, but the panic value is not what we expected
-	if err.Error() != expectedError.Error() {
-		return fmt.Errorf("expected panic on %s with message %q, got %q", s, expectedError, err)
-	}
-
-	return nil
-}
-
 func TestCommitmentList_Sort(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(commitment.List, len(signers))
+		coms := make(frost.List, len(signers))
 
 		// signer A < signer B
 		coms[0] = signers[0].Commit()

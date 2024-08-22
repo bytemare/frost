@@ -12,7 +12,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"math/big"
 	"slices"
 	"strings"
 	"testing"
@@ -20,42 +19,9 @@ import (
 	group "github.com/bytemare/crypto"
 
 	"github.com/bytemare/frost"
-	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
 )
-
-func badScalar(t *testing.T, g group.Group) []byte {
-	order, ok := new(big.Int).SetString(g.Order(), 0)
-	if !ok {
-		t.Errorf("setting int in base %d failed: %v", 0, g.Order())
-	}
-
-	encoded := make([]byte, g.ScalarLength())
-	order.FillBytes(encoded)
-
-	if g == group.Ristretto255Sha512 || g == group.Edwards25519Sha512 {
-		slices.Reverse(encoded)
-	}
-
-	return encoded
-}
-
-func badElement(t *testing.T, g group.Group) []byte {
-	order, ok := new(big.Int).SetString(g.Order(), 0)
-	if !ok {
-		t.Errorf("setting int in base %d failed: %v", 0, g.Order())
-	}
-
-	encoded := make([]byte, g.ElementLength())
-	order.FillBytes(encoded)
-
-	if g == group.Ristretto255Sha512 || g == group.Edwards25519Sha512 {
-		slices.Reverse(encoded)
-	}
-
-	return encoded
-}
 
 func makeConf(t *testing.T, test *tableTest) *frost.Configuration {
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
@@ -204,7 +170,7 @@ func compareKeyShares(s1, s2 *frost.KeyShare) error {
 	return comparePublicKeyShare(s1.Public(), s2.Public())
 }
 
-func compareCommitments(c1, c2 *commitment.Commitment) error {
+func compareCommitments(c1, c2 *frost.Commitment) error {
 	if c1.Group != c2.Group {
 		return errors.New("different groups")
 	}
@@ -557,7 +523,7 @@ func TestEncoding_Signer_InvalidCommitmentNonces_DuplicateID(t *testing.T) {
 		pksLen := 1 + 8 + 4 + eLen + int(test.threshold)*eLen
 		confLen := 1 + 3*8 + eLen + int(test.maxSigners)*pksLen
 		keyShareLen := len(s.KeyShare.Encode())
-		commitmentLength := 8 + 2*sLen + int(commitment.EncodedSize(g))
+		commitmentLength := 8 + 2*sLen + int(frost.EncodedSize(g))
 		offset := confLen + 4 + sLen + keyShareLen
 		offset2 := offset + commitmentLength
 
@@ -648,7 +614,7 @@ func TestEncoding_SignatureShare(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(commitment.List, len(signers))
+		coms := make(frost.List, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -719,7 +685,7 @@ func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(commitment.List, len(signers))
+		coms := make(frost.List, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -836,7 +802,7 @@ func TestEncoding_Commitment(t *testing.T) {
 		com := signer.Commit()
 		encoded := com.Encode()
 
-		decoded := new(commitment.Commitment)
+		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded); err != nil {
 			t.Fatal(err)
 		}
@@ -856,7 +822,7 @@ func TestEncoding_Commitment_BadCiphersuite(t *testing.T) {
 		encoded := com.Encode()
 		encoded[0] = 0
 
-		decoded := new(commitment.Commitment)
+		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -871,7 +837,7 @@ func TestEncoding_Commitment_InvalidLength1(t *testing.T) {
 		com := signer.Commit()
 		encoded := com.Encode()
 
-		decoded := new(commitment.Commitment)
+		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded[:16]); err == nil || err.Error() != expectedErrorPrefix {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -886,7 +852,7 @@ func TestEncoding_Commitment_InvalidLength2(t *testing.T) {
 		com := signer.Commit()
 		encoded := com.Encode()
 
-		decoded := new(commitment.Commitment)
+		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded[:35]); err == nil || err.Error() != expectedErrorPrefix {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -903,7 +869,7 @@ func TestEncoding_Commitment_InvalidHidingNonce(t *testing.T) {
 		bad := badElement(t, test.ECGroup())
 		slices.Replace(encoded, 17, 17+test.ECGroup().ElementLength(), bad...)
 
-		decoded := new(commitment.Commitment)
+		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -921,7 +887,7 @@ func TestEncoding_Commitment_InvalidBindingNonce(t *testing.T) {
 		bad := badElement(t, g)
 		slices.Replace(encoded, 17+g.ElementLength(), 17+2*g.ElementLength(), bad...)
 
-		decoded := new(commitment.Commitment)
+		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -931,14 +897,14 @@ func TestEncoding_Commitment_InvalidBindingNonce(t *testing.T) {
 func TestEncoding_CommitmentList(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(commitment.List, len(signers))
+		coms := make(frost.List, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
 
 		encoded := coms.Encode()
 
-		list, err := commitment.DecodeList(encoded)
+		list, err := frost.DecodeList(encoded)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -960,7 +926,7 @@ func TestEncoding_CommitmentList_InvalidCiphersuite(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(commitment.List, len(signers))
+		coms := make(frost.List, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -968,7 +934,7 @@ func TestEncoding_CommitmentList_InvalidCiphersuite(t *testing.T) {
 		encoded := coms.Encode()
 		encoded[0] = 0
 
-		if _, err := commitment.DecodeList(encoded); err == nil ||
+		if _, err := frost.DecodeList(encoded); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -980,14 +946,14 @@ func TestEncoding_CommitmentList_InvalidLength1(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(commitment.List, len(signers))
+		coms := make(frost.List, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
 
 		encoded := coms.Encode()
 
-		if _, err := commitment.DecodeList(encoded[:8]); err == nil ||
+		if _, err := frost.DecodeList(encoded[:8]); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -999,14 +965,14 @@ func TestEncoding_CommitmentList_InvalidLength2(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(commitment.List, len(signers))
+		coms := make(frost.List, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
 
 		encoded := coms.Encode()
 
-		if _, err := commitment.DecodeList(encoded[:9]); err == nil ||
+		if _, err := frost.DecodeList(encoded[:9]); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -1018,7 +984,7 @@ func TestEncoding_CommitmentList_InvalidCommitment(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(commitment.List, len(signers))
+		coms := make(frost.List, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -1026,7 +992,7 @@ func TestEncoding_CommitmentList_InvalidCommitment(t *testing.T) {
 		encoded := coms.Encode()
 		encoded[9] = 0
 
-		if _, err := commitment.DecodeList(encoded); err == nil ||
+		if _, err := frost.DecodeList(encoded); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}

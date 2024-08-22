@@ -12,7 +12,6 @@ import (
 	"fmt"
 
 	"github.com/bytemare/frost"
-	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/debug"
 )
 
@@ -69,7 +68,7 @@ func Example_signer() {
 
 	// Step 2: collect the commitments from the other participants and coordinator-chosen the message to sign,
 	// and finalize by signing the message.
-	commitments := make(commitment.List, threshold)
+	commitments := make(frost.List, threshold)
 	commitments[0] = com
 
 	// This is not part of a participant's flow, but we need to collect the commitments of the other participants.
@@ -149,7 +148,7 @@ func Example_coordinator() {
 	}
 
 	// Pre-commit
-	commitments := make(commitment.List, threshold)
+	commitments := make(frost.List, threshold)
 	for i, p := range participants {
 		commitments[i] = p.Commit()
 	}

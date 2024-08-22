@@ -15,7 +15,6 @@ import (
 	group "github.com/bytemare/crypto"
 
 	"github.com/bytemare/frost"
-	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/debug"
 )
 
@@ -83,7 +82,7 @@ func runFrost(
 	}
 
 	// Commit
-	commitments := make(commitment.List, threshold)
+	commitments := make(frost.List, threshold)
 	for i, p := range participants {
 		commitments[i] = p.Commit()
 	}

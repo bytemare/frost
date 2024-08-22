@@ -14,7 +14,6 @@ import (
 
 	group "github.com/bytemare/crypto"
 
-	"github.com/bytemare/frost/commitment"
 	"github.com/bytemare/frost/internal"
 )
 
@@ -40,7 +39,7 @@ type Signature struct {
 func (c *Configuration) AggregateSignatures(
 	message []byte,
 	sigShares []*SignatureShare,
-	commitments commitment.List,
+	commitments List,
 	verify bool,
 ) (*Signature, error) {
 	if !c.verified {
@@ -89,7 +88,7 @@ func (c *Configuration) AggregateSignatures(
 func (c *Configuration) VerifySignatureShare(
 	sigShare *SignatureShare,
 	message []byte,
-	commitments commitment.List,
+	commitments List,
 ) error {
 	if !c.verified {
 		if err := c.verify(); err != nil {
@@ -106,24 +105,22 @@ func (c *Configuration) VerifySignatureShare(
 }
 
 func (c *Configuration) prepSigShareCheck(message []byte,
-	commitments commitment.List,
+	commitments List,
 	groupPublicKey *group.Element,
-) (*group.Element, internal.BindingFactors, error) {
+) (*group.Element, BindingFactors, error) {
 	if !c.verified {
 		if err := c.verify(); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	if err := internal.VerifyCommitmentList(c.group, commitments, c.Threshold); err != nil {
+	if err := commitments.Verify(c.group, c.Threshold); err != nil {
 		return nil, nil, fmt.Errorf("invalid list of commitments: %w", err)
 	}
 
-	groupCommitment, bindingFactors := internal.GroupCommitmentAndBindingFactors(
-		c.group,
-		message,
-		commitments,
+	groupCommitment, bindingFactors := commitments.GroupCommitmentAndBindingFactors(
 		groupPublicKey,
+		message,
 	)
 
 	return groupCommitment, bindingFactors, nil
@@ -142,9 +139,9 @@ func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
 func (c *Configuration) verifySignatureShare(
 	sigShare *SignatureShare,
 	message []byte,
-	commitments commitment.List,
+	commitments List,
 	groupCommitment *group.Element,
-	bindingFactors internal.BindingFactors,
+	bindingFactors BindingFactors,
 ) error {
 	com := commitments.Get(sigShare.SignerIdentifier)
 	if com == nil {
@@ -156,13 +153,15 @@ func (c *Configuration) verifySignatureShare(
 		return fmt.Errorf("public key not registered for signer %q", sigShare.SignerIdentifier)
 	}
 
+	participants := commitments.ParticipantsScalar()
+
 	lambdaChall, err := internal.ComputeChallengeFactor(
 		c.group,
 		groupCommitment,
 		nil,
 		sigShare.SignerIdentifier,
 		message,
-		commitments,
+		participants,
 		c.GroupPublicKey,
 	)
 	if err != nil {
