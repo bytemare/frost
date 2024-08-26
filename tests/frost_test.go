@@ -82,7 +82,7 @@ func runFrost(
 	}
 
 	// Commit
-	commitments := make(frost.List, threshold)
+	commitments := make(frost.CommitmentList, threshold)
 	for i, p := range participants {
 		commitments[i] = p.Commit()
 	}

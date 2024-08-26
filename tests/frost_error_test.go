@@ -40,7 +40,7 @@ func TestConfiguration_Verify_InvalidCiphersuite(t *testing.T) {
 		}
 
 		if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix.Error()) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -66,7 +66,7 @@ func TestConfiguration_Verify_Threshold_0(t *testing.T) {
 		}
 
 		if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -92,7 +92,7 @@ func TestConfiguration_Verify_Threshold_Max(t *testing.T) {
 		}
 
 		if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -113,7 +113,7 @@ func TestConfiguration_Verify_GroupPublicKey_Nil(t *testing.T) {
 		}
 
 		if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -134,7 +134,7 @@ func TestConfiguration_Verify_GroupPublicKey_Identity(t *testing.T) {
 		}
 
 		if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -155,7 +155,7 @@ func TestConfiguration_Verify_GroupPublicKey_Generator(t *testing.T) {
 		}
 
 		if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -180,28 +180,28 @@ func TestConfiguration_VerifySignerPublicKeys_InvalidNumber(t *testing.T) {
 	}
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// empty
 	configuration.SignerPublicKeys = []*frost.PublicKeyShare{}
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// too few
 	configuration.SignerPublicKeys = publicKeyShares[:threshold-1]
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// too many
 	configuration.SignerPublicKeys = append(publicKeyShares, &frost.PublicKeyShare{})
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -225,7 +225,7 @@ func TestConfiguration_VerifySignerPublicKeys_Nil(t *testing.T) {
 	}
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -251,21 +251,21 @@ func TestConfiguration_VerifySignerPublicKeys_BadPublicKey(t *testing.T) {
 	configuration.SignerPublicKeys[threshold-1].PublicKey = nil
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// identity
 	configuration.SignerPublicKeys[threshold-1].PublicKey = ciphersuite.ECGroup().NewElement()
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// generator
 	configuration.SignerPublicKeys[threshold-1].PublicKey = ciphersuite.ECGroup().Base()
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -292,7 +292,7 @@ func TestConfiguration_VerifySignerPublicKeys_Duplicate_Identifiers(t *testing.T
 	configuration.SignerPublicKeys[1].ID = id1
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -319,7 +319,7 @@ func TestConfiguration_VerifySignerPublicKeys_Duplicate_PublicKeys(t *testing.T)
 	configuration.SignerPublicKeys[1].PublicKey = pk1
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -363,7 +363,228 @@ func TestConfiguration_Signer_BadConfig(t *testing.T) {
 
 	if _, err := configuration.Signer(keyShares[0]); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix.Error()) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestConfiguration_PrepareVerifySignatureShare_BadNonVerifiedConfiguration(t *testing.T) {
+	expectedErrorPrefix := internal.ErrInvalidCiphersuite
+	ciphersuite := frost.Ristretto255
+	threshold := uint64(2)
+	maxSigners := uint64(3)
+
+	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	publicKeyShares := getPublicKeyShares(keyShares)
+
+	configuration := &frost.Configuration{
+		Ciphersuite:      2,
+		Threshold:        threshold,
+		MaxSigners:       maxSigners,
+		GroupPublicKey:   groupPublicKey,
+		SignerPublicKeys: publicKeyShares,
+	}
+
+	if _, _, err := configuration.PrepareVerifySignatureShare(nil, nil); err == nil ||
+		err.Error() != expectedErrorPrefix.Error() {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestConfiguration_PrepareVerifySignatureShare_InvalidCommitments(t *testing.T) {
+	expectedErrorPrefix := "invalid list of commitments: too few commitments: expected at least 2 but got 1"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	configuration, signers := fullSetup(t, tt)
+	coms := make(frost.CommitmentList, len(signers))
+
+	for i, s := range signers {
+		coms[i] = s.Commit()
+	}
+
+	if _, _, err := configuration.PrepareVerifySignatureShare(nil, coms[:1]); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestConfiguration_VerifySignatureShare_BadPrep(t *testing.T) {
+	expectedErrorPrefix := internal.ErrInvalidCiphersuite
+
+	ciphersuite := frost.Ristretto255
+	threshold := uint64(2)
+	maxSigners := uint64(3)
+
+	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	publicKeyShares := getPublicKeyShares(keyShares)
+
+	configuration := &frost.Configuration{
+		Ciphersuite:      2,
+		Threshold:        threshold,
+		MaxSigners:       maxSigners,
+		GroupPublicKey:   groupPublicKey,
+		SignerPublicKeys: publicKeyShares,
+	}
+
+	if err := configuration.VerifySignatureShare(nil, nil, nil); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix.Error()) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestConfiguration_VerifySignatureShare_MissingCommitment(t *testing.T) {
+	expectedErrorPrefix := "commitment not registered for signer 1"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	message := []byte("message")
+	configuration, signers := fullSetup(t, tt)
+	coms := make(frost.CommitmentList, len(signers))
+
+	for i, s := range signers {
+		coms[i] = s.Commit()
+	}
+
+	sigShare, err := signers[0].Sign(coms[0].CommitmentID, message, coms)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	coms[0].SignerID = tt.maxSigners + 1
+
+	if err := configuration.VerifySignatureShare(sigShare, message, coms); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestConfiguration_VerifySignatureShare_MissingPublicKey(t *testing.T) {
+	expectedErrorPrefix := "public key not registered for signer 1"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	message := []byte("message")
+	configuration, signers := fullSetup(t, tt)
+	coms := make(frost.CommitmentList, len(signers))
+
+	for i, s := range signers {
+		coms[i] = s.Commit()
+	}
+
+	sigShare, err := signers[0].Sign(coms[0].CommitmentID, message, coms)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	configuration.SignerPublicKeys[0].ID = tt.maxSigners + 1
+
+	if err := configuration.VerifySignatureShare(sigShare, message, coms); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestConfiguration_VerifySignatureShare_BadSignerID(t *testing.T) {
+	expectedErrorPrefix := "can't compute challenge: anomaly in participant identifiers: one of the polynomial's coefficients is zero"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	message := []byte("message")
+	configuration, signers := fullSetup(t, tt)
+	coms := make(frost.CommitmentList, len(signers))
+
+	for i, s := range signers {
+		coms[i] = s.Commit()
+	}
+
+	sigShare, err := signers[0].Sign(coms[0].CommitmentID, message, coms)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	coms[1].SignerID = 0
+
+	if err := configuration.VerifySignatureShare(sigShare, message, coms); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestConfiguration_VerifySignatureShare_InvalidSignatureShare(t *testing.T) {
+	expectedErrorPrefix := "invalid signature share for signer 1"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	message := []byte("message")
+	configuration, signers := fullSetup(t, tt)
+	coms := make(frost.CommitmentList, len(signers))
+
+	for i, s := range signers {
+		coms[i] = s.Commit()
+	}
+
+	sigShare := &frost.SignatureShare{
+		SignatureShare:   tt.Ciphersuite.ECGroup().NewScalar().Random(),
+		SignerIdentifier: 1,
+		Group:            tt.Ciphersuite.ECGroup(),
+	}
+
+	if err := configuration.VerifySignatureShare(sigShare, message, coms); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestConfiguration_AggregateSignatures_Verify_BadSigShare(t *testing.T) {
+	expectedErrorPrefix := internal.ErrInvalidCiphersuite
+	ciphersuite := frost.Ristretto255
+	threshold := uint64(2)
+	maxSigners := uint64(3)
+
+	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	publicKeyShares := getPublicKeyShares(keyShares)
+
+	configuration := &frost.Configuration{
+		Ciphersuite:      2,
+		Threshold:        threshold,
+		MaxSigners:       maxSigners,
+		GroupPublicKey:   groupPublicKey,
+		SignerPublicKeys: publicKeyShares,
+	}
+
+	if _, err := configuration.AggregateSignatures(nil, nil, nil, false); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix.Error()) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestConfiguration_AggregateSignatures_NonVerifiedCommitments(t *testing.T) {
+	expectedErrorPrefix := "invalid list of commitments: too few commitments: expected at least 3 but got 2"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   3,
+		maxSigners:  5,
+	}
+	configuration, signers := fullSetup(t, tt)
+	coms := make(frost.CommitmentList, len(signers))
+
+	for i, s := range signers {
+		coms[i] = s.Commit()
+	}
+
+	if _, err := configuration.AggregateSignatures(nil, nil, coms[:2], false); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -379,7 +600,7 @@ func TestCommitment_Verify_WrongGroup(t *testing.T) {
 	com.Group = 2
 
 	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -396,19 +617,19 @@ func TestCommitment_Verify_BadHidingNonce(t *testing.T) {
 	// generator
 	com.HidingNonce.Base()
 	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// point at infinity
 	com.HidingNonce.Identity()
 	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// nil
 	com.HidingNonce = nil
 	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -425,19 +646,19 @@ func TestCommitment_Verify_BadBindingNonce(t *testing.T) {
 	// generator
 	com.BindingNonce.Base()
 	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// point at infinity
 	com.BindingNonce.Identity()
 	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// nil
 	com.BindingNonce = nil
 	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -449,7 +670,7 @@ func TestCommitmentList_Verify_InsufficientCommitments(t *testing.T) {
 		maxSigners:  3,
 	}
 	signers := makeSigners(t, tt)
-	coms := make(frost.List, len(signers))
+	coms := make(frost.CommitmentList, len(signers))
 
 	for i, s := range signers {
 		coms[i] = s.Commit()
@@ -457,7 +678,7 @@ func TestCommitmentList_Verify_InsufficientCommitments(t *testing.T) {
 
 	if err := coms[:tt.threshold-1].Verify(group.Ristretto255Sha512, tt.threshold); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
 
@@ -469,7 +690,7 @@ func TestCommitmentList_Verify_DuplicateSignerIDs(t *testing.T) {
 		maxSigners:  4,
 	}
 	signers := makeSigners(t, tt)
-	coms := make(frost.List, len(signers))
+	coms := make(frost.CommitmentList, len(signers))
 
 	for i, s := range signers {
 		coms[i] = s.Commit()
@@ -479,6 +700,21 @@ func TestCommitmentList_Verify_DuplicateSignerIDs(t *testing.T) {
 
 	if err := coms.Verify(group.Ristretto255Sha512, tt.threshold); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestComputeChallengeFactor_InvalidID(t *testing.T) {
+	expectedErrorPrefix := "anomaly in participant identifiers: "
+	g := group.Ristretto255Sha512
+	id := uint64(1)
+	participants := []*group.Scalar{
+		g.NewScalar().SetUInt64(2),
+		g.NewScalar().SetUInt64(3),
+	}
+
+	if _, err := internal.ComputeChallengeFactor(g, id, nil, participants, nil, nil, nil); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }

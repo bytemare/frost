@@ -133,8 +133,8 @@ func (c *Commitment) Decode(data []byte) error {
 	return nil
 }
 
-// List is a sortable list of commitments.
-type List []*Commitment
+// CommitmentList is a sortable list of commitments with search functions.
+type CommitmentList []*Commitment
 
 func cmpID(a, b *Commitment) int {
 	switch {
@@ -148,17 +148,17 @@ func cmpID(a, b *Commitment) int {
 }
 
 // Sort sorts the list the ascending order of identifiers.
-func (c List) Sort() {
+func (c CommitmentList) Sort() {
 	slices.SortFunc(c, cmpID)
 }
 
 // IsSorted returns whether the list is sorted in ascending order by identifier.
-func (c List) IsSorted() bool {
+func (c CommitmentList) IsSorted() bool {
 	return slices.IsSortedFunc(c, cmpID)
 }
 
 // Get returns the commitment of the participant with the corresponding identifier, or nil if it was not found.
-func (c List) Get(identifier uint64) *Commitment {
+func (c CommitmentList) Get(identifier uint64) *Commitment {
 	for _, com := range c {
 		if com.SignerID == identifier {
 			return com
@@ -169,7 +169,7 @@ func (c List) Get(identifier uint64) *Commitment {
 }
 
 // ParticipantsUInt64 returns the uint64 list of participant identifiers in the list.
-func (c List) ParticipantsUInt64() []uint64 {
+func (c CommitmentList) ParticipantsUInt64() []uint64 {
 	out := make([]uint64, len(c))
 
 	for i, com := range c {
@@ -180,7 +180,7 @@ func (c List) ParticipantsUInt64() []uint64 {
 }
 
 // ParticipantsScalar returns the group.Scalar list of participant identifier in the list
-func (c List) ParticipantsScalar() []*group.Scalar {
+func (c CommitmentList) ParticipantsScalar() []*group.Scalar {
 	if len(c) == 0 {
 		return nil
 	}
@@ -197,7 +197,7 @@ func (c List) ParticipantsScalar() []*group.Scalar {
 }
 
 // Verify checks for the Commitment list's integrity.
-func (c List) Verify(g group.Group, threshold uint64) error {
+func (c CommitmentList) Verify(g group.Group, threshold uint64) error {
 	// Verify number of commitments.
 	if uint64(len(c)) < threshold {
 		return fmt.Errorf("too few commitments: expected at least %d but got %d", threshold, len(c))
@@ -228,7 +228,7 @@ func (c List) Verify(g group.Group, threshold uint64) error {
 	return nil
 }
 
-func (c List) Encode() []byte {
+func (c CommitmentList) Encode() []byte {
 	n := len(c)
 	if n == 0 {
 		return nil
@@ -247,7 +247,7 @@ func (c List) Encode() []byte {
 	return out
 }
 
-func DecodeList(data []byte) (List, error) {
+func DecodeList(data []byte) (CommitmentList, error) {
 	if len(data) < 9 {
 		return nil, errInvalidLength
 	}
@@ -265,7 +265,7 @@ func DecodeList(data []byte) (List, error) {
 		return nil, errInvalidLength
 	}
 
-	c := make(List, 0, n)
+	c := make(CommitmentList, 0, n)
 
 	for offset := uint64(9); offset < uint64(len(data)); offset += es {
 		com := new(Commitment)
@@ -279,7 +279,7 @@ func DecodeList(data []byte) (List, error) {
 	return c, nil
 }
 
-func (c List) GroupCommitmentAndBindingFactors(
+func (c CommitmentList) GroupCommitmentAndBindingFactors(
 	publicKey *group.Element,
 	message []byte,
 ) (*group.Element, BindingFactors) {
@@ -294,7 +294,7 @@ type commitmentWithEncodedID struct {
 	ParticipantID []byte
 }
 
-func commitmentsWithEncodedID(g group.Group, commitments List) []*commitmentWithEncodedID {
+func commitmentsWithEncodedID(g group.Group, commitments CommitmentList) []*commitmentWithEncodedID {
 	r := make([]*commitmentWithEncodedID, len(commitments))
 	for i, com := range commitments {
 		r[i] = &commitmentWithEncodedID{
@@ -322,7 +322,7 @@ func encodeCommitmentList(g group.Group, commitments []*commitmentWithEncodedID)
 // BindingFactors is a map of participant identifier to BindingFactors.
 type BindingFactors map[uint64]*group.Scalar
 
-func (c List) bindingFactors(publicKey *group.Element, message []byte) BindingFactors {
+func (c CommitmentList) bindingFactors(publicKey *group.Element, message []byte) BindingFactors {
 	g := c[0].Group
 	coms := commitmentsWithEncodedID(g, c)
 	encodedCommitHash := internal.H5(g, encodeCommitmentList(g, coms))
@@ -338,7 +338,7 @@ func (c List) bindingFactors(publicKey *group.Element, message []byte) BindingFa
 	return bindingFactors
 }
 
-func (c List) groupCommitment(bf BindingFactors) *group.Element {
+func (c CommitmentList) groupCommitment(bf BindingFactors) *group.Element {
 	g := c[0].Group
 	gc := g.NewElement()
 

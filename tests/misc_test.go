@@ -24,7 +24,7 @@ import (
 func TestCommitmentList_Sort(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(frost.List, len(signers))
+		coms := make(frost.CommitmentList, len(signers))
 
 		// signer A < signer B
 		coms[0] = signers[0].Commit()
@@ -335,6 +335,30 @@ func TestRecoverPublicKeys(t *testing.T) {
 func TestRecoverPublicKeys_InvalidCiphersuite(t *testing.T) {
 	expectedError := internal.ErrInvalidCiphersuite
 	if _, _, err := debug.RecoverPublicKeys(0, 0, nil); err == nil || err.Error() != expectedError.Error() {
+		t.Fatalf("expected %q, got %q", expectedError, err)
+	}
+}
+
+func TestRecoverPublicKeys_BadCommitment(t *testing.T) {
+	expectedError := "commitment has nil element"
+	ciphersuite := frost.Ristretto255
+	threshold := uint64(2)
+	maxSigners := uint64(3)
+	_, _, secretsharingCommitment := debug.TrustedDealerKeygen(
+		ciphersuite,
+		nil,
+		threshold,
+		maxSigners,
+	)
+
+	secretsharingCommitment[1] = nil
+
+	_, _, err := debug.RecoverPublicKeys(
+		ciphersuite,
+		maxSigners,
+		secretsharingCommitment,
+	)
+	if err == nil || err.Error() != expectedError {
 		t.Fatalf("expected %q, got %q", expectedError, err)
 	}
 }

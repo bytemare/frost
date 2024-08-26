@@ -129,7 +129,6 @@ func RecoverPublicKeys(
 	}
 
 	g := group.Group(c)
-	pk := commitment[0]
 	keys := make([]*group.Element, maxSigners)
 
 	for i := uint64(1); i <= maxSigners; i++ {
@@ -141,7 +140,7 @@ func RecoverPublicKeys(
 		keys[i-1] = pki
 	}
 
-	return pk, keys, nil
+	return commitment[0], keys, nil
 }
 
 // VerifyVSS allows verification of a participant's secret share given a VSS commitment to the secret polynomial.

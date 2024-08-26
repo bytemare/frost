@@ -39,16 +39,10 @@ type Signature struct {
 func (c *Configuration) AggregateSignatures(
 	message []byte,
 	sigShares []*SignatureShare,
-	commitments List,
+	commitments CommitmentList,
 	verify bool,
 ) (*Signature, error) {
-	if !c.verified {
-		if err := c.verify(); err != nil {
-			return nil, err
-		}
-	}
-
-	groupCommitment, bindingFactors, err := c.prepSigShareCheck(message, commitments, c.GroupPublicKey)
+	groupCommitment, bindingFactors, err := c.PrepareVerifySignatureShare(message, commitments)
 	if err != nil {
 		return nil, err
 	}
@@ -88,15 +82,9 @@ func (c *Configuration) AggregateSignatures(
 func (c *Configuration) VerifySignatureShare(
 	sigShare *SignatureShare,
 	message []byte,
-	commitments List,
+	commitments CommitmentList,
 ) error {
-	if !c.verified {
-		if err := c.verify(); err != nil {
-			return err
-		}
-	}
-
-	groupCommitment, bindingFactors, err := c.prepSigShareCheck(message, commitments, c.GroupPublicKey)
+	groupCommitment, bindingFactors, err := c.PrepareVerifySignatureShare(message, commitments)
 	if err != nil {
 		return err
 	}
@@ -104,9 +92,8 @@ func (c *Configuration) VerifySignatureShare(
 	return c.verifySignatureShare(sigShare, message, commitments, groupCommitment, bindingFactors)
 }
 
-func (c *Configuration) prepSigShareCheck(message []byte,
-	commitments List,
-	groupPublicKey *group.Element,
+func (c *Configuration) PrepareVerifySignatureShare(message []byte,
+	commitments CommitmentList,
 ) (*group.Element, BindingFactors, error) {
 	if !c.verified {
 		if err := c.verify(); err != nil {
@@ -119,7 +106,7 @@ func (c *Configuration) prepSigShareCheck(message []byte,
 	}
 
 	groupCommitment, bindingFactors := commitments.GroupCommitmentAndBindingFactors(
-		groupPublicKey,
+		c.GroupPublicKey,
 		message,
 	)
 
@@ -139,29 +126,29 @@ func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
 func (c *Configuration) verifySignatureShare(
 	sigShare *SignatureShare,
 	message []byte,
-	commitments List,
+	commitments CommitmentList,
 	groupCommitment *group.Element,
 	bindingFactors BindingFactors,
 ) error {
 	com := commitments.Get(sigShare.SignerIdentifier)
 	if com == nil {
-		return fmt.Errorf("commitment not registered for signer %q", sigShare.SignerIdentifier)
+		return fmt.Errorf("commitment not registered for signer %d", sigShare.SignerIdentifier)
 	}
 
 	pk := c.getSignerPubKey(sigShare.SignerIdentifier)
 	if pk == nil {
-		return fmt.Errorf("public key not registered for signer %q", sigShare.SignerIdentifier)
+		return fmt.Errorf("public key not registered for signer %d", sigShare.SignerIdentifier)
 	}
 
 	participants := commitments.ParticipantsScalar()
 
 	lambdaChall, err := internal.ComputeChallengeFactor(
 		c.group,
-		groupCommitment,
-		nil,
 		sigShare.SignerIdentifier,
-		message,
+		nil,
 		participants,
+		message,
+		groupCommitment,
 		c.GroupPublicKey,
 	)
 	if err != nil {

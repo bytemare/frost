@@ -68,7 +68,7 @@ func Example_signer() {
 
 	// Step 2: collect the commitments from the other participants and coordinator-chosen the message to sign,
 	// and finalize by signing the message.
-	commitments := make(frost.List, threshold)
+	commitments := make(frost.CommitmentList, threshold)
 	commitments[0] = com
 
 	// This is not part of a participant's flow, but we need to collect the commitments of the other participants.
@@ -148,7 +148,7 @@ func Example_coordinator() {
 	}
 
 	// Pre-commit
-	commitments := make(frost.List, threshold)
+	commitments := make(frost.CommitmentList, threshold)
 	for i, p := range participants {
 		commitments[i] = p.Commit()
 	}

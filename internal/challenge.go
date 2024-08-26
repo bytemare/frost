@@ -15,7 +15,7 @@ import (
 	secretsharing "github.com/bytemare/secret-sharing"
 )
 
-func computeLambda(g group.Group, participantList secretsharing.Polynomial, id uint64) (*group.Scalar, error) {
+func computeLambda(g group.Group, id uint64, participantList secretsharing.Polynomial) (*group.Scalar, error) {
 	l, err := participantList.DeriveInterpolatingValue(g, g.NewScalar().SetUInt64(id))
 	if err != nil {
 		return nil, fmt.Errorf("anomaly in participant identifiers: %w", err)
@@ -27,16 +27,16 @@ func computeLambda(g group.Group, participantList secretsharing.Polynomial, id u
 // ComputeChallengeFactor computes and returns the Schnorr challenge factor used in signing and verification.
 func ComputeChallengeFactor(
 	g group.Group,
-	groupCommitment *group.Element,
-	lambda *group.Scalar,
 	id uint64,
-	message []byte,
+	lambda *group.Scalar,
 	participants []*group.Scalar,
+	message []byte,
+	groupCommitment *group.Element,
 	groupPublicKey *group.Element,
 ) (*group.Scalar, error) {
 	// Compute the interpolating value
 	if lambda == nil || lambda.IsZero() {
-		l, err := computeLambda(g, participants, id)
+		l, err := computeLambda(g, id, participants)
 		if err != nil {
 			return nil, err
 		}

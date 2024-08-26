@@ -31,44 +31,48 @@ type ciphersuite struct {
 }
 
 var ciphersuites = [group.Secp256k1 + 1]ciphersuite{
-	{
+	{ // Ristretto255
 		hash:          hash.SHA512.New(),
 		contextString: []byte(ristretto255ContextString),
 	},
-	{
+	{ // Ed448 - unused
 		hash:          hash.SHAKE256.New(),
 		contextString: []byte(ed448ContextString),
 	},
-	{
+	{ // P256
 		hash:          hash.SHA256.New(),
 		contextString: []byte(p256ContextString),
 	},
-	{
+	{ // P384
 		hash:          hash.SHA384.New(),
 		contextString: []byte(p384ContextString),
 	},
-	{
+	{ // P521
 		hash:          hash.SHA512.New(),
 		contextString: []byte(p521ContextString),
 	},
-	{
+	{ // Ed25519
 		hash:          hash.SHA512.New(),
 		contextString: []byte(ed25519ContextString),
 	},
-	{
+	{ // Secp256k1
 		hash:          hash.SHA256.New(),
 		contextString: []byte(secp256k1ContextString),
 	},
 }
 
-func h1Ed25519(hashed []byte) *group.Scalar {
+func h1Ed25519(input ...[]byte) *group.Scalar {
+	hashed := ciphersuites[group.Edwards25519Sha512-1].hash.Hash(0, input...)
+
 	s := edwards25519.NewScalar()
 	if _, err := s.SetUniformBytes(hashed); err != nil {
+		// Fails only if len(hashed) != 64, but the hash function above always returns 64 bytes.
 		panic(err)
 	}
 
 	s2 := group.Edwards25519Sha512.NewScalar()
 	if err := s2.Decode(s.Bytes()); err != nil {
+		// Can't fail because the underlying encoding/decoding is compatible.
 		panic(err)
 	}
 
@@ -81,19 +85,20 @@ func hx(g group.Group, input, dst []byte) *group.Scalar {
 
 	switch g {
 	case group.Edwards25519Sha512:
-		h := c.hash.Hash(0, c.contextString, dst, input)
-		sc = h1Ed25519(h)
+		sc = h1Ed25519(c.contextString, dst, input)
 	case group.Ristretto255Sha512:
 		h := c.hash.Hash(0, c.contextString, dst, input)
 		s := ristretto255.NewScalar().FromUniformBytes(h)
 
 		sc = g.NewScalar()
 		if err := sc.Decode(s.Encode(nil)); err != nil {
+			// Can't fail because the underlying encoding/decoding is compatible.
 			panic(err)
 		}
 	case group.P256Sha256, group.P384Sha384, group.P521Sha512, group.Secp256k1:
 		sc = g.HashToScalar(input, append(c.contextString, dst...))
 	default:
+		// Can't fail because the function is always called with a compatible group previously checked.
 		panic(ErrInvalidParameters)
 	}
 
@@ -109,8 +114,7 @@ func H1(g group.Group, input []byte) *group.Scalar {
 func H2(g group.Group, input []byte) *group.Scalar {
 	if g == group.Edwards25519Sha512 {
 		// For compatibility with RFC8032 H2 doesn't use a domain separator for Edwards25519.
-		h := ciphersuites[group.Edwards25519Sha512-1].hash.Hash(0, input)
-		return h1Ed25519(h)
+		return h1Ed25519(input)
 	}
 
 	return hx(g, input, []byte("chal"))

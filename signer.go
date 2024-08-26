@@ -135,7 +135,7 @@ func (s *Signer) verifyNonces(com *Commitment) error {
 }
 
 // VerifyCommitmentList checks for the Commitment list integrity and the signer's commitment.
-func (s *Signer) VerifyCommitmentList(commitments List) error {
+func (s *Signer) VerifyCommitmentList(commitments CommitmentList) error {
 	if err := commitments.Verify(s.Configuration.group, s.Configuration.Threshold); err != nil {
 		return fmt.Errorf("invalid list of commitments: %w", err)
 	}
@@ -158,7 +158,7 @@ func (s *Signer) VerifyCommitmentList(commitments List) error {
 // In particular, the Signer MUST validate commitment_list, deserializing each group Element in the list using
 // DeserializeElement from {{dep-pog}}. If deserialization fails, the Signer MUST abort the protocol. Moreover,
 // each signer MUST ensure that its identifier and commitments (from the first round) appear in commitment_list.
-func (s *Signer) Sign(commitmentID uint64, message []byte, commitments List) (*SignatureShare, error) {
+func (s *Signer) Sign(commitmentID uint64, message []byte, commitments CommitmentList) (*SignatureShare, error) {
 	com, exists := s.Commitments[commitmentID]
 	if !exists {
 		return nil, fmt.Errorf("commitmentID %d not registered", commitmentID)
@@ -178,11 +178,11 @@ func (s *Signer) Sign(commitmentID uint64, message []byte, commitments List) (*S
 
 	lambdaChall, err := internal.ComputeChallengeFactor(
 		s.Configuration.group,
-		groupCommitment,
-		s.Lambda,
 		s.KeyShare.ID,
-		message,
+		s.Lambda,
 		participants,
+		message,
+		groupCommitment,
 		s.Configuration.GroupPublicKey,
 	)
 	if err != nil {

@@ -103,7 +103,7 @@ func (v test) test(t *testing.T) {
 	}
 
 	// Round One: Commitment
-	commitmentList := make(frost.List, len(v.RoundOneOutputs.Outputs))
+	commitmentList := make(frost.CommitmentList, len(v.RoundOneOutputs.Outputs))
 	for i, pid := range v.RoundOneOutputs.Outputs {
 		p := participants.Get(pid.ID)
 		if p == nil {

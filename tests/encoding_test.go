@@ -10,6 +10,7 @@ package frost_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -23,7 +24,7 @@ import (
 	"github.com/bytemare/frost/internal"
 )
 
-func makeConf(t *testing.T, test *tableTest) *frost.Configuration {
+func makeConfAndShares(t *testing.T, test *tableTest) (*frost.Configuration, []*frost.KeyShare) {
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
@@ -39,25 +40,25 @@ func makeConf(t *testing.T, test *tableTest) *frost.Configuration {
 		t.Fatal(err)
 	}
 
-	return configuration
+	return configuration, keyShares
 }
 
-func makeSigners(t *testing.T, test *tableTest) []*frost.Signer {
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
-	publicKeyShares := getPublicKeyShares(keyShares)
+func makeConf(t *testing.T, test *tableTest) *frost.Configuration {
+	c, _ := makeConfAndShares(t, test)
+	return c
+}
 
-	configuration := &frost.Configuration{
-		Ciphersuite:      test.Ciphersuite,
-		Threshold:        test.threshold,
-		MaxSigners:       test.maxSigners,
-		GroupPublicKey:   groupPublicKey,
-		SignerPublicKeys: publicKeyShares,
+func getPublicKeyShares(keyShares []*frost.KeyShare) []*frost.PublicKeyShare {
+	publicKeyShares := make([]*frost.PublicKeyShare, 0, len(keyShares))
+	for _, ks := range keyShares {
+		publicKeyShares = append(publicKeyShares, ks.Public())
 	}
 
-	if err := configuration.Init(); err != nil {
-		t.Fatal(err)
-	}
+	return publicKeyShares
+}
 
+func fullSetup(t *testing.T, test *tableTest) (*frost.Configuration, []*frost.Signer) {
+	configuration, keyShares := makeConfAndShares(t, test)
 	signers := make([]*frost.Signer, test.maxSigners)
 
 	for i, keyShare := range keyShares {
@@ -69,16 +70,12 @@ func makeSigners(t *testing.T, test *tableTest) []*frost.Signer {
 		signers[i] = s
 	}
 
-	return signers
+	return configuration, signers
 }
 
-func getPublicKeyShares(keyShares []*frost.KeyShare) []*frost.PublicKeyShare {
-	publicKeyShares := make([]*frost.PublicKeyShare, 0, len(keyShares))
-	for _, ks := range keyShares {
-		publicKeyShares = append(publicKeyShares, ks.Public())
-	}
-
-	return publicKeyShares
+func makeSigners(t *testing.T, test *tableTest) []*frost.Signer {
+	_, s := fullSetup(t, test)
+	return s
 }
 
 func compareConfigurations(t *testing.T, c1, c2 *frost.Configuration, expectedMatch bool) {
@@ -289,7 +286,7 @@ func TestEncoding_Configuration_InvalidHeaderLength(t *testing.T) {
 
 		decoded := new(frost.Configuration)
 		if err := decoded.Decode(encoded[:24]); err == nil || err.Error() != expectedError.Error() {
-			t.Fatalf("extected %q, got %q", expectedError, err)
+			t.Fatalf("expected %q, got %q", expectedError, err)
 		}
 	})
 }
@@ -304,7 +301,7 @@ func TestEncoding_Configuration_InvalidCiphersuite(t *testing.T) {
 
 		decoded := new(frost.Configuration)
 		if err := decoded.Decode(encoded); err == nil || err.Error() != expectedError.Error() {
-			t.Fatalf("extected %q, got %q", expectedError, err)
+			t.Fatalf("expected %q, got %q", expectedError, err)
 		}
 	})
 }
@@ -318,12 +315,12 @@ func TestEncoding_Configuration_InvalidLength(t *testing.T) {
 
 		decoded := new(frost.Configuration)
 		if err := decoded.Decode(encoded[:len(encoded)-1]); err == nil || err.Error() != expectedError.Error() {
-			t.Fatalf("extected %q, got %q", expectedError, err)
+			t.Fatalf("expected %q, got %q", expectedError, err)
 		}
 
 		encoded = append(encoded, []byte{0, 1}...)
 		if err := decoded.Decode(encoded); err == nil || err.Error() != expectedError.Error() {
-			t.Fatalf("extected %q, got %q", expectedError, err)
+			t.Fatalf("expected %q, got %q", expectedError, err)
 		}
 	})
 }
@@ -340,7 +337,7 @@ func TestEncoding_Configuration_InvalidGroupPublicKey(t *testing.T) {
 
 		decoded := new(frost.Configuration)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -373,7 +370,7 @@ func TestEncoding_Configuration_InvalidPublicKeyShare(t *testing.T) {
 
 		decoded := new(frost.Configuration)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -478,7 +475,7 @@ func TestEncoding_Signer_InvalidLambda(t *testing.T) {
 
 		decoded := new(frost.Signer)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -504,7 +501,7 @@ func TestEncoding_Signer_InvalidKeyShare(t *testing.T) {
 
 		decoded := new(frost.Signer)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-			t.Fatalf("extected %q, got %q", expectedErrorPrefix, err)
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -614,7 +611,7 @@ func TestEncoding_SignatureShare(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(frost.List, len(signers))
+		coms := make(frost.CommitmentList, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -685,7 +682,7 @@ func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(frost.List, len(signers))
+		coms := make(frost.CommitmentList, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -897,7 +894,7 @@ func TestEncoding_Commitment_InvalidBindingNonce(t *testing.T) {
 func TestEncoding_CommitmentList(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(frost.List, len(signers))
+		coms := make(frost.CommitmentList, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -926,7 +923,7 @@ func TestEncoding_CommitmentList_InvalidCiphersuite(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(frost.List, len(signers))
+		coms := make(frost.CommitmentList, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -946,7 +943,7 @@ func TestEncoding_CommitmentList_InvalidLength1(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(frost.List, len(signers))
+		coms := make(frost.CommitmentList, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -965,7 +962,7 @@ func TestEncoding_CommitmentList_InvalidLength2(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(frost.List, len(signers))
+		coms := make(frost.CommitmentList, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -984,7 +981,7 @@ func TestEncoding_CommitmentList_InvalidCommitment(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
-		coms := make(frost.List, len(signers))
+		coms := make(frost.CommitmentList, len(signers))
 		for i, s := range signers {
 			coms[i] = s.Commit()
 		}
@@ -995,6 +992,84 @@ func TestEncoding_CommitmentList_InvalidCommitment(t *testing.T) {
 		if _, err := frost.DecodeList(encoded); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_KeyShare_Bytes(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		s := makeSigners(t, test)[0]
+		keyShare := s.KeyShare
+
+		encoded := keyShare.Encode()
+
+		decoded := new(frost.KeyShare)
+		if err := decoded.Decode(encoded); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := compareKeyShares(keyShare, decoded); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestEncoding_KeyShare_JSON(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		s := makeSigners(t, test)[0]
+		keyShare := s.KeyShare
+
+		encoded, err := json.Marshal(keyShare)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		decoded := new(frost.KeyShare)
+		if err := json.Unmarshal(encoded, decoded); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := compareKeyShares(keyShare, decoded); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestEncoding_PublicKeyShare_Bytes(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		s := makeSigners(t, test)[0]
+		keyShare := s.KeyShare.Public()
+
+		encoded := keyShare.Encode()
+
+		decoded := new(frost.PublicKeyShare)
+		if err := decoded.Decode(encoded); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := comparePublicKeyShare(keyShare, decoded); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestEncoding_PublicKeyShare_JSON(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		s := makeSigners(t, test)[0]
+		keyShare := s.KeyShare.Public()
+
+		encoded, err := json.Marshal(keyShare)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		decoded := new(frost.PublicKeyShare)
+		if err := json.Unmarshal(encoded, decoded); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := comparePublicKeyShare(keyShare, decoded); err != nil {
+			t.Fatal(err)
 		}
 	})
 }
