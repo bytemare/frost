@@ -180,6 +180,18 @@ func compareCommitments(c1, c2 *frost.Commitment) error {
 		return errors.New("different CommitmentID")
 	}
 
+	if c1.HidingNonceCommitment.Equal(c2.HidingNonceCommitment) != 1 {
+		return errors.New("different HidingNonceCommitment")
+	}
+
+	if c1.BindingNonceCommitment.Equal(c2.BindingNonceCommitment) != 1 {
+		return errors.New("different BindingNonceCommitment")
+	}
+
+	return nil
+}
+
+func compareNonceCommitments(c1, c2 *frost.Nonce) error {
 	if c1.HidingNonce.Equal(c2.HidingNonce) != 1 {
 		return errors.New("different HidingNonce")
 	}
@@ -188,19 +200,24 @@ func compareCommitments(c1, c2 *frost.Commitment) error {
 		return errors.New("different BindingNonce")
 	}
 
-	return nil
+	return compareCommitments(c1.Commitment, c2.Commitment)
 }
 
-func compareNonceCommitments(c1, c2 *frost.NonceCommitment) error {
-	if c1.HidingNonceS.Equal(c2.HidingNonceS) != 1 {
-		return errors.New("different HidingNonceS")
+func compareLambdaRegistries(t *testing.T, m1, m2 map[string]*group.Scalar) {
+	if len(m1) != len(m2) {
+		t.Fatal("unequal lengths")
 	}
 
-	if c1.BindingNonceS.Equal(c2.BindingNonceS) != 1 {
-		return errors.New("different BindingNonceS")
-	}
+	for k1, v1 := range m1 {
+		v2, exists := m2[k1]
+		if !exists {
+			t.Fatalf("key %s is not present in second map", k1)
+		}
 
-	return compareCommitments(c1.Commitment, c2.Commitment)
+		if v1.Equal(v2) != 1 {
+			t.Fatalf("unequal lambdas for the participant list %s", k1)
+		}
+	}
 }
 
 func compareSigners(t *testing.T, s1, s2 *frost.Signer) {
@@ -208,16 +225,14 @@ func compareSigners(t *testing.T, s1, s2 *frost.Signer) {
 		t.Fatal(err)
 	}
 
-	if !((s1.Lambda == nil && (s2.Lambda == nil || s2.Lambda.IsZero())) || (s2.Lambda == nil && (s1.Lambda == nil || s1.Lambda.IsZero()))) {
-		t.Fatalf("expected equality: %v / %v", s1.Lambda, s2.Lambda.IsZero())
-	}
+	compareLambdaRegistries(t, s1.LambdaRegistry, s2.LambdaRegistry)
 
-	if len(s1.Commitments) != len(s2.Commitments) {
+	if len(s1.NonceCommitments) != len(s2.NonceCommitments) {
 		t.Fatal("expected equality")
 	}
 
-	for id, com := range s1.Commitments {
-		if com2, exists := s2.Commitments[id]; !exists {
+	for id, com := range s1.NonceCommitments {
+		if com2, exists := s2.NonceCommitments[id]; !exists {
 			t.Fatalf("com id %d does not exist in s2", id)
 		} else {
 			if err := compareNonceCommitments(com, com2); err != nil {
@@ -462,16 +477,29 @@ func TestEncoding_Signer_InvalidLambda(t *testing.T) {
 	expectedErrorPrefix := "failed to decode lambda:"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		s := makeSigners(t, test)[0]
+		signers := makeSigners(t, test)
 
 		g := group.Group(test.Ciphersuite)
-		eLen := g.ElementLength()
-		pksLen := 1 + 8 + 4 + eLen + int(test.threshold)*eLen
-		confLen := 1 + 3*8 + eLen + int(test.maxSigners)*pksLen
+		message := []byte("message")
+
+		coms := make(frost.CommitmentList, len(signers))
+		for i, s := range signers {
+			coms[i] = s.Commit()
+		}
+
+		s := signers[0]
+
+		_, err := s.Sign(coms[0].CommitmentID, message, coms)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		confLen := len(s.Configuration.Encode())
+		ksLen := len(s.KeyShare.Encode())
 		encoded := s.Encode()
 		bad := badScalar(t, g)
-
-		encoded = slices.Replace(encoded, confLen+4, confLen+4+g.ScalarLength(), bad...)
+		offset := confLen + 6 + ksLen + 32
+		encoded = slices.Replace(encoded, offset, offset+g.ScalarLength(), bad...)
 
 		decoded := new(frost.Signer)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -485,12 +513,8 @@ func TestEncoding_Signer_InvalidKeyShare(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
-
-		g := group.Group(test.Ciphersuite)
-		eLen := g.ElementLength()
-		pksLen := 1 + 8 + 4 + eLen + int(test.threshold)*eLen
-		confLen := 1 + 3*8 + eLen + int(test.maxSigners)*pksLen
-		offset := confLen + 4 + g.ScalarLength()
+		confLen := len(s.Configuration.Encode())
+		offset := confLen + 6
 
 		// Set an invalid group in the key share encoding.
 		kse := s.KeyShare.Encode()
@@ -515,13 +539,11 @@ func TestEncoding_Signer_InvalidCommitmentNonces_DuplicateID(t *testing.T) {
 		s.Commit()
 		s.Commit()
 		g := group.Group(test.Ciphersuite)
-		eLen := g.ElementLength()
 		sLen := g.ScalarLength()
-		pksLen := 1 + 8 + 4 + eLen + int(test.threshold)*eLen
-		confLen := 1 + 3*8 + eLen + int(test.maxSigners)*pksLen
+		confLen := len(s.Configuration.Encode())
 		keyShareLen := len(s.KeyShare.Encode())
 		commitmentLength := 8 + 2*sLen + int(frost.EncodedSize(g))
-		offset := confLen + 4 + sLen + keyShareLen
+		offset := confLen + 6 + keyShareLen
 		offset2 := offset + commitmentLength
 
 		encoded := s.Encode()
@@ -541,12 +563,9 @@ func TestEncoding_Signer_InvalidHidingNonceCommitment(t *testing.T) {
 		s := makeSigners(t, test)[0]
 		s.Commit()
 		g := group.Group(test.Ciphersuite)
-		eLen := g.ElementLength()
-		sLen := g.ScalarLength()
-		pksLen := 1 + 8 + 4 + eLen + int(test.threshold)*eLen
-		confLen := 1 + 3*8 + eLen + int(test.maxSigners)*pksLen
+		confLen := len(s.Configuration.Encode())
 		keyShareLen := len(s.KeyShare.Encode())
-		offset := confLen + 4 + sLen + keyShareLen + 8
+		offset := confLen + 6 + keyShareLen + 8
 
 		encoded := s.Encode()
 		data := slices.Replace(encoded, offset, offset+g.ScalarLength(), badScalar(t, g)...)
@@ -565,12 +584,9 @@ func TestEncoding_Signer_InvalidBindingNonceCommitment(t *testing.T) {
 		s := makeSigners(t, test)[0]
 		s.Commit()
 		g := group.Group(test.Ciphersuite)
-		eLen := g.ElementLength()
-		sLen := g.ScalarLength()
-		pksLen := 1 + 8 + 4 + eLen + int(test.threshold)*eLen
-		confLen := 1 + 3*8 + eLen + int(test.maxSigners)*pksLen
+		confLen := len(s.Configuration.Encode())
 		keyShareLen := len(s.KeyShare.Encode())
-		offset := confLen + 4 + sLen + keyShareLen + 8 + g.ScalarLength()
+		offset := confLen + 6 + keyShareLen + 8 + g.ScalarLength()
 
 		encoded := s.Encode()
 		data := slices.Replace(encoded, offset, offset+g.ScalarLength(), badScalar(t, g)...)
@@ -589,12 +605,10 @@ func TestEncoding_Signer_InvalidCommitment(t *testing.T) {
 		s := makeSigners(t, test)[0]
 		s.Commit()
 		g := group.Group(test.Ciphersuite)
-		eLen := g.ElementLength()
 		sLen := g.ScalarLength()
-		pksLen := 1 + 8 + 4 + eLen + int(test.threshold)*eLen
-		confLen := 1 + 3*8 + eLen + int(test.maxSigners)*pksLen
+		confLen := len(s.Configuration.Encode())
 		keyShareLen := len(s.KeyShare.Encode())
-		offset := confLen + 4 + sLen + keyShareLen + 8 + 2*g.ScalarLength()
+		offset := confLen + 6 + keyShareLen + 8 + 2*sLen
 
 		encoded := s.Encode()
 		encoded[offset] = 0

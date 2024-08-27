@@ -31,15 +31,15 @@ var (
 
 // Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
 type Commitment struct {
-	HidingNonce  *group.Element
-	BindingNonce *group.Element
-	CommitmentID uint64
-	SignerID     uint64
-	Group        group.Group
+	HidingNonceCommitment  *group.Element
+	BindingNonceCommitment *group.Element
+	CommitmentID           uint64
+	SignerID               uint64
+	Group                  group.Group
 }
 
-// Verify returns an error if the commitment is
-func (c *Commitment) Verify(g group.Group) error {
+// Validate returns an error if the commitment is
+func (c *Commitment) Validate(g group.Group) error {
 	if c.Group != g {
 		return fmt.Errorf(
 			"commitment for participant %d has an unexpected ciphersuite: expected %s, got %s",
@@ -51,11 +51,13 @@ func (c *Commitment) Verify(g group.Group) error {
 
 	generator := g.Base()
 
-	if c.HidingNonce == nil || c.HidingNonce.IsIdentity() || c.HidingNonce.Equal(generator) == 1 {
+	if c.HidingNonceCommitment == nil || c.HidingNonceCommitment.IsIdentity() ||
+		c.HidingNonceCommitment.Equal(generator) == 1 {
 		return errHidingNonce
 	}
 
-	if c.BindingNonce == nil || c.BindingNonce.IsIdentity() || c.BindingNonce.Equal(generator) == 1 {
+	if c.BindingNonceCommitment == nil || c.BindingNonceCommitment.IsIdentity() ||
+		c.BindingNonceCommitment.Equal(generator) == 1 {
 		return errBindingNonce
 	}
 
@@ -65,11 +67,11 @@ func (c *Commitment) Verify(g group.Group) error {
 // Copy returns a new Commitment struct populated with the same values as the receiver.
 func (c *Commitment) Copy() *Commitment {
 	return &Commitment{
-		HidingNonce:  c.HidingNonce.Copy(),
-		BindingNonce: c.BindingNonce.Copy(),
-		CommitmentID: c.CommitmentID,
-		SignerID:     c.SignerID,
-		Group:        c.Group,
+		HidingNonceCommitment:  c.HidingNonceCommitment.Copy(),
+		BindingNonceCommitment: c.BindingNonceCommitment.Copy(),
+		CommitmentID:           c.CommitmentID,
+		SignerID:               c.SignerID,
+		Group:                  c.Group,
 	}
 }
 
@@ -80,8 +82,8 @@ func EncodedSize(g group.Group) uint64 {
 
 // Encode returns the serialized byte encoding of a participant's commitment.
 func (c *Commitment) Encode() []byte {
-	hNonce := c.HidingNonce.Encode()
-	bNonce := c.BindingNonce.Encode()
+	hNonce := c.HidingNonceCommitment.Encode()
+	bNonce := c.BindingNonceCommitment.Encode()
 
 	out := make([]byte, 17, EncodedSize(c.Group))
 	out[0] = byte(c.Group)
@@ -127,8 +129,8 @@ func (c *Commitment) Decode(data []byte) error {
 	c.Group = g
 	c.CommitmentID = cID
 	c.SignerID = pID
-	c.HidingNonce = hn
-	c.BindingNonce = bn
+	c.HidingNonceCommitment = hn
+	c.BindingNonceCommitment = bn
 
 	return nil
 }
@@ -168,8 +170,8 @@ func (c CommitmentList) Get(identifier uint64) *Commitment {
 	return nil
 }
 
-// ParticipantsUInt64 returns the uint64 list of participant identifiers in the list.
-func (c CommitmentList) ParticipantsUInt64() []uint64 {
+// Participants returns the uint64 list of participant identifiers in the list.
+func (c CommitmentList) Participants() []uint64 {
 	out := make([]uint64, len(c))
 
 	for i, com := range c {
@@ -196,9 +198,9 @@ func (c CommitmentList) ParticipantsScalar() []*group.Scalar {
 	})
 }
 
-// Verify checks for the Commitment list's integrity.
-func (c CommitmentList) Verify(g group.Group, threshold uint64) error {
-	// Verify number of commitments.
+// Validate checks for the Commitment list's integrity.
+func (c CommitmentList) Validate(g group.Group, threshold uint64) error {
+	// Validate number of commitments.
 	if uint64(len(c)) < threshold {
 		return fmt.Errorf("too few commitments: expected at least %d but got %d", threshold, len(c))
 	}
@@ -219,8 +221,8 @@ func (c CommitmentList) Verify(g group.Group, threshold uint64) error {
 
 		set[com.SignerID] = struct{}{}
 
-		// Check general consistency.
-		if err := com.Verify(g); err != nil {
+		// Check general validity of the commitment.
+		if err := com.Validate(g); err != nil {
 			return err
 		}
 	}
@@ -312,8 +314,8 @@ func encodeCommitmentList(g group.Group, commitments []*commitmentWithEncodedID)
 
 	for _, com := range commitments {
 		encoded = append(encoded, com.ParticipantID...)
-		encoded = append(encoded, com.HidingNonce.Encode()...)
-		encoded = append(encoded, com.BindingNonce.Encode()...)
+		encoded = append(encoded, com.HidingNonceCommitment.Encode()...)
+		encoded = append(encoded, com.BindingNonceCommitment.Encode()...)
 	}
 
 	return encoded
@@ -344,8 +346,8 @@ func (c CommitmentList) groupCommitment(bf BindingFactors) *group.Element {
 
 	for _, com := range c {
 		factor := bf[com.SignerID]
-		bindingNonce := com.BindingNonce.Copy().Multiply(factor)
-		gc.Add(com.HidingNonce).Add(bindingNonce)
+		bindingNonce := com.BindingNonceCommitment.Copy().Multiply(factor)
+		gc.Add(com.HidingNonceCommitment).Add(bindingNonce)
 	}
 
 	return gc

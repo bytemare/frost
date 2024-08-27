@@ -125,16 +125,16 @@ func (v test) test(t *testing.T) {
 
 		com := p.Commit()
 
-		if p.Commitments[com.CommitmentID].HidingNonceS.Equal(pv.HidingNonce) != 1 {
+		if p.NonceCommitments[com.CommitmentID].HidingNonce.Equal(pv.HidingNonce) != 1 {
 			t.Fatal(i)
 		}
-		if p.Commitments[com.CommitmentID].BindingNonceS.Equal(pv.BindingNonce) != 1 {
+		if p.NonceCommitments[com.CommitmentID].BindingNonce.Equal(pv.BindingNonce) != 1 {
 			t.Fatal(i)
 		}
-		if com.HidingNonce.Equal(pv.HidingNonceCommitment) != 1 {
+		if com.HidingNonceCommitment.Equal(pv.HidingNonceCommitment) != 1 {
 			t.Fatal(i)
 		}
-		if com.BindingNonce.Equal(pv.BindingNonceCommitment) != 1 {
+		if com.BindingNonceCommitment.Equal(pv.BindingNonceCommitment) != 1 {
 			t.Fatal(i)
 		}
 
@@ -163,13 +163,13 @@ func (v test) test(t *testing.T) {
 			t.Fatalf("%s\n%s\n", share.SignatureShare.Hex(), sigShares[i].SignatureShare.Hex())
 		}
 
-		if err := v.Config.VerifySignatureShare(sigShares[i], v.Inputs.Message, commitmentList); err != nil {
+		if err = v.Config.VerifySignatureShare(sigShares[i], v.Inputs.Message, commitmentList); err != nil {
 			t.Fatalf("signature share matched but verification failed: %s", err)
 		}
 	}
 
 	// AggregateSignatures
-	sig, err := v.Config.AggregateSignatures(v.Inputs.Message, sigShares, commitmentList, false)
+	sig, err := v.Config.AggregateSignatures(v.Inputs.Message, sigShares, commitmentList, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func (v test) test(t *testing.T) {
 	}
 
 	// Sanity Check
-	if err := frost.VerifySignature(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey); err != nil {
+	if err = frost.VerifySignature(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey); err != nil {
 		t.Fatal()
 	}
 }

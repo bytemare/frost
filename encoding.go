@@ -10,9 +10,9 @@ package frost
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 
 	group "github.com/bytemare/crypto"
@@ -27,11 +27,14 @@ const (
 	encSig             = byte(4)
 	encPubKeyShare     = byte(5)
 	encNonceCommitment = byte(6)
+	encLambda          = byte(7)
 )
 
 var (
-	errInvalidConfigEncoding = errors.New("invalid values in Configuration encoding")
-	errZeroIdentifier        = errors.New("identifier cannot be 0")
+	errInvalidConfigEncoding = errors.New(
+		"the threshold in the encoded configuration is higher than the number of maximum participants",
+	)
+	errZeroIdentifier = errors.New("identifier cannot be 0")
 )
 
 func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
@@ -42,7 +45,7 @@ func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
 	case encConf:
 		return 1 + 3*8 + eLen + other[0]
 	case encSigner:
-		return other[0] + 2 + 2 + sLen + other[1] + other[2]
+		return other[0] + 2 + 2 + 2 + other[1] + other[2] + other[3]
 	case encSigShare:
 		return 1 + 8 + uint64(g.ScalarLength())
 	case encSig:
@@ -51,6 +54,8 @@ func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
 		return 1 + 8 + 4 + eLen + other[0]
 	case encNonceCommitment:
 		return 8 + 2*sLen + EncodedSize(g)
+	case encLambda:
+		return 32 + sLen
 	default:
 		panic("encoded id not recognized")
 	}
@@ -77,8 +82,8 @@ func (c *Configuration) Encode() []byte {
 }
 
 type confHeader struct {
-	g                  group.Group
-	h, t, m, n, length uint64
+	g                     group.Group
+	h, t, n, nPks, length uint64
 }
 
 func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
@@ -93,12 +98,12 @@ func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
 
 	g := group.Group(data[0])
 	t := binary.LittleEndian.Uint64(data[1:9])
-	m := binary.LittleEndian.Uint64(data[9:17])
-	n := binary.LittleEndian.Uint64(data[17:25])
+	n := binary.LittleEndian.Uint64(data[9:17])
+	nPks := binary.LittleEndian.Uint64(data[17:25])
 	pksLen := encodedLength(encPubKeyShare, g, t*uint64(g.ElementLength()))
-	length := encodedLength(encConf, g, n*pksLen)
+	length := encodedLength(encConf, g, nPks*pksLen)
 
-	if t > math.MaxUint || m > math.MaxUint {
+	if t > n {
 		return nil, errInvalidConfigEncoding
 	}
 
@@ -106,8 +111,8 @@ func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
 		g:      g,
 		h:      25,
 		t:      t,
-		m:      m,
 		n:      n,
+		nPks:   nPks,
 		length: length,
 	}, nil
 }
@@ -124,9 +129,9 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 
 	offset := header.h + uint64(header.g.ElementLength())
 	pksLen := encodedLength(encPubKeyShare, header.g, header.t*uint64(header.g.ElementLength()))
-	pks := make([]*PublicKeyShare, header.n)
+	pks := make([]*PublicKeyShare, header.nPks)
 
-	for j := range header.n {
+	for j := range header.nPks {
 		pk := new(PublicKeyShare)
 		if err := pk.Decode(data[offset : offset+pksLen]); err != nil {
 			return fmt.Errorf("could not decode signer public key share for signer %d: %w", j, err)
@@ -139,7 +144,7 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	conf := &Configuration{
 		Ciphersuite:      Ciphersuite(header.g),
 		Threshold:        header.t,
-		MaxSigners:       header.m,
+		MaxSigners:       header.n,
 		GroupPublicKey:   gpk,
 		SignerPublicKeys: pks,
 	}
@@ -174,34 +179,40 @@ func (c *Configuration) Decode(data []byte) error {
 func (s *Signer) Encode() []byte {
 	g := s.KeyShare.Group
 	ks := s.KeyShare.Encode()
-	nCommitments := len(s.Commitments)
+	nCommitments := len(s.NonceCommitments)
+	nLambdas := len(s.LambdaRegistry)
 	conf := s.Configuration.Encode()
-	out := make(
-		[]byte,
-		len(conf)+4,
-		encodedLength(
-			encSigner,
-			g,
-			uint64(len(conf)),
-			uint64(len(ks)),
-			uint64(nCommitments)*encodedLength(encNonceCommitment, g),
-		),
+	outLength := encodedLength(
+		encSigner,
+		g,
+		uint64(len(conf)),
+		uint64(len(ks)),
+		uint64(nCommitments)*encodedLength(encNonceCommitment, g),
+		uint64(nLambdas)*encodedLength(encLambda, g),
 	)
+	out := make([]byte, len(conf)+6, outLength)
+
 	copy(out, conf)
 	binary.LittleEndian.PutUint16(out[len(conf):len(conf)+2], uint16(len(ks)))        // key share length
 	binary.LittleEndian.PutUint16(out[len(conf)+2:len(conf)+4], uint16(nCommitments)) // number of commitments
+	binary.LittleEndian.PutUint16(out[len(conf)+4:len(conf)+6], uint16(nLambdas))     // number of commitments
 
-	if s.Lambda != nil {
-		out = append(out, s.Lambda.Encode()...)
-	} else {
-		out = append(out, make([]byte, g.ScalarLength())...)
-	}
 	out = append(out, ks...) // key share
 
-	for id, com := range s.Commitments {
+	for k, v := range s.LambdaRegistry {
+		b, err := hex.DecodeString(k)
+		if err != nil {
+			panic(fmt.Sprintf("failed te revert hex encoding to bytes of %s", k))
+		}
+
+		out = append(out, b...)
+		out = append(out, v.Encode()...)
+	}
+
+	for id, com := range s.NonceCommitments {
 		out = append(out, internal.Concatenate(internal.UInt64LE(id),
-			com.HidingNonceS.Encode(),
-			com.BindingNonceS.Encode(),
+			com.HidingNonce.Encode(),
+			com.BindingNonce.Encode(),
 			com.Commitment.Encode())...)
 	}
 
@@ -221,36 +232,47 @@ func (s *Signer) Decode(data []byte) error {
 		return err
 	}
 
-	if uint64(len(data)) <= header.length+4 {
+	if uint64(len(data)) <= header.length+6 {
 		return internal.ErrInvalidLength
 	}
 
 	ksLen := uint64(binary.LittleEndian.Uint16(data[header.length : header.length+2]))
 	nCommitments := uint64(binary.LittleEndian.Uint16(data[header.length+2 : header.length+4]))
+	nLambdas := uint64(binary.LittleEndian.Uint16(data[header.length+4 : header.length+6]))
 	g := conf.group
 	nLen := encodedLength(encNonceCommitment, g)
+	lLem := encodedLength(encLambda, g)
 
-	length := encodedLength(encSigner, g, header.length, ksLen, nCommitments*nLen)
+	length := encodedLength(encSigner, g, header.length, ksLen, nCommitments*nLen, nLambdas*lLem)
 	if uint64(len(data)) != length {
 		return internal.ErrInvalidLength
 	}
 
-	offset := header.length + 4
+	offset := header.length + 6
 
-	lambda := g.NewScalar()
-	if err := lambda.Decode(data[offset : offset+uint64(g.ScalarLength())]); err != nil {
-		return fmt.Errorf("failed to decode lambda: %w", err)
-	}
-
-	offset += uint64(g.ScalarLength())
 	keyShare := new(KeyShare)
-
 	if err := keyShare.Decode(data[offset : offset+ksLen]); err != nil {
 		return fmt.Errorf("failed to decode key share: %w", err)
 	}
 
 	offset += ksLen
-	commitments := make(map[uint64]*NonceCommitment)
+	stop := offset + nLambdas*lLem
+	lambdaRegistry := make(internal.LambdaRegistry, lLem)
+
+	for offset < stop {
+		key := data[offset : offset+32]
+		offset += 32
+
+		lambda := g.NewScalar()
+		if err := lambda.Decode(data[offset : offset+uint64(g.ScalarLength())]); err != nil {
+			return fmt.Errorf("failed to decode lambda: %w", err)
+		}
+
+		lambdaRegistry[hex.EncodeToString(key)] = lambda
+		offset += uint64(g.ScalarLength())
+	}
+
+	commitments := make(map[uint64]*Nonce)
 	comLen := EncodedSize(g)
 
 	for offset < uint64(len(data)) {
@@ -283,16 +305,16 @@ func (s *Signer) Decode(data []byte) error {
 
 		offset += comLen
 
-		commitments[id] = &NonceCommitment{
-			HidingNonceS:  hs,
-			BindingNonceS: bs,
-			Commitment:    com,
+		commitments[id] = &Nonce{
+			HidingNonce:  hs,
+			BindingNonce: bs,
+			Commitment:   com,
 		}
 	}
 
 	s.KeyShare = keyShare
-	s.Lambda = lambda
-	s.Commitments = commitments
+	s.LambdaRegistry = lambdaRegistry
+	s.NonceCommitments = commitments
 	s.Configuration = conf
 
 	return nil

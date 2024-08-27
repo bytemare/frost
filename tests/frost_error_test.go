@@ -384,7 +384,7 @@ func TestConfiguration_PrepareVerifySignatureShare_BadNonVerifiedConfiguration(t
 		SignerPublicKeys: publicKeyShares,
 	}
 
-	if _, _, err := configuration.PrepareVerifySignatureShare(nil, nil); err == nil ||
+	if _, _, _, err := configuration.PrepareVerifySignatureShare(nil, nil); err == nil ||
 		err.Error() != expectedErrorPrefix.Error() {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
@@ -404,7 +404,7 @@ func TestConfiguration_PrepareVerifySignatureShare_InvalidCommitments(t *testing
 		coms[i] = s.Commit()
 	}
 
-	if _, _, err := configuration.PrepareVerifySignatureShare(nil, coms[:1]); err == nil ||
+	if _, _, _, err := configuration.PrepareVerifySignatureShare(nil, coms[:1]); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
@@ -491,7 +491,7 @@ func TestConfiguration_VerifySignatureShare_MissingPublicKey(t *testing.T) {
 }
 
 func TestConfiguration_VerifySignatureShare_BadSignerID(t *testing.T) {
-	expectedErrorPrefix := "can't compute challenge: anomaly in participant identifiers: one of the polynomial's coefficients is zero"
+	expectedErrorPrefix := "anomaly in participant identifiers: one of the polynomial's coefficients is zero"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
 		threshold:   2,
@@ -599,7 +599,8 @@ func TestCommitment_Verify_WrongGroup(t *testing.T) {
 	com := signer.Commit()
 	com.Group = 2
 
-	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+	if err := com.Validate(group.Ristretto255Sha512); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
@@ -615,20 +616,23 @@ func TestCommitment_Verify_BadHidingNonce(t *testing.T) {
 	com := signer.Commit()
 
 	// generator
-	com.HidingNonce.Base()
-	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+	com.HidingNonceCommitment.Base()
+	if err := com.Validate(group.Ristretto255Sha512); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// point at infinity
-	com.HidingNonce.Identity()
-	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+	com.HidingNonceCommitment.Identity()
+	if err := com.Validate(group.Ristretto255Sha512); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// nil
-	com.HidingNonce = nil
-	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+	com.HidingNonceCommitment = nil
+	if err := com.Validate(group.Ristretto255Sha512); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
@@ -644,20 +648,23 @@ func TestCommitment_Verify_BadBindingNonce(t *testing.T) {
 	com := signer.Commit()
 
 	// generator
-	com.BindingNonce.Base()
-	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+	com.BindingNonceCommitment.Base()
+	if err := com.Validate(group.Ristretto255Sha512); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// point at infinity
-	com.BindingNonce.Identity()
-	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+	com.BindingNonceCommitment.Identity()
+	if err := com.Validate(group.Ristretto255Sha512); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// nil
-	com.BindingNonce = nil
-	if err := com.Verify(group.Ristretto255Sha512); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+	com.BindingNonceCommitment = nil
+	if err := com.Validate(group.Ristretto255Sha512); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 }
@@ -676,7 +683,7 @@ func TestCommitmentList_Verify_InsufficientCommitments(t *testing.T) {
 		coms[i] = s.Commit()
 	}
 
-	if err := coms[:tt.threshold-1].Verify(group.Ristretto255Sha512, tt.threshold); err == nil ||
+	if err := coms[:tt.threshold-1].Validate(group.Ristretto255Sha512, tt.threshold); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
@@ -698,22 +705,7 @@ func TestCommitmentList_Verify_DuplicateSignerIDs(t *testing.T) {
 
 	coms[2] = coms[1].Copy()
 
-	if err := coms.Verify(group.Ristretto255Sha512, tt.threshold); err == nil ||
-		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
-		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
-	}
-}
-
-func TestComputeChallengeFactor_InvalidID(t *testing.T) {
-	expectedErrorPrefix := "anomaly in participant identifiers: "
-	g := group.Ristretto255Sha512
-	id := uint64(1)
-	participants := []*group.Scalar{
-		g.NewScalar().SetUInt64(2),
-		g.NewScalar().SetUInt64(3),
-	}
-
-	if _, err := internal.ComputeChallengeFactor(g, id, nil, participants, nil, nil, nil); err == nil ||
+	if err := coms.Validate(group.Ristretto255Sha512, tt.threshold); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}

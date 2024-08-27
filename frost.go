@@ -225,11 +225,21 @@ func (c *Configuration) Signer(keyShare *KeyShare) (*Signer, error) {
 	}
 
 	return &Signer{
-		KeyShare:      keyShare,
-		Lambda:        nil,
-		Commitments:   make(map[uint64]*NonceCommitment),
-		HidingRandom:  nil,
-		BindingRandom: nil,
-		Configuration: c,
+		KeyShare:         keyShare,
+		LambdaRegistry:   make(internal.LambdaRegistry),
+		NonceCommitments: make(map[uint64]*Nonce),
+		HidingRandom:     nil,
+		BindingRandom:    nil,
+		Configuration:    c,
 	}, nil
+}
+
+func (c *Configuration) challenge(lambda *group.Scalar, message []byte, groupCommitment *group.Element) *group.Scalar {
+	chall := SchnorrChallenge(c.group, message, groupCommitment, c.GroupPublicKey)
+	return chall.Multiply(lambda)
+}
+
+// SchnorrChallenge computes the per-message SchnorrChallenge.
+func SchnorrChallenge(g group.Group, msg []byte, r, pk *group.Element) *group.Scalar {
+	return internal.H2(g, internal.Concatenate(r.Encode(), pk.Encode(), msg))
 }

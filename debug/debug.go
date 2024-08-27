@@ -108,7 +108,7 @@ func Sign(c frost.Ciphersuite, msg []byte, key *group.Scalar, random ...*group.S
 
 	R := g.Base().Multiply(k)
 	pk := g.Base().Multiply(key)
-	challenge := internal.SchnorrChallenge(g, msg, R, pk)
+	challenge := frost.SchnorrChallenge(g, msg, R, pk)
 	z := k.Add(challenge.Multiply(key))
 
 	return &frost.Signature{

@@ -42,14 +42,14 @@ func (c *Configuration) AggregateSignatures(
 	commitments CommitmentList,
 	verify bool,
 ) (*Signature, error) {
-	groupCommitment, bindingFactors, err := c.PrepareVerifySignatureShare(message, commitments)
+	groupCommitment, bindingFactors, participants, err := c.PrepareVerifySignatureShare(message, commitments)
 	if err != nil {
 		return nil, err
 	}
 
 	if verify {
 		for _, share := range sigShares {
-			if err = c.verifySignatureShare(share, message, commitments,
+			if err = c.verifySignatureShare(share, message, commitments, participants,
 				groupCommitment, bindingFactors); err != nil {
 				return nil, err
 			}
@@ -84,33 +84,32 @@ func (c *Configuration) VerifySignatureShare(
 	message []byte,
 	commitments CommitmentList,
 ) error {
-	groupCommitment, bindingFactors, err := c.PrepareVerifySignatureShare(message, commitments)
+	groupCommitment, bindingFactors, participants, err := c.PrepareVerifySignatureShare(message, commitments)
 	if err != nil {
 		return err
 	}
 
-	return c.verifySignatureShare(sigShare, message, commitments, groupCommitment, bindingFactors)
+	return c.verifySignatureShare(sigShare, message, commitments, participants, groupCommitment, bindingFactors)
 }
 
 func (c *Configuration) PrepareVerifySignatureShare(message []byte,
 	commitments CommitmentList,
-) (*group.Element, BindingFactors, error) {
+) (*group.Element, BindingFactors, []*group.Scalar, error) {
 	if !c.verified {
 		if err := c.verify(); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 
-	if err := commitments.Verify(c.group, c.Threshold); err != nil {
-		return nil, nil, fmt.Errorf("invalid list of commitments: %w", err)
+	// Check Commitment list integrity
+	if err := commitments.Validate(c.group, c.Threshold); err != nil {
+		return nil, nil, nil, fmt.Errorf("invalid list of commitments: %w", err)
 	}
 
-	groupCommitment, bindingFactors := commitments.GroupCommitmentAndBindingFactors(
-		c.GroupPublicKey,
-		message,
-	)
+	groupCommitment, bindingFactors := commitments.GroupCommitmentAndBindingFactors(c.GroupPublicKey, message)
+	participants := commitments.ParticipantsScalar()
 
-	return groupCommitment, bindingFactors, nil
+	return groupCommitment, bindingFactors, participants, nil
 }
 
 func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
@@ -127,6 +126,7 @@ func (c *Configuration) verifySignatureShare(
 	sigShare *SignatureShare,
 	message []byte,
 	commitments CommitmentList,
+	participants []*group.Scalar,
 	groupCommitment *group.Element,
 	bindingFactors BindingFactors,
 ) error {
@@ -140,24 +140,16 @@ func (c *Configuration) verifySignatureShare(
 		return fmt.Errorf("public key not registered for signer %d", sigShare.SignerIdentifier)
 	}
 
-	participants := commitments.ParticipantsScalar()
-
-	lambdaChall, err := internal.ComputeChallengeFactor(
-		c.group,
-		sigShare.SignerIdentifier,
-		nil,
-		participants,
-		message,
-		groupCommitment,
-		c.GroupPublicKey,
-	)
+	lambda, err := internal.Lambda(c.group, sigShare.SignerIdentifier, participants)
 	if err != nil {
-		return fmt.Errorf("can't compute challenge: %w", err)
+		return err
 	}
+
+	lambdaChall := c.challenge(lambda, message, groupCommitment)
 
 	// Commitment KeyShare: r = g(h + b*f + l*s)
 	bindingFactor := bindingFactors[sigShare.SignerIdentifier]
-	commShare := com.HidingNonce.Copy().Add(com.BindingNonce.Copy().Multiply(bindingFactor))
+	commShare := com.HidingNonceCommitment.Copy().Add(com.BindingNonceCommitment.Copy().Multiply(bindingFactor))
 	r := commShare.Add(pk.Copy().Multiply(lambdaChall))
 	l := c.group.Base().Multiply(sigShare.SignatureShare)
 
@@ -175,7 +167,7 @@ func VerifySignature(c Ciphersuite, message []byte, signature *Signature, public
 		return internal.ErrInvalidCiphersuite
 	}
 
-	ch := internal.SchnorrChallenge(g, message, signature.R, publicKey)
+	ch := SchnorrChallenge(g, message, signature.R, publicKey)
 	r := signature.R.Copy().Add(publicKey.Copy().Multiply(ch))
 	l := g.Base().Multiply(signature.Z)
 
