@@ -606,7 +606,7 @@ func TestCommitment_Validate_WrongGroup(t *testing.T) {
 }
 
 func TestCommitment_Validate_BadHidingNonce(t *testing.T) {
-	expectedErrorPrefix := "invalid hiding nonce (nil, identity, or generator)"
+	expectedErrorPrefix := "invalid hiding nonce commitment (nil, identity, or generator)"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
 		threshold:   2,
@@ -638,7 +638,7 @@ func TestCommitment_Validate_BadHidingNonce(t *testing.T) {
 }
 
 func TestCommitment_Validate_BadBindingNonce(t *testing.T) {
-	expectedErrorPrefix := "invalid binding nonce (nil, identity, or generator)"
+	expectedErrorPrefix := "invalid binding nonce commitment (nil, identity, or generator)"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
 		threshold:   2,
@@ -712,7 +712,7 @@ func TestCommitmentList_Validate_DuplicateSignerIDs(t *testing.T) {
 }
 
 func TestCommitmentList_Validate_InvalidCommitment(t *testing.T) {
-	expectedErrorPrefix := "commitment list contains multiple commitments of participant 2"
+	expectedErrorPrefix := "invalid binding nonce commitment (nil, identity, or generator)"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
 		threshold:   3,

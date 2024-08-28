@@ -918,7 +918,7 @@ func TestEncoding_Commitment_InvalidLength2(t *testing.T) {
 }
 
 func TestEncoding_Commitment_InvalidHidingNonce(t *testing.T) {
-	expectedErrorPrefix := "invalid encoding of hiding nonce: "
+	expectedErrorPrefix := "invalid encoding of hiding nonce commitment: "
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signer := makeSigners(t, test)[0]
@@ -935,7 +935,7 @@ func TestEncoding_Commitment_InvalidHidingNonce(t *testing.T) {
 }
 
 func TestEncoding_Commitment_InvalidBindingNonce(t *testing.T) {
-	expectedErrorPrefix := "invalid encoding of binding nonce: "
+	expectedErrorPrefix := "invalid encoding of binding nonce commitment: "
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signer := makeSigners(t, test)[0]
