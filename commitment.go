@@ -25,8 +25,8 @@ var (
 	errDecodeCommitmentLength = errors.New("failed to decode commitment: invalid length")
 	errInvalidCiphersuite     = errors.New("ciphersuite not available")
 	errInvalidLength          = errors.New("invalid encoding length")
-	errHidingNonce            = errors.New("invalid hiding nonce (nil, identity, or generator)")
-	errBindingNonce           = errors.New("invalid binding nonce (nil, identity, or generator)")
+	errHidingNonceCommitment  = errors.New("invalid hiding nonce commitment (nil, identity, or generator)")
+	errBindingNonceCommitment = errors.New("invalid binding nonce commitment (nil, identity, or generator)")
 )
 
 // Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
@@ -53,12 +53,12 @@ func (c *Commitment) Validate(g group.Group) error {
 
 	if c.HidingNonceCommitment == nil || c.HidingNonceCommitment.IsIdentity() ||
 		c.HidingNonceCommitment.Equal(generator) == 1 {
-		return errHidingNonce
+		return errHidingNonceCommitment
 	}
 
 	if c.BindingNonceCommitment == nil || c.BindingNonceCommitment.IsIdentity() ||
 		c.BindingNonceCommitment.Equal(generator) == 1 {
-		return errBindingNonce
+		return errBindingNonceCommitment
 	}
 
 	return nil
@@ -116,14 +116,14 @@ func (c *Commitment) Decode(data []byte) error {
 
 	hn := g.NewElement()
 	if err := hn.Decode(data[offset : offset+g.ElementLength()]); err != nil {
-		return fmt.Errorf("invalid encoding of hiding nonce: %w", err)
+		return fmt.Errorf("invalid encoding of hiding nonce commitment: %w", err)
 	}
 
 	offset += g.ElementLength()
 
 	bn := g.NewElement()
 	if err := bn.Decode(data[offset : offset+g.ElementLength()]); err != nil {
-		return fmt.Errorf("invalid encoding of binding nonce: %w", err)
+		return fmt.Errorf("invalid encoding of binding nonce commitment: %w", err)
 	}
 
 	c.Group = g

@@ -98,7 +98,7 @@ func TestConfiguration_Verify_Threshold_Max(t *testing.T) {
 }
 
 func TestConfiguration_Verify_GroupPublicKey_Nil(t *testing.T) {
-	expectedErrorPrefix := "invalid group public key (nil, identity, or generator"
+	expectedErrorPrefix := "invalid group public key (nil, identity, or generator)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		keyShares, _, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
@@ -119,7 +119,7 @@ func TestConfiguration_Verify_GroupPublicKey_Nil(t *testing.T) {
 }
 
 func TestConfiguration_Verify_GroupPublicKey_Identity(t *testing.T) {
-	expectedErrorPrefix := "invalid group public key (nil, identity, or generator"
+	expectedErrorPrefix := "invalid group public key (nil, identity, or generator)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		keyShares, _, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
@@ -140,7 +140,7 @@ func TestConfiguration_Verify_GroupPublicKey_Identity(t *testing.T) {
 }
 
 func TestConfiguration_Verify_GroupPublicKey_Generator(t *testing.T) {
-	expectedErrorPrefix := "invalid group public key (nil, identity, or generator"
+	expectedErrorPrefix := "invalid group public key (nil, identity, or generator)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		keyShares, _, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
@@ -588,7 +588,7 @@ func TestConfiguration_AggregateSignatures_NonVerifiedCommitments(t *testing.T) 
 	}
 }
 
-func TestCommitment_Verify_WrongGroup(t *testing.T) {
+func TestCommitment_Validate_WrongGroup(t *testing.T) {
 	expectedErrorPrefix := "commitment for participant 1 has an unexpected ciphersuite: expected ristretto255_XMD:SHA-512_R255MAP_RO_, got %!s(PANIC=String method: invalid group identifier)"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
@@ -605,7 +605,7 @@ func TestCommitment_Verify_WrongGroup(t *testing.T) {
 	}
 }
 
-func TestCommitment_Verify_BadHidingNonce(t *testing.T) {
+func TestCommitment_Validate_BadHidingNonce(t *testing.T) {
 	expectedErrorPrefix := "invalid hiding nonce (nil, identity, or generator)"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
@@ -637,7 +637,7 @@ func TestCommitment_Verify_BadHidingNonce(t *testing.T) {
 	}
 }
 
-func TestCommitment_Verify_BadBindingNonce(t *testing.T) {
+func TestCommitment_Validate_BadBindingNonce(t *testing.T) {
 	expectedErrorPrefix := "invalid binding nonce (nil, identity, or generator)"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
@@ -669,7 +669,7 @@ func TestCommitment_Verify_BadBindingNonce(t *testing.T) {
 	}
 }
 
-func TestCommitmentList_Verify_InsufficientCommitments(t *testing.T) {
+func TestCommitmentList_Validate_InsufficientCommitments(t *testing.T) {
 	expectedErrorPrefix := "too few commitments: expected at least 2 but got 1"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
@@ -689,7 +689,7 @@ func TestCommitmentList_Verify_InsufficientCommitments(t *testing.T) {
 	}
 }
 
-func TestCommitmentList_Verify_DuplicateSignerIDs(t *testing.T) {
+func TestCommitmentList_Validate_DuplicateSignerIDs(t *testing.T) {
 	expectedErrorPrefix := "commitment list contains multiple commitments of participant 2"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
@@ -708,5 +708,39 @@ func TestCommitmentList_Verify_DuplicateSignerIDs(t *testing.T) {
 	if err := coms.Validate(group.Ristretto255Sha512, tt.threshold); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestCommitmentList_Validate_InvalidCommitment(t *testing.T) {
+	expectedErrorPrefix := "commitment list contains multiple commitments of participant 2"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   3,
+		maxSigners:  4,
+	}
+	signers := makeSigners(t, tt)
+	coms := make(frost.CommitmentList, len(signers))
+
+	for i, s := range signers {
+		coms[i] = s.Commit()
+	}
+
+	coms[2].BindingNonceCommitment.Base()
+
+	if err := coms.Validate(group.Ristretto255Sha512, tt.threshold); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestCommitmentList_ParticipantsScalar_Empty(t *testing.T) {
+	com := frost.CommitmentList{}
+	if out := com.ParticipantsScalar(); out != nil {
+		t.Fatal("unexpected output")
+	}
+
+	com = frost.CommitmentList{nil, nil}
+	if out := com.ParticipantsScalar(); out != nil {
+		t.Fatal("unexpected output")
 	}
 }

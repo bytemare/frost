@@ -195,7 +195,7 @@ func (s *Signer) Encode() []byte {
 	copy(out, conf)
 	binary.LittleEndian.PutUint16(out[len(conf):len(conf)+2], uint16(len(ks)))        // key share length
 	binary.LittleEndian.PutUint16(out[len(conf)+2:len(conf)+4], uint16(nCommitments)) // number of commitments
-	binary.LittleEndian.PutUint16(out[len(conf)+4:len(conf)+6], uint16(nLambdas))     // number of commitments
+	binary.LittleEndian.PutUint16(out[len(conf)+4:len(conf)+6], uint16(nLambdas))     // number of lambda entries
 
 	out = append(out, ks...) // key share
 
@@ -324,7 +324,7 @@ func (s *Signer) Decode(data []byte) error {
 func (s *SignatureShare) Encode() []byte {
 	share := s.SignatureShare.Encode()
 
-	out := make([]byte, 1+8+s.Group.ScalarLength())
+	out := make([]byte, encodedLength(encSigShare, s.Group))
 	out[0] = byte(s.Group)
 	binary.LittleEndian.PutUint64(out[1:9], s.SignerIdentifier)
 	copy(out[9:], share)
@@ -345,7 +345,7 @@ func (s *SignatureShare) Decode(data []byte) error {
 		return internal.ErrInvalidCiphersuite
 	}
 
-	if len(data) != 1+8+g.ScalarLength() {
+	if uint64(len(data)) != encodedLength(encSigShare, g) {
 		return internal.ErrInvalidLength
 	}
 

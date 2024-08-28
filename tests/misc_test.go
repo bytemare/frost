@@ -423,3 +423,89 @@ func TestPublicKeyShareVerificationFail(t *testing.T) {
 		}
 	})
 }
+
+func TestLambda_BadID(t *testing.T) {
+	expectedErrorPrefix := "anomaly in participant identifiers: one of the polynomial's coefficients is zero"
+	g := group.Ristretto255Sha512
+	polynomial := []*group.Scalar{
+		g.NewScalar().SetUInt64(1),
+		g.NewScalar().SetUInt64(0),
+		g.NewScalar().SetUInt64(1),
+	}
+
+	if _, err := internal.Lambda(g, 1, polynomial); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestLambdaRegistry(t *testing.T) {
+	g := group.Ristretto255Sha512
+	id := uint64(2)
+	participants := []uint64{1, 2, 3, 4}
+	lambdas := make(internal.LambdaRegistry)
+
+	// Get should return nil
+	if lambda := lambdas.Get(participants); lambda != nil {
+		t.Fatal("unexpected result")
+	}
+
+	// Create a new entry
+	lambda, err := lambdas.New(g, id, participants)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if lambda == nil {
+		t.Fatal("unexpected result")
+	}
+
+	// Getting the same entry
+	lambda2 := lambdas.Get(participants)
+	if lambda.Equal(lambda2) != 1 {
+		t.Fatal("expected equality")
+	}
+
+	lambda3, err := lambdas.GetOrNew(g, id, participants)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if lambda.Equal(lambda3) != 1 {
+		t.Fatal("expected equality")
+	}
+
+	// Getting another entry must result in another returned value
+	lambda4, err := lambdas.GetOrNew(g, id, participants[:3])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if lambda.Equal(lambda4) == 1 {
+		t.Fatal("unexpected equality")
+	}
+
+	lambda5, err := lambdas.GetOrNew(g, id, participants[:3])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if lambda4.Equal(lambda5) != 1 {
+		t.Fatal("expected equality")
+	}
+
+	// Removing and checking for the same entry
+	lambdas.Delete(participants)
+	if lambda = lambdas.Get(participants); lambda != nil {
+		t.Fatal("unexpected result")
+	}
+
+	// Setting must return the same value
+	lambda6 := g.NewScalar().Random()
+	lambdas.Set(participants, lambda6)
+	lambda7 := lambdas.Get(participants)
+
+	if lambda6.Equal(lambda7) != 1 {
+		t.Fatal("expected equality")
+	}
+}

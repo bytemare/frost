@@ -189,7 +189,7 @@ func (s *Signer) Sign(commitmentID uint64, message []byte, commitments Commitmen
 
 	participants := commitments.Participants()
 
-	lambda, err := s.LambdaRegistry.Get(s.Configuration.group, s.KeyShare.ID, participants)
+	lambda, err := s.LambdaRegistry.GetOrNew(s.Configuration.group, s.KeyShare.ID, participants)
 	if err != nil {
 		return nil, err
 	}

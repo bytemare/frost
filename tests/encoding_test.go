@@ -340,6 +340,23 @@ func TestEncoding_Configuration_InvalidLength(t *testing.T) {
 	})
 }
 
+func TestEncoding_Configuration_InvalidConfigEncoding(t *testing.T) {
+	expectedErrorPrefix := "the threshold in the encoded configuration is higher than the number of maximum participants"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	configuration := makeConf(t, tt)
+	configuration.Threshold = configuration.MaxSigners + 1
+	encoded := configuration.Encode()
+
+	decoded := new(frost.Configuration)
+	if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
 func TestEncoding_Configuration_InvalidGroupPublicKey(t *testing.T) {
 	expectedErrorPrefix := "could not decode group public key: element Decode: "
 
@@ -390,11 +407,42 @@ func TestEncoding_Configuration_InvalidPublicKeyShare(t *testing.T) {
 	})
 }
 
+func TestEncoding_Configuration_CantVerify_InvalidPubKey(t *testing.T) {
+	expectedErrorPrefix := "invalid group public key (nil, identity, or generator)"
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		configuration := makeConf(t, test)
+		configuration.GroupPublicKey.Base()
+		encoded := configuration.Encode()
+
+		decoded := new(frost.Configuration)
+		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
 func TestEncoding_Signer(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
-		s := makeSigners(t, test)[0]
+		s := makeSigners(t, test)[1]
 		s.Commit()
 		s.Commit()
+
+		participants := make([]uint64, test.maxSigners)
+		for i := range test.maxSigners {
+			participants[i] = i + 1
+		}
+
+		_, err := s.LambdaRegistry.New(test.ECGroup(), s.Identifier(), participants)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = s.LambdaRegistry.New(test.ECGroup(), s.Identifier(), participants[1:])
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		encoded := s.Encode()
 
 		decoded := new(frost.Signer)
@@ -421,19 +469,18 @@ func TestEncoding_Signer_BadConfHeader(t *testing.T) {
 }
 
 func TestEncoding_Signer_BadConf(t *testing.T) {
-	expectedErr := internal.ErrInvalidLength
+	expectedErrorPrefix := "could not decode group public key:"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
-		encoded := s.Encode()
-
 		eLen := s.Configuration.Ciphersuite.ECGroup().ElementLength()
-		pksLen := 1 + 8 + 4 + eLen + int(test.threshold)*eLen
-		confLen := 1 + 3*8 + eLen + int(test.maxSigners)*pksLen
+		encoded := s.Encode()
+		encoded = slices.Replace(encoded, 25, 25+eLen, badElement(t, test.ECGroup())...)
 
 		decoded := new(frost.Signer)
-		if err := decoded.Decode(encoded[:confLen-2]); err == nil || err.Error() != expectedErr.Error() {
-			t.Fatalf("expected error %q, got %q", expectedErr, err)
+		if err := decoded.Decode(encoded); err == nil ||
+			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
 }
@@ -930,6 +977,13 @@ func TestEncoding_CommitmentList(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestEncoding_CommitmentList_Empty(t *testing.T) {
+	com := frost.CommitmentList{}
+	if out := com.Encode(); out != nil {
+		t.Fatal("unexpected output")
+	}
 }
 
 func TestEncoding_CommitmentList_InvalidCiphersuite(t *testing.T) {

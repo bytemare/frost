@@ -127,7 +127,7 @@ type Configuration struct {
 var (
 	errInvalidThresholdParameter = errors.New("threshold is 0 or higher than maxSigners")
 	errInvalidMaxSignersOrder    = errors.New("maxSigners is higher than group order")
-	errInvalidGroupPublicKey     = errors.New("invalid group public key (nil, identity, or generator")
+	errInvalidGroupPublicKey     = errors.New("invalid group public key (nil, identity, or generator)")
 	errInvalidNumberOfPublicKeys = errors.New("invalid number of public keys (lower than threshold or above maximum)")
 )
 

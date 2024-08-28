@@ -35,22 +35,30 @@ func lambdaRegistryKey(participants []uint64) string {
 	return hex.EncodeToString(hash.SHA256.Hash([]byte(a))) // Length = 32 bytes, 64 in hex string
 }
 
-func (l LambdaRegistry) Get(g group.Group, id uint64, participants []uint64) (*group.Scalar, error) {
+func (l LambdaRegistry) New(g group.Group, id uint64, participants []uint64) (*group.Scalar, error) {
+	polynomial := secretsharing.NewPolynomialFromListFunc(g, participants, func(p uint64) *group.Scalar {
+		return g.NewScalar().SetUInt64(p)
+	})
+
+	lambda, err := Lambda(g, id, polynomial)
+	if err != nil {
+		return nil, err
+	}
+
+	l.Set(participants, lambda)
+
+	return lambda, nil
+}
+
+func (l LambdaRegistry) Get(participants []uint64) *group.Scalar {
 	key := lambdaRegistryKey(participants)
+	return l[key]
+}
 
-	lambda, registered := l[key]
-	if !registered {
-		polynomial := secretsharing.NewPolynomialFromListFunc(g, participants, func(p uint64) *group.Scalar {
-			return g.NewScalar().SetUInt64(p)
-		})
-
-		var err error
-		lambda, err = Lambda(g, id, polynomial)
-		if err != nil {
-			return nil, err
-		}
-
-		l.Set(participants, lambda)
+func (l LambdaRegistry) GetOrNew(g group.Group, id uint64, participants []uint64) (*group.Scalar, error) {
+	lambda := l.Get(participants)
+	if lambda == nil {
+		return l.New(g, id, participants)
 	}
 
 	return lambda, nil
