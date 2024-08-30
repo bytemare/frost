@@ -17,21 +17,12 @@ import (
 	secretsharing "github.com/bytemare/secret-sharing"
 )
 
-func Lambda(g group.Group, id uint64, polynomial secretsharing.Polynomial) (*group.Scalar, error) {
-	l, err := polynomial.DeriveInterpolatingValue(g, g.NewScalar().SetUInt64(id))
-	if err != nil {
-		return nil, fmt.Errorf("anomaly in participant identifiers: %w", err)
-	}
-
-	return l, nil
-}
-
 // Lambda derives the interpolating value for id in the polynomial made by the participant identifiers.
 // This function assumes that:
 // - id is non-nil and != 0
 // - every scalar in participants is non-nil and != 0
 // - there are no duplicates in participants
-func Lambda2(g group.Group, id uint64, participants []*group.Scalar) *group.Scalar {
+func Lambda(g group.Group, id uint64, participants []*group.Scalar) *group.Scalar {
 	sid := g.NewScalar().SetUInt64(id)
 	numerator := g.NewScalar().One()
 	denominator := g.NewScalar().One()
@@ -68,7 +59,7 @@ func (l LambdaRegistry) New(g group.Group, id uint64, participants []uint64) *gr
 		}
 
 	*/
-	lambda := Lambda2(g, id, polynomial)
+	lambda := Lambda(g, id, polynomial)
 
 	l.Set(participants, lambda)
 

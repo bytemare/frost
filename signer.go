@@ -81,8 +81,7 @@ func (s *Signer) Identifier() uint64 {
 func randomCommitmentID() uint64 {
 	buf := make([]byte, 8)
 
-	_, err := rand.Read(buf)
-	if err != nil {
+	if _, err := rand.Read(buf); err != nil {
 		panic(fmt.Errorf("FATAL: %w", err))
 	}
 
@@ -100,6 +99,8 @@ func (s *Signer) generateNonce(secret *group.Scalar, random []byte) *group.Scala
 func (s *Signer) genNonceID() uint64 {
 	cid := randomCommitmentID()
 
+	// In the extremely rare and unlikely case the CSPRNG returns an already registered ID, we try again 128 times
+	// before failing.
 	for range 128 {
 		if _, exists := s.NonceCommitments[cid]; !exists {
 			return cid
@@ -108,7 +109,7 @@ func (s *Signer) genNonceID() uint64 {
 		cid = randomCommitmentID()
 	}
 
-	panic("FATAL: CSPRNG could not generate a unique nonce over 128 iterations")
+	panic("FATAL: CSPRNG could not generate unique commitment identifiers over 128 iterations")
 }
 
 // Commit generates a signer's nonces and commitment, to be used in the second FROST round. The internal nonce must

@@ -385,7 +385,7 @@ func TestConfiguration_PrepareVerifySignatureShare_BadNonVerifiedConfiguration(t
 		SignerPublicKeys: publicKeyShares,
 	}
 
-	if _, _, _, err := configuration.PrepareVerifySignatureShare(nil, nil); err == nil ||
+	if _, _, _, err := configuration.PrepareSignatureShareVerification(nil, nil); err == nil ||
 		err.Error() != expectedErrorPrefix.Error() {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
@@ -405,7 +405,7 @@ func TestConfiguration_PrepareVerifySignatureShare_InvalidCommitments(t *testing
 		coms[i] = s.Commit()
 	}
 
-	if _, _, _, err := configuration.PrepareVerifySignatureShare(nil, coms[:1]); err == nil ||
+	if _, _, _, err := configuration.PrepareSignatureShareVerification(nil, coms[:1]); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}

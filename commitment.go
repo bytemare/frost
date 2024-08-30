@@ -218,7 +218,7 @@ func (c *Configuration) ValidateCommitmentList(commitments CommitmentList) error
 		}
 
 		// List must be sorted, compare with the next commitment.
-		if uint64(i) < length-2 {
+		if uint64(i) <= length-2 {
 			if cmpID(commitment, commitments[i+1]) > 0 {
 				return fmt.Errorf("commitment list is not sorted by signer identifiers")
 			}
@@ -232,37 +232,6 @@ func (c *Configuration) ValidateCommitmentList(commitments CommitmentList) error
 				commitment.CommitmentID,
 			)
 		}
-	}
-
-	return nil
-}
-
-// Validate checks for the Commitment list's integrity.
-// - list is returned sorted
-// - no signer identifier in commitments is 0
-// - no
-func (c CommitmentList) Validate(g group.Group) error {
-	// set to detect duplication
-	set := make(map[uint64]struct{}, len(c))
-
-	for _, com := range c {
-
-		// Check for duplicate participant entries.
-		if _, exists := set[com.SignerID]; exists {
-			return fmt.Errorf("commitment list contains multiple commitments of participant %d", com.SignerID)
-		}
-
-		set[com.SignerID] = struct{}{}
-
-		// Check general validity of the commitment.
-		if err := com.Validate(g); err != nil {
-			return err
-		}
-	}
-
-	// Ensure the list is sorted
-	if !c.IsSorted() {
-		c.Sort()
 	}
 
 	return nil
@@ -359,7 +328,7 @@ func encodeCommitmentList(g group.Group, commitments []*commitmentWithEncodedID)
 	return encoded
 }
 
-// BindingFactors is a map of participant identifier to BindingFactors.
+// BindingFactors is a map of participant identifiers to BindingFactors.
 type BindingFactors map[uint64]*group.Scalar
 
 func (c CommitmentList) bindingFactors(publicKey *group.Element, message []byte) BindingFactors {

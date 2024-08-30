@@ -435,7 +435,7 @@ func TestLambda_BadID(t *testing.T) {
 	}
 
 	// todo : what happens if the participant list is not vetted?
-	fmt.Println(internal.Lambda2(g, 1, polynomial).Hex())
+	fmt.Println(internal.Lambda(g, 1, polynomial).Hex())
 }
 
 func TestLambdaRegistry(t *testing.T) {

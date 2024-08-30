@@ -132,8 +132,8 @@ var (
 )
 
 func (c *Configuration) verifySignerPublicKeys() error {
-	if uint64(len(c.SignerPublicKeys)) < c.Threshold ||
-		uint64(len(c.SignerPublicKeys)) > c.MaxSigners {
+	length := uint64(len(c.SignerPublicKeys))
+	if length < c.Threshold || length > c.MaxSigners {
 		return errInvalidNumberOfPublicKeys
 	}
 
@@ -216,12 +216,75 @@ func (c *Configuration) Init() error {
 	return nil
 }
 
+func (c *Configuration) ValidateKeyShare(keyShare *KeyShare) error {
+	if !c.verified {
+		if err := c.Init(); err != nil {
+			return err
+		}
+	}
+
+	if keyShare == nil {
+		return errors.New("provided key share is nil")
+	}
+
+	if keyShare.ID == 0 {
+		return errors.New("provided key share has invalid ID 0")
+	}
+
+	if keyShare.ID > c.MaxSigners {
+		return fmt.Errorf(
+			"provided key share has invalid ID %d, above authorized range [1:%d]",
+			keyShare.ID,
+			c.MaxSigners,
+		)
+	}
+
+	if keyShare.Group != c.group {
+		return fmt.Errorf("provided key share has invalid group parameter, want %s got %s", c.group, keyShare.Group)
+	}
+
+	if c.GroupPublicKey.Equal(keyShare.GroupPublicKey) != 1 {
+		return errors.New(
+			"the group's public key in the provided key share does not match the one in the configuration",
+		)
+	}
+
+	if keyShare.PublicKey == nil {
+		return errors.New("provided key share has nil public key")
+	}
+
+	if keyShare.Secret == nil || keyShare.Secret.IsZero() {
+		return errors.New("provided key share has invalid secret key")
+	}
+
+	if c.group.Base().Multiply(keyShare.Secret).Equal(keyShare.PublicKey) != 1 {
+		return errors.New("provided key share has non-matching secret and public keys")
+	}
+
+	pk := c.getSignerPubKey(keyShare.ID)
+	if pk == nil {
+		return errors.New("provided key share has no registered signer identifier in the configuration")
+	}
+
+	if pk.Equal(keyShare.PublicKey) != 1 {
+		return errors.New(
+			"provided key share has a different public key than the one registered for that signer in the configuration",
+		)
+	}
+
+	return nil
+}
+
 // Signer returns a new participant of the protocol instantiated from the Configuration and the signer's key share.
 func (c *Configuration) Signer(keyShare *KeyShare) (*Signer, error) {
 	if !c.verified {
 		if err := c.Init(); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := c.ValidateKeyShare(keyShare); err != nil {
+		return nil, err
 	}
 
 	return &Signer{

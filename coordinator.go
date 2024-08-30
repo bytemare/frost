@@ -34,7 +34,7 @@ type Signature struct {
 // The coordinator should verify this signature using the group public key before publishing or releasing the signature.
 // This aggregate signature will verify if and only if all signature shares are valid. If an invalid share is identified
 // a reasonable approach is to remove the signer from the set of allowed participants in future runs of FROST. If verify
-// is set to true, AggregateSignatures will automatically verify the signature shares and produced signatures, and will
+// is set to true, AggregateSignatures will automatically verify the signature shares and the output signature, and will
 // return an error with the first encountered invalid signature share.
 func (c *Configuration) AggregateSignatures(
 	message []byte,
@@ -42,7 +42,7 @@ func (c *Configuration) AggregateSignatures(
 	commitments CommitmentList,
 	verify bool,
 ) (*Signature, error) {
-	groupCommitment, bindingFactors, participants, err := c.PrepareVerifySignatureShare(message, commitments)
+	groupCommitment, bindingFactors, participants, err := c.PrepareSignatureShareVerification(message, commitments)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (c *Configuration) VerifySignatureShare(
 	message []byte,
 	commitments CommitmentList,
 ) error {
-	groupCommitment, bindingFactors, participants, err := c.PrepareVerifySignatureShare(message, commitments)
+	groupCommitment, bindingFactors, participants, err := c.PrepareSignatureShareVerification(message, commitments)
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func (c *Configuration) VerifySignatureShare(
 	return c.verifySignatureShare(sigShare, message, commitments, participants, groupCommitment, bindingFactors)
 }
 
-func (c *Configuration) PrepareVerifySignatureShare(message []byte,
+func (c *Configuration) PrepareSignatureShareVerification(message []byte,
 	commitments CommitmentList,
 ) (*group.Element, BindingFactors, []*group.Scalar, error) {
 	if !c.verified {
@@ -125,6 +125,46 @@ func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
 	return nil
 }
 
+func (c *Configuration) validateSignatureShareLight(sigShare *SignatureShare) error {
+	if sigShare == nil {
+		return errors.New("nil signature share")
+	}
+
+	if sigShare.SignatureShare == nil || sigShare.SignatureShare.IsZero() {
+		return errors.New("invalid signature share (nil or zero)")
+	}
+
+	return nil
+}
+
+func (c *Configuration) validateSignatureShareExtensive(sigShare *SignatureShare) error {
+	if err := c.validateSignatureShareLight(sigShare); err != nil {
+		return err
+	}
+
+	if sigShare.SignerIdentifier == 0 {
+		return errors.New("signature share's signer identifier is 0 (invalid)")
+	}
+
+	if sigShare.SignerIdentifier > c.MaxSigners {
+		return fmt.Errorf(
+			"signature share has invalid ID %d, above authorized range [1:%d]",
+			sigShare.SignerIdentifier,
+			c.MaxSigners,
+		)
+	}
+
+	if sigShare.Group != c.group {
+		return fmt.Errorf("signature share has invalid group parameter, want %s got %s", c.group, sigShare.Group)
+	}
+
+	if c.getSignerPubKey(sigShare.SignerIdentifier) == nil {
+		return fmt.Errorf("no public key registered for signer %d", sigShare.SignerIdentifier)
+	}
+
+	return nil
+}
+
 func (c *Configuration) verifySignatureShare(
 	sigShare *SignatureShare,
 	message []byte,
@@ -133,9 +173,8 @@ func (c *Configuration) verifySignatureShare(
 	groupCommitment *group.Element,
 	bindingFactors BindingFactors,
 ) error {
-	// Due diligence check that no signer id == 0.
-	if sigShare.SignerIdentifier == 0 {
-		return errors.New("signer identifier is 0 (invalid)")
+	if err := c.validateSignatureShareExtensive(sigShare); err != nil {
+		return err
 	}
 
 	com := commitments.Get(sigShare.SignerIdentifier)
@@ -144,11 +183,7 @@ func (c *Configuration) verifySignatureShare(
 	}
 
 	pk := c.getSignerPubKey(sigShare.SignerIdentifier)
-	if pk == nil {
-		return fmt.Errorf("public key not registered for signer %d", sigShare.SignerIdentifier)
-	}
-
-	lambda := internal.Lambda2(c.group, sigShare.SignerIdentifier, participants)
+	lambda := internal.Lambda(c.group, sigShare.SignerIdentifier, participants)
 	lambdaChall := c.challenge(lambda, message, groupCommitment)
 
 	// Commitment KeyShare: r = g(h + b*f + l*s)
