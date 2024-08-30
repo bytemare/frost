@@ -149,6 +149,3 @@ func testAll(t *testing.T, f func(*testing.T, *tableTest)) {
 		})
 	}
 }
-
-func TestMaliciousSigner(t *testing.T) {
-}

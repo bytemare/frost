@@ -216,6 +216,16 @@ func (c *Configuration) Init() error {
 	return nil
 }
 
+func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
+	for _, pks := range c.SignerPublicKeys {
+		if pks.ID == id {
+			return pks.PublicKey
+		}
+	}
+
+	return nil
+}
+
 func (c *Configuration) ValidateKeyShare(keyShare *KeyShare) error {
 	if !c.verified {
 		if err := c.Init(); err != nil {

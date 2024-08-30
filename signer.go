@@ -11,7 +11,6 @@ package frost
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"errors"
 	"fmt"
 
 	group "github.com/bytemare/crypto"
@@ -158,13 +157,6 @@ func (s *Signer) verifyNonces(com *Commitment) error {
 // VerifyCommitmentList checks for the Commitment list integrity and the signer's commitment. This function must not
 // return an error for Sign to succeed.
 func (s *Signer) VerifyCommitmentList(commitments CommitmentList) error {
-	// Due diligence check that no signer id == 0.
-	if s.KeyShare.ID == 0 {
-		return errors.New("signer identifier is 0 (invalid)")
-	}
-
-	commitments.Sort()
-
 	// Validate general consistency of the commitment list.
 	if err := s.Configuration.ValidateCommitmentList(commitments); err != nil {
 		return fmt.Errorf("invalid list of commitments: %w", err)

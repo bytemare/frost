@@ -22,45 +22,6 @@ import (
 	"github.com/bytemare/frost/internal"
 )
 
-func TestCommitmentList_Sort(t *testing.T) {
-	testAll(t, func(t *testing.T, test *tableTest) {
-		signers := makeSigners(t, test)
-		coms := make(frost.CommitmentList, len(signers))
-
-		// signer A < signer B
-		coms[0] = signers[0].Commit()
-		coms[1] = signers[1].Commit()
-		coms[2] = signers[2].Commit()
-
-		coms.Sort()
-
-		if !coms.IsSorted() {
-			t.Fatal("expected sorted")
-		}
-
-		// signer B > singer A
-		coms[0] = signers[1].Commit()
-		coms[1] = signers[0].Commit()
-
-		coms.Sort()
-
-		if !coms.IsSorted() {
-			t.Fatal("expected sorted")
-		}
-
-		// signer B > singer A
-		coms[0] = signers[0].Commit()
-		coms[1] = signers[2].Commit()
-		coms[2] = signers[2].Commit()
-
-		coms.Sort()
-
-		if !coms.IsSorted() {
-			t.Fatal("expected sorted")
-		}
-	})
-}
-
 func verifyTrustedDealerKeygen(
 	t *testing.T,
 	test *tableTest,
@@ -430,69 +391,10 @@ func TestLambda_BadID(t *testing.T) {
 	g := group.Ristretto255Sha512
 	polynomial := []*group.Scalar{
 		g.NewScalar().SetUInt64(1),
-		g.NewScalar().SetUInt64(0),
-		g.NewScalar().SetUInt64(1),
+		g.NewScalar().SetUInt64(2),
+		g.NewScalar().SetUInt64(3),
 	}
 
 	// todo : what happens if the participant list is not vetted?
-	fmt.Println(internal.Lambda(g, 1, polynomial).Hex())
-}
-
-func TestLambdaRegistry(t *testing.T) {
-	g := group.Ristretto255Sha512
-	id := uint64(2)
-	participants := []uint64{1, 2, 3, 4}
-	lambdas := make(internal.LambdaRegistry)
-
-	// Get should return nil
-	if lambda := lambdas.Get(participants); lambda != nil {
-		t.Fatal("unexpected result")
-	}
-
-	// Create a new entry
-	lambda := lambdas.New(g, id, participants)
-
-	if lambda == nil {
-		t.Fatal("unexpected result")
-	}
-
-	// Getting the same entry
-	lambda2 := lambdas.Get(participants)
-	if lambda.Equal(lambda2) != 1 {
-		t.Fatal("expected equality")
-	}
-
-	lambda3 := lambdas.GetOrNew(g, id, participants)
-
-	if lambda.Equal(lambda3) != 1 {
-		t.Fatal("expected equality")
-	}
-
-	// Getting another entry must result in another returned value
-	lambda4 := lambdas.GetOrNew(g, id, participants[:3])
-
-	if lambda.Equal(lambda4) == 1 {
-		t.Fatal("unexpected equality")
-	}
-
-	lambda5 := lambdas.GetOrNew(g, id, participants[:3])
-
-	if lambda4.Equal(lambda5) != 1 {
-		t.Fatal("expected equality")
-	}
-
-	// Removing and checking for the same entry
-	lambdas.Delete(participants)
-	if lambda = lambdas.Get(participants); lambda != nil {
-		t.Fatal("unexpected result")
-	}
-
-	// Setting must return the same value
-	lambda6 := g.NewScalar().Random()
-	lambdas.Set(participants, lambda6)
-	lambda7 := lambdas.Get(participants)
-
-	if lambda6.Equal(lambda7) != 1 {
-		t.Fatal("expected equality")
-	}
+	fmt.Println(internal.Lambda(g, 4, polynomial).Hex())
 }

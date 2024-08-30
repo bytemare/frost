@@ -58,8 +58,12 @@ func (c *Configuration) AggregateSignatures(
 
 	// Aggregate signatures
 	z := group.Group(c.Ciphersuite).NewScalar()
-	for _, share := range sigShares {
-		z.Add(share.SignatureShare)
+	for _, sigShare := range sigShares {
+		if err := c.validateSignatureShareLight(sigShare); err != nil {
+			return nil, err
+		}
+
+		z.Add(sigShare.SignatureShare)
 	}
 
 	signature := &Signature{
@@ -115,23 +119,13 @@ func (c *Configuration) PrepareSignatureShareVerification(message []byte,
 	return groupCommitment, bindingFactors, participants, nil
 }
 
-func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
-	for _, pks := range c.SignerPublicKeys {
-		if pks.ID == id {
-			return pks.PublicKey
-		}
-	}
-
-	return nil
-}
-
 func (c *Configuration) validateSignatureShareLight(sigShare *SignatureShare) error {
 	if sigShare == nil {
 		return errors.New("nil signature share")
 	}
 
 	if sigShare.SignatureShare == nil || sigShare.SignatureShare.IsZero() {
-		return errors.New("invalid signature share (nil or zero)")
+		return errors.New("invalid signature share (nil or zero scalar)")
 	}
 
 	return nil
@@ -155,7 +149,7 @@ func (c *Configuration) validateSignatureShareExtensive(sigShare *SignatureShare
 	}
 
 	if sigShare.Group != c.group {
-		return fmt.Errorf("signature share has invalid group parameter, want %s got %s", c.group, sigShare.Group)
+		return fmt.Errorf("signature share has invalid group parameter, want %s got %d", c.group, sigShare.Group)
 	}
 
 	if c.getSignerPubKey(sigShare.SignerIdentifier) == nil {

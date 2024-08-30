@@ -38,35 +38,6 @@ type Commitment struct {
 	Group                  group.Group
 }
 
-// Validate returns an error if the commitment is
-func (c *Commitment) Validate(g group.Group) error {
-	if c.Group != g {
-		return fmt.Errorf(
-			"commitment %d for participant %d has an unexpected ciphersuite: expected %s, got %s",
-			c.CommitmentID,
-			c.SignerID,
-			g,
-			c.Group,
-		)
-	}
-
-	generator := g.Base()
-
-	if c.HidingNonceCommitment == nil || c.HidingNonceCommitment.IsIdentity() ||
-		c.HidingNonceCommitment.Equal(generator) == 1 {
-		return fmt.Errorf("commitment %d for signer %d has an %w", c.CommitmentID,
-			c.SignerID, errHidingNonceCommitment)
-	}
-
-	if c.BindingNonceCommitment == nil || c.BindingNonceCommitment.IsIdentity() ||
-		c.BindingNonceCommitment.Equal(generator) == 1 {
-		return fmt.Errorf("commitment %d for signer %d has an %w", c.CommitmentID,
-			c.SignerID, errBindingNonceCommitment)
-	}
-
-	return nil
-}
-
 // Copy returns a new Commitment struct populated with the same values as the receiver.
 func (c *Commitment) Copy() *Commitment {
 	return &Commitment{
@@ -90,8 +61,6 @@ type CommitmentList []*Commitment
 // a > b and zero when a == b.
 func cmpID(a, b *Commitment) int {
 	switch {
-	case a == nil || b == nil:
-		return 0
 	case a.SignerID < b.SignerID: // a < b
 		return -1
 	case a.SignerID > b.SignerID:
@@ -150,91 +119,6 @@ func (c CommitmentList) ParticipantsScalar() []*group.Scalar {
 	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *group.Scalar {
 		return g.NewScalar().SetUInt64(c.SignerID)
 	})
-}
-
-func (c *Configuration) isSignerRegistered(sid uint64) bool {
-	for _, peer := range c.SignerPublicKeys {
-		if peer.ID == sid {
-			return true
-		}
-	}
-
-	return false
-}
-
-// ValidateCommitmentList returns an error if at least one of the following conditions is not met:
-// - list length is within [threshold;max]
-// - no signer identifier in commitments is 0
-// - no singer identifier in commitments is > max signers
-// - no duplicated in signer identifiers
-// - all commitment signer identifiers are registered in the configuration
-func (c *Configuration) ValidateCommitmentList(commitments CommitmentList) error {
-	// Validate number of commitments.
-	length := uint64(len(commitments))
-
-	if length == 0 {
-		return fmt.Errorf("commitment list is empty")
-	}
-
-	if length < c.Threshold {
-		return fmt.Errorf("too few commitments: expected at least %d but got %d", c.Threshold, length)
-	}
-
-	if length > c.MaxSigners {
-		return fmt.Errorf("too many commitments: expected %d or less but got %d", c.MaxSigners, length)
-	}
-
-	// set to detect duplication
-	set := make(map[uint64]struct{}, length)
-
-	for i, commitment := range commitments {
-		if commitment == nil {
-			return fmt.Errorf("the commitment list has a nil commitment")
-		}
-
-		if commitment.SignerID == 0 {
-			return fmt.Errorf("signer identifier for commitment %d is 0", commitment.CommitmentID)
-		}
-
-		if commitment.SignerID > c.MaxSigners {
-			return fmt.Errorf(
-				"signer identifier %d for commitment %d is above allowed values (%d)",
-				commitment.SignerID,
-				commitment.CommitmentID,
-				c.MaxSigners,
-			)
-		}
-
-		// Check for duplicate participant entries.
-		if _, exists := set[commitment.SignerID]; exists {
-			return fmt.Errorf("commitment list contains multiple commitments of participant %d", commitment.SignerID)
-		}
-
-		set[commitment.SignerID] = struct{}{}
-
-		// Check general validity of the commitment.
-		if err := commitment.Validate(c.group); err != nil {
-			return err
-		}
-
-		// List must be sorted, compare with the next commitment.
-		if uint64(i) <= length-2 {
-			if cmpID(commitment, commitments[i+1]) > 0 {
-				return fmt.Errorf("commitment list is not sorted by signer identifiers")
-			}
-		}
-
-		// Validate that all commitments come from registered signers.
-		if !c.isSignerRegistered(commitment.SignerID) {
-			return fmt.Errorf(
-				"signer identifier %d for commitment %d is not registered in the configuration",
-				commitment.SignerID,
-				commitment.CommitmentID,
-			)
-		}
-	}
-
-	return nil
 }
 
 func (c CommitmentList) Encode() []byte {
@@ -358,4 +242,129 @@ func (c CommitmentList) groupCommitment(bf BindingFactors) *group.Element {
 	}
 
 	return gc
+}
+
+func (c *Configuration) isSignerRegistered(sid uint64) bool {
+	for _, peer := range c.SignerPublicKeys {
+		if peer.ID == sid {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ValidateCommitment returns an error if the commitment is not valid.
+func (c *Configuration) ValidateCommitment(commitment *Commitment) error {
+	if commitment == nil {
+		return fmt.Errorf("the commitment list has a nil commitment")
+	}
+
+	if commitment.SignerID == 0 {
+		return fmt.Errorf("signer identifier for commitment %d is 0", commitment.CommitmentID)
+	}
+
+	if commitment.SignerID > c.MaxSigners {
+		return fmt.Errorf(
+			"signer identifier %d for commitment %d is above allowed values (%d)",
+			commitment.SignerID,
+			commitment.CommitmentID,
+			c.MaxSigners,
+		)
+	}
+
+	if commitment.Group != c.group {
+		return fmt.Errorf(
+			"commitment %d for participant %d has an unexpected ciphersuite: expected %s, got %d",
+			commitment.CommitmentID,
+			commitment.SignerID,
+			c.group,
+			commitment.Group,
+		)
+	}
+
+	generator := c.group.Base()
+
+	if commitment.HidingNonceCommitment == nil || commitment.HidingNonceCommitment.IsIdentity() ||
+		commitment.HidingNonceCommitment.Equal(generator) == 1 {
+		return fmt.Errorf("commitment %d for signer %d has an %w", commitment.CommitmentID,
+			commitment.SignerID, errHidingNonceCommitment)
+	}
+
+	if commitment.BindingNonceCommitment == nil || commitment.BindingNonceCommitment.IsIdentity() ||
+		commitment.BindingNonceCommitment.Equal(generator) == 1 {
+		return fmt.Errorf("commitment %d for signer %d has an %w", commitment.CommitmentID,
+			commitment.SignerID, errBindingNonceCommitment)
+	}
+
+	// Validate that the commitment comes from a registered signer.
+	if !c.isSignerRegistered(commitment.SignerID) {
+		return fmt.Errorf(
+			"signer identifier %d for commitment %d is not registered in the configuration",
+			commitment.SignerID,
+			commitment.CommitmentID,
+		)
+	}
+
+	return nil
+}
+
+func (c *Configuration) validateCommitmentListLength(commitments CommitmentList) error {
+	length := uint64(len(commitments))
+
+	if length == 0 {
+		return fmt.Errorf("commitment list is empty")
+	}
+
+	if length < c.Threshold {
+		return fmt.Errorf("too few commitments: expected at least %d but got %d", c.Threshold, length)
+	}
+
+	if length > c.MaxSigners {
+		return fmt.Errorf("too many commitments: expected %d or less but got %d", c.MaxSigners, length)
+	}
+
+	return nil
+}
+
+// ValidateCommitmentList returns an error if at least one of the following conditions is not met:
+// - list length is within [threshold;max]
+// - no signer identifier in commitments is 0
+// - no singer identifier in commitments is > max signers
+// - no duplicated in signer identifiers
+// - all commitment signer identifiers are registered in the configuration
+func (c *Configuration) ValidateCommitmentList(commitments CommitmentList) error {
+	if err := c.validateCommitmentListLength(commitments); err != nil {
+		return err
+	}
+
+	// set to detect duplication
+	set := make(map[uint64]struct{}, len(commitments))
+
+	for i, commitment := range commitments {
+		// Check general validity of the commitment.
+		if err := c.ValidateCommitment(commitment); err != nil {
+			return err
+		}
+
+		// Check for duplicate participant entries.
+		if _, exists := set[commitment.SignerID]; exists {
+			return fmt.Errorf("commitment list contains multiple commitments of participant %d", commitment.SignerID)
+		}
+
+		set[commitment.SignerID] = struct{}{}
+
+		// List must be sorted, compare with the next commitment.
+		if i <= len(commitments)-2 {
+			if commitments[i+1] == nil {
+				return fmt.Errorf("the commitment list has a nil commitment")
+			}
+
+			if cmpID(commitment, commitments[i+1]) > 0 {
+				return fmt.Errorf("commitment list is not sorted by signer identifiers")
+			}
+		}
+	}
+
+	return nil
 }
