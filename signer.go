@@ -11,6 +11,7 @@ package frost
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	group "github.com/bytemare/crypto"
@@ -51,12 +52,17 @@ type Signer struct {
 	BindingRandom []byte
 }
 
+// Nonce holds the signing nonces and their commitments. The Signer.Commit() method will generate and record a new nonce
+// and return the Commitment to that nonce. That Commitment will be used in Signer.Sign() and the associated nonces to
+// create a signature share. Note that nonces and their commitments are agnostic of the upcoming message to sign, and
+// can therefore be pre-computed and the commitments shared before the signing session, saving a round-trip.
 type Nonce struct {
 	HidingNonce  *group.Scalar
 	BindingNonce *group.Scalar
 	*Commitment
 }
 
+// ClearNonceCommitment zeroes-out the nonces and their commitments, and unregisters the nonce record.
 func (s *Signer) ClearNonceCommitment(commitmentID uint64) {
 	if com := s.NonceCommitments[commitmentID]; com != nil {
 		com.HidingNonce.Zero()
@@ -148,36 +154,36 @@ func (s *Signer) verifyNonces(com *Commitment) error {
 	return nil
 }
 
-// VerifyCommitmentList checks for the Commitment list integrity and the signer's commitment.
+// VerifyCommitmentList checks for the Commitment list integrity and the signer's commitment. This function must not
+// return an error for Sign to succeed.
 func (s *Signer) VerifyCommitmentList(commitments CommitmentList) error {
-	if err := commitments.Validate(s.Configuration.group, s.Configuration.Threshold); err != nil {
+	// Due diligence check that no signer id == 0.
+	if s.KeyShare.ID == 0 {
+		return errors.New("signer identifier is 0 (invalid)")
+	}
+
+	commitments.Sort()
+
+	// Validate general consistency of the commitment list.
+	if err := s.Configuration.ValidateCommitmentList(commitments); err != nil {
 		return fmt.Errorf("invalid list of commitments: %w", err)
 	}
 
-	// Check commitment values for the signer.
-	for _, com := range commitments {
-		if com.SignerID == s.KeyShare.ID {
-			return s.verifyNonces(com)
-		}
+	// The signer's id must be among the commitments.
+	commitment := commitments.Get(s.KeyShare.ID)
+	if commitment == nil {
+		return fmt.Errorf("signer identifier %d not found in the commitment list", s.KeyShare.ID)
 	}
 
-	return fmt.Errorf("no commitment for signer %d found in the commitment list", s.KeyShare.ID)
+	// Check commitment values for the signer.
+	return s.verifyNonces(commitment)
 }
 
-// Sign produces a participant's signature share of the message msg. The commitmentID identifies the commitment produced
-// on a previous call to Commit(). Once the signature with Sign() is produced, the internal commitment nonces are
-// cleared and another call to Sign() with the same commitmentID will return an error.
-//
-// Each signer MUST validate the inputs before processing the Coordinator's request.
-// In particular, the Signer MUST validate commitment_list, deserializing each group Element in the list using
-// DeserializeElement from {{dep-pog}}. If deserialization fails, the Signer MUST abort the protocol. Moreover,
-// each signer MUST ensure that its identifier and commitments (from the first round) appear in commitment_list.
-func (s *Signer) Sign(commitmentID uint64, message []byte, commitments CommitmentList) (*SignatureShare, error) {
-	com, exists := s.NonceCommitments[commitmentID]
-	if !exists {
-		return nil, fmt.Errorf("commitmentID %d not registered", commitmentID)
-	}
-
+// Sign produces a participant's signature share of the message msg. The CommitmentList must contain a Commitment
+// produced on a previous call to Commit(). Once the signature share with Sign() is produced, the internal commitment
+// and nonces are cleared and another call to Sign() with the same Commitment will return an error.
+func (s *Signer) Sign(message []byte, commitments CommitmentList) (*SignatureShare, error) {
+	commitments.Sort()
 	if err := s.VerifyCommitmentList(commitments); err != nil {
 		return nil, err
 	}
@@ -188,14 +194,11 @@ func (s *Signer) Sign(commitmentID uint64, message []byte, commitments Commitmen
 	)
 
 	participants := commitments.Participants()
-
-	lambda, err := s.LambdaRegistry.GetOrNew(s.Configuration.group, s.KeyShare.ID, participants)
-	if err != nil {
-		return nil, err
-	}
-
+	lambda := s.LambdaRegistry.GetOrNew(s.Configuration.group, s.KeyShare.ID, participants)
 	lambdaChall := s.Configuration.challenge(lambda, message, groupCommitment)
 
+	commitmentID := commitments.Get(s.KeyShare.ID).CommitmentID
+	com := s.NonceCommitments[commitmentID]
 	hidingNonce := com.HidingNonce.Copy()
 	bindingNonce := com.BindingNonce
 

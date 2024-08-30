@@ -25,7 +25,7 @@ type Signature struct {
 	Z *group.Scalar
 }
 
-// AggregateSignatures allows a coordinator to produce the final signature given all signature shares.
+// AggregateSignatures enables a coordinator to produce the final signature given all signature shares.
 //
 // Before aggregation, each signature share must be a valid, deserialized element. If that validation fails the
 // coordinator must abort the protocol, as the resulting signature will be invalid.
@@ -69,6 +69,7 @@ func (c *Configuration) AggregateSignatures(
 
 	if verify {
 		if err = VerifySignature(c.Ciphersuite, message, signature, c.GroupPublicKey); err != nil {
+			// difficult to reach, because if all shares are valid, the final signature is valid.
 			return nil, err
 		}
 	}
@@ -101,8 +102,10 @@ func (c *Configuration) PrepareVerifySignatureShare(message []byte,
 		}
 	}
 
-	// Check Commitment list integrity
-	if err := commitments.Validate(c.group, c.Threshold); err != nil {
+	commitments.Sort()
+
+	// Validate general consistency of the commitment list.
+	if err := c.ValidateCommitmentList(commitments); err != nil {
 		return nil, nil, nil, fmt.Errorf("invalid list of commitments: %w", err)
 	}
 
@@ -130,9 +133,14 @@ func (c *Configuration) verifySignatureShare(
 	groupCommitment *group.Element,
 	bindingFactors BindingFactors,
 ) error {
+	// Due diligence check that no signer id == 0.
+	if sigShare.SignerIdentifier == 0 {
+		return errors.New("signer identifier is 0 (invalid)")
+	}
+
 	com := commitments.Get(sigShare.SignerIdentifier)
 	if com == nil {
-		return fmt.Errorf("commitment not registered for signer %d", sigShare.SignerIdentifier)
+		return fmt.Errorf("commitment for signer %d is missing", sigShare.SignerIdentifier)
 	}
 
 	pk := c.getSignerPubKey(sigShare.SignerIdentifier)
@@ -140,11 +148,7 @@ func (c *Configuration) verifySignatureShare(
 		return fmt.Errorf("public key not registered for signer %d", sigShare.SignerIdentifier)
 	}
 
-	lambda, err := internal.Lambda(c.group, sigShare.SignerIdentifier, participants)
-	if err != nil {
-		return err
-	}
-
+	lambda := internal.Lambda2(c.group, sigShare.SignerIdentifier, participants)
 	lambdaChall := c.challenge(lambda, message, groupCommitment)
 
 	// Commitment KeyShare: r = g(h + b*f + l*s)
@@ -155,31 +159,6 @@ func (c *Configuration) verifySignatureShare(
 
 	if l.Equal(r) != 1 {
 		return fmt.Errorf("invalid signature share for signer %d", sigShare.SignerIdentifier)
-	}
-
-	return nil
-}
-
-// VerifySignature returns whether the signature of the message is valid under publicKey.
-func VerifySignature(c Ciphersuite, message []byte, signature *Signature, publicKey *group.Element) error {
-	g := c.ECGroup()
-	if g == 0 {
-		return internal.ErrInvalidCiphersuite
-	}
-
-	ch := SchnorrChallenge(g, message, signature.R, publicKey)
-	r := signature.R.Copy().Add(publicKey.Copy().Multiply(ch))
-	l := g.Base().Multiply(signature.Z)
-
-	// Clear the cofactor for Edwards25519.
-	if g == group.Edwards25519Sha512 {
-		cofactor := group.Edwards25519Sha512.NewScalar().SetUInt64(8)
-		l.Multiply(cofactor)
-		r.Multiply(cofactor)
-	}
-
-	if l.Equal(r) != 1 {
-		return errInvalidSignature
 	}
 
 	return nil

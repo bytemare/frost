@@ -87,7 +87,7 @@ func Example_signer() {
 	// Step 3: The participant receives the commitments from the other signers and the message to sign.
 	// Sign produces a signature share to be sent back to the coordinator.
 	// Execution MUST be aborted upon errors.
-	signatureShare, err := participant.Sign(com.CommitmentID, message, commitments)
+	signatureShare, err := participant.Sign(message, commitments)
 	if err != nil {
 		panic(err)
 	}
@@ -159,7 +159,7 @@ func Example_coordinator() {
 	signatureShares := make([]*frost.SignatureShare, threshold)
 	for i, p := range participants {
 		var err error
-		signatureShares[i], err = p.Sign(commitments[i].CommitmentID, message, commitments)
+		signatureShares[i], err = p.Sign(message, commitments)
 		if err != nil {
 			panic(err)
 		}

@@ -320,6 +320,61 @@ func (s *Signer) Decode(data []byte) error {
 	return nil
 }
 
+// Encode returns the serialized byte encoding of a participant's commitment.
+func (c *Commitment) Encode() []byte {
+	hNonce := c.HidingNonceCommitment.Encode()
+	bNonce := c.BindingNonceCommitment.Encode()
+
+	out := make([]byte, 17, EncodedSize(c.Group))
+	out[0] = byte(c.Group)
+	binary.LittleEndian.PutUint64(out[1:9], c.CommitmentID)
+	binary.LittleEndian.PutUint64(out[9:17], c.SignerID)
+	out = append(out, hNonce...)
+	out = append(out, bNonce...)
+
+	return out
+}
+
+// Decode attempts to deserialize the encoded commitment given as input, and to return it.
+func (c *Commitment) Decode(data []byte) error {
+	if len(data) < 17 {
+		return errDecodeCommitmentLength
+	}
+
+	g := group.Group(data[0])
+	if !g.Available() {
+		return errInvalidCiphersuite
+	}
+
+	if uint64(len(data)) != EncodedSize(g) {
+		return errDecodeCommitmentLength
+	}
+
+	cID := binary.LittleEndian.Uint64(data[1:9])
+	pID := binary.LittleEndian.Uint64(data[9:17])
+	offset := 17
+
+	hn := g.NewElement()
+	if err := hn.Decode(data[offset : offset+g.ElementLength()]); err != nil {
+		return fmt.Errorf("invalid encoding of hiding nonce commitment: %w", err)
+	}
+
+	offset += g.ElementLength()
+
+	bn := g.NewElement()
+	if err := bn.Decode(data[offset : offset+g.ElementLength()]); err != nil {
+		return fmt.Errorf("invalid encoding of binding nonce commitment: %w", err)
+	}
+
+	c.Group = g
+	c.CommitmentID = cID
+	c.SignerID = pID
+	c.HidingNonceCommitment = hn
+	c.BindingNonceCommitment = bn
+
+	return nil
+}
+
 // Encode returns a compact byte encoding of the signature share.
 func (s *SignatureShare) Encode() []byte {
 	share := s.SignatureShare.Encode()

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"strings"
 	"testing"
 
 	group "github.com/bytemare/crypto"
@@ -98,6 +99,22 @@ func badElement(t *testing.T, g group.Group) []byte {
 	}
 
 	return encoded
+}
+
+func expectError(expectedError error, f func() error) error {
+	if err := f(); err == nil || err.Error() != expectedError.Error() {
+		return fmt.Errorf("expected %q, got %q", expectedError, err)
+	}
+
+	return nil
+}
+
+func expectErrorPrefix(expectedErrorMessagePrefix string, f func() error) error {
+	if err := f(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorMessagePrefix) {
+		return fmt.Errorf("expected error prefix %q, got %q", expectedErrorMessagePrefix, err)
+	}
+
+	return nil
 }
 
 func TestConcatenate(t *testing.T) {

@@ -41,7 +41,7 @@ Requirements:
 - each participant MUST know the pub key of each other
 - network channels must be authenticated (confidentiality is not required)
 - Signers have local secret data
-	- secret key and lambda are long term
+	- secret key is long term
 	- committed nonces between commitment and signature
 
 - When receiving the commitment list, each elements must be deserialized, and upon error, the signer MUST abort the
@@ -242,4 +242,29 @@ func (c *Configuration) challenge(lambda *group.Scalar, message []byte, groupCom
 // SchnorrChallenge computes the per-message SchnorrChallenge.
 func SchnorrChallenge(g group.Group, msg []byte, r, pk *group.Element) *group.Scalar {
 	return internal.H2(g, internal.Concatenate(r.Encode(), pk.Encode(), msg))
+}
+
+// VerifySignature returns whether the signature of the message is valid under publicKey.
+func VerifySignature(c Ciphersuite, message []byte, signature *Signature, publicKey *group.Element) error {
+	g := c.ECGroup()
+	if g == 0 {
+		return internal.ErrInvalidCiphersuite
+	}
+
+	ch := SchnorrChallenge(g, message, signature.R, publicKey)
+	r := signature.R.Copy().Add(publicKey.Copy().Multiply(ch))
+	l := g.Base().Multiply(signature.Z)
+
+	// Clear the cofactor for Edwards25519.
+	if g == group.Edwards25519Sha512 {
+		cofactor := group.Edwards25519Sha512.NewScalar().SetUInt64(8)
+		l.Multiply(cofactor)
+		r.Multiply(cofactor)
+	}
+
+	if l.Equal(r) != 1 {
+		return errInvalidSignature
+	}
+
+	return nil
 }

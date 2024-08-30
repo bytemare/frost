@@ -149,11 +149,8 @@ func (v test) test(t *testing.T) {
 			t.Fatal(i)
 		}
 
-		com := commitmentList.Get(p.Identifier())
-		commitmentID := com.CommitmentID
-
 		var err error
-		sigShares[i], err = p.Sign(commitmentID, v.Inputs.Message, commitmentList)
+		sigShares[i], err = p.Sign(v.Inputs.Message, commitmentList)
 		if err != nil {
 			t.Fatal(err)
 		}

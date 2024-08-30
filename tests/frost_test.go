@@ -93,8 +93,7 @@ func runFrost(
 	sigShares := make([]*frost.SignatureShare, threshold)
 	for i, p := range participants {
 		var err error
-		commitmentID := commitments.Get(p.Identifier()).CommitmentID
-		sigShares[i], err = p.Sign(commitmentID, message, commitments)
+		sigShares[i], err = p.Sign(message, commitments)
 		if err != nil {
 			t.Fatal(err)
 		}

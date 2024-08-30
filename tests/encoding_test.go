@@ -433,15 +433,8 @@ func TestEncoding_Signer(t *testing.T) {
 			participants[i] = i + 1
 		}
 
-		_, err := s.LambdaRegistry.New(test.ECGroup(), s.Identifier(), participants)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		_, err = s.LambdaRegistry.New(test.ECGroup(), s.Identifier(), participants[1:])
-		if err != nil {
-			t.Fatal(err)
-		}
+		s.LambdaRegistry.New(test.ECGroup(), s.Identifier(), participants)
+		s.LambdaRegistry.New(test.ECGroup(), s.Identifier(), participants[1:])
 
 		encoded := s.Encode()
 
@@ -536,7 +529,7 @@ func TestEncoding_Signer_InvalidLambda(t *testing.T) {
 
 		s := signers[0]
 
-		_, err := s.Sign(coms[0].CommitmentID, message, coms)
+		_, err := s.Sign(message, coms)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -678,8 +671,7 @@ func TestEncoding_SignatureShare(t *testing.T) {
 		}
 
 		for _, s := range signers {
-			com := coms.Get(s.Identifier()).CommitmentID
-			sigShare, err := s.Sign(com, message, coms)
+			sigShare, err := s.Sign(message, coms)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -749,9 +741,8 @@ func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
 		}
 
 		s := signers[0]
-		com := coms.Get(s.Identifier()).CommitmentID
 
-		sigShare, err := s.Sign(com, message, coms)
+		sigShare, err := s.Sign(message, coms)
 		if err != nil {
 			t.Fatal(err)
 		}
