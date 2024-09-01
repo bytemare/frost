@@ -21,13 +21,14 @@ import (
 )
 
 const (
-	encConf            = byte(1)
-	encSigner          = byte(2)
-	encSigShare        = byte(3)
-	encSig             = byte(4)
-	encPubKeyShare     = byte(5)
-	encNonceCommitment = byte(6)
-	encLambda          = byte(7)
+	encConf byte = iota + 1
+	encSigner
+	encSigShare
+	encSig
+	encPubKeyShare
+	encNonceCommitment
+	encLambda
+	encCommitment
 )
 
 var (
@@ -47,15 +48,17 @@ func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
 	case encSigner:
 		return other[0] + 2 + 2 + 2 + other[1] + other[2] + other[3]
 	case encSigShare:
-		return 1 + 8 + uint64(g.ScalarLength())
+		return 1 + 8 + sLen
 	case encSig:
-		return eLen + uint64(g.ScalarLength())
+		return eLen + sLen
 	case encPubKeyShare:
 		return 1 + 8 + 4 + eLen + other[0]
 	case encNonceCommitment:
-		return 8 + 2*sLen + EncodedSize(g)
+		return 8 + 2*sLen + encodedLength(encCommitment, g)
 	case encLambda:
 		return 32 + sLen
+	case encCommitment:
+		return 1 + 8 + 8 + 2*eLen
 	default:
 		panic("encoded id not recognized")
 	}
@@ -131,22 +134,27 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	pksLen := encodedLength(encPubKeyShare, header.g, header.t*uint64(header.g.ElementLength()))
 	pks := make([]*PublicKeyShare, header.nPks)
 
-	for j := range header.nPks {
-		pk := new(PublicKeyShare)
-		if err := pk.Decode(data[offset : offset+pksLen]); err != nil {
-			return fmt.Errorf("could not decode signer public key share for signer %d: %w", j, err)
-		}
-
-		offset += pksLen
-		pks[j] = pk
-	}
-
 	conf := &Configuration{
 		Ciphersuite:      Ciphersuite(header.g),
 		Threshold:        header.t,
 		MaxSigners:       header.n,
 		GroupPublicKey:   gpk,
 		SignerPublicKeys: pks,
+		group:            header.g,
+	}
+
+	for j := range header.nPks {
+		pk := new(PublicKeyShare)
+		if err := pk.Decode(data[offset : offset+pksLen]); err != nil {
+			return fmt.Errorf("could not decode signer public key share for signer %d: %w", j, err)
+		}
+
+		if err := conf.validatePublicKeyShare(pk); err != nil {
+			return err
+		}
+
+		offset += pksLen
+		pks[j] = pk
 	}
 
 	if err := conf.verify(); err != nil {
@@ -174,11 +182,21 @@ func (c *Configuration) Decode(data []byte) error {
 	return c.decode(header, data)
 }
 
+func (s *Signer) encodeNonceCommitments(out []byte) []byte {
+	for id, com := range s.NonceCommitments {
+		out = append(out, internal.Concatenate(internal.UInt64LE(id),
+			com.HidingNonce.Encode(),
+			com.BindingNonce.Encode(),
+			com.Commitment.Encode())...)
+	}
+	return out
+}
+
 // Encode serializes the client with its long term values, containing its secret share. This is useful for saving state
 // and backup.
 func (s *Signer) Encode() []byte {
 	g := s.KeyShare.Group
-	ks := s.KeyShare.Encode()
+	keyShare := s.KeyShare.Encode()
 	nCommitments := len(s.NonceCommitments)
 	nLambdas := len(s.LambdaRegistry)
 	conf := s.Configuration.Encode()
@@ -186,19 +204,18 @@ func (s *Signer) Encode() []byte {
 		encSigner,
 		g,
 		uint64(len(conf)),
-		uint64(len(ks)),
-		uint64(nCommitments)*encodedLength(encNonceCommitment, g),
+		uint64(len(keyShare)),
 		uint64(nLambdas)*encodedLength(encLambda, g),
+		uint64(nCommitments)*encodedLength(encNonceCommitment, g),
 	)
 	out := make([]byte, len(conf)+6, outLength)
 
 	copy(out, conf)
-	binary.LittleEndian.PutUint16(out[len(conf):len(conf)+2], uint16(len(ks)))        // key share length
+	binary.LittleEndian.PutUint16(out[len(conf):len(conf)+2], uint16(len(keyShare)))  // key share length
 	binary.LittleEndian.PutUint16(out[len(conf)+2:len(conf)+4], uint16(nCommitments)) // number of commitments
 	binary.LittleEndian.PutUint16(out[len(conf)+4:len(conf)+6], uint16(nLambdas))     // number of lambda entries
 
-	out = append(out, ks...) // key share
-
+	out = append(out, keyShare...)
 	for k, v := range s.LambdaRegistry {
 		b, err := hex.DecodeString(k)
 		if err != nil {
@@ -208,7 +225,6 @@ func (s *Signer) Encode() []byte {
 		out = append(out, b...)
 		out = append(out, v.Encode()...)
 	}
-
 	for id, com := range s.NonceCommitments {
 		out = append(out, internal.Concatenate(internal.UInt64LE(id),
 			com.HidingNonce.Encode(),
@@ -217,6 +233,34 @@ func (s *Signer) Encode() []byte {
 	}
 
 	return out
+}
+
+func (n *Nonce) decode(g group.Group, id, comLen uint64, data []byte) error {
+	sLen := uint64(g.ScalarLength())
+	offset := uint64(g.ScalarLength())
+
+	hn := g.NewScalar()
+	if err := hn.Decode(data[:offset]); err != nil {
+		return fmt.Errorf("can't decode hiding nonce for commitment %d: %w", id, err)
+	}
+
+	bn := g.NewScalar()
+	if err := bn.Decode(data[offset : offset+sLen]); err != nil {
+		return fmt.Errorf("can't decode binding nonce for commitment %d: %w", id, err)
+	}
+
+	offset += sLen
+
+	com := new(Commitment)
+	if err := com.Decode(data[offset : offset+comLen]); err != nil {
+		return fmt.Errorf("can't decode nonce commitment %d: %w", id, err)
+	}
+
+	n.HidingNonce = hn
+	n.BindingNonce = bn
+	n.Commitment = com
+
+	return nil
 }
 
 // Decode attempts to deserialize the encoded backup data into the Signer.
@@ -251,30 +295,25 @@ func (s *Signer) Decode(data []byte) error {
 	offset := header.length + 6
 
 	keyShare := new(KeyShare)
-	if err := keyShare.Decode(data[offset : offset+ksLen]); err != nil {
+	if err = keyShare.Decode(data[offset : offset+ksLen]); err != nil {
 		return fmt.Errorf("failed to decode key share: %w", err)
+	}
+
+	if err = conf.ValidateKeyShare(keyShare); err != nil {
+		return err
 	}
 
 	offset += ksLen
 	stop := offset + nLambdas*lLem
 	lambdaRegistry := make(internal.LambdaRegistry, lLem)
-
-	for offset < stop {
-		key := data[offset : offset+32]
-		offset += 32
-
-		lambda := g.NewScalar()
-		if err := lambda.Decode(data[offset : offset+uint64(g.ScalarLength())]); err != nil {
-			return fmt.Errorf("failed to decode lambda: %w", err)
-		}
-
-		lambdaRegistry[hex.EncodeToString(key)] = lambda
-		offset += uint64(g.ScalarLength())
+	if err = lambdaRegistry.Decode(g, data[offset:stop]); err != nil {
+		return err
 	}
 
+	offset = stop
 	commitments := make(map[uint64]*Nonce)
-	comLen := EncodedSize(g)
-
+	comLen := encodedLength(encCommitment, g)
+	nComLen := encodedLength(encNonceCommitment, g)
 	for offset < uint64(len(data)) {
 		id := binary.LittleEndian.Uint64(data[offset : offset+8])
 
@@ -282,34 +321,13 @@ func (s *Signer) Decode(data []byte) error {
 			return fmt.Errorf("multiple encoded commitments with the same id: %d", id)
 		}
 
-		offset += 8
-
-		hs := g.NewScalar()
-		if err = hs.Decode(data[offset : offset+uint64(g.ScalarLength())]); err != nil {
-			return fmt.Errorf("can't decode hiding nonce for commitment %d: %w", id, err)
+		n := new(Nonce)
+		if err = n.decode(g, id, comLen, data[offset+8:]); err != nil {
+			return err
 		}
 
-		offset += uint64(g.ScalarLength())
-
-		bs := g.NewScalar()
-		if err = bs.Decode(data[offset : offset+uint64(g.ScalarLength())]); err != nil {
-			return fmt.Errorf("can't decode binding nonce for commitment %d: %w", id, err)
-		}
-
-		offset += uint64(g.ScalarLength())
-
-		com := new(Commitment)
-		if err = com.Decode(data[offset : offset+comLen]); err != nil {
-			return fmt.Errorf("can't decode nonce commitment %d: %w", id, err)
-		}
-
-		offset += comLen
-
-		commitments[id] = &Nonce{
-			HidingNonce:  hs,
-			BindingNonce: bs,
-			Commitment:   com,
-		}
+		commitments[id] = n
+		offset += nComLen
 	}
 
 	s.KeyShare = keyShare
@@ -325,7 +343,7 @@ func (c *Commitment) Encode() []byte {
 	hNonce := c.HidingNonceCommitment.Encode()
 	bNonce := c.BindingNonceCommitment.Encode()
 
-	out := make([]byte, 17, EncodedSize(c.Group))
+	out := make([]byte, 17, encodedLength(encCommitment, c.Group))
 	out[0] = byte(c.Group)
 	binary.LittleEndian.PutUint64(out[1:9], c.CommitmentID)
 	binary.LittleEndian.PutUint64(out[9:17], c.SignerID)
@@ -346,12 +364,17 @@ func (c *Commitment) Decode(data []byte) error {
 		return errInvalidCiphersuite
 	}
 
-	if uint64(len(data)) != EncodedSize(g) {
+	if uint64(len(data)) != encodedLength(encCommitment, g) {
 		return errDecodeCommitmentLength
 	}
 
 	cID := binary.LittleEndian.Uint64(data[1:9])
+
 	pID := binary.LittleEndian.Uint64(data[9:17])
+	if pID == 0 {
+		return errZeroIdentifier
+	}
+
 	offset := 17
 
 	hn := g.NewElement()

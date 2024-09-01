@@ -205,7 +205,7 @@ func compareNonceCommitments(c1, c2 *frost.Nonce) error {
 
 func compareLambdaRegistries(t *testing.T, m1, m2 map[string]*group.Scalar) {
 	if len(m1) != len(m2) {
-		t.Fatal("unequal lengths")
+		t.Fatalf("unequal lengths: %d / %d", len(m1), len(m2))
 	}
 
 	for k1, v1 := range m1 {
@@ -408,7 +408,7 @@ func TestEncoding_Configuration_InvalidPublicKeyShare(t *testing.T) {
 }
 
 func TestEncoding_Configuration_CantVerify_InvalidPubKey(t *testing.T) {
-	expectedErrorPrefix := "invalid group public key (nil, identity, or generator)"
+	expectedErrorPrefix := "invalid group public key, the key is the group generator (base element)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		configuration := makeConf(t, test)
@@ -582,9 +582,10 @@ func TestEncoding_Signer_InvalidCommitmentNonces_DuplicateID(t *testing.T) {
 		sLen := g.ScalarLength()
 		confLen := len(s.Configuration.Encode())
 		keyShareLen := len(s.KeyShare.Encode())
-		commitmentLength := 8 + 2*sLen + int(frost.EncodedSize(g))
+		commitmentLength := 1 + 8 + 8 + 2*uint64(g.ElementLength())
+		nonceCommitmentLength := 8 + 2*sLen + int(commitmentLength)
 		offset := confLen + 6 + keyShareLen
-		offset2 := offset + commitmentLength
+		offset2 := offset + nonceCommitmentLength
 
 		encoded := s.Encode()
 		data := slices.Replace(encoded, offset2, offset2+8, encoded[offset:offset+8]...)

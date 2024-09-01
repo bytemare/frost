@@ -41,7 +41,10 @@ func TestCommitment_Validate_SignerIDs0(t *testing.T) {
 	configuration, signers := fullSetup(t, tt)
 	commitment := signers[0].Commit()
 	commitment.SignerID = 0
-	expectedErrorPrefix := fmt.Sprintf("signer identifier for commitment %d is 0", commitment.CommitmentID)
+	expectedErrorPrefix := fmt.Sprintf(
+		"invalid identifier for signer in commitment %d, the identifier is 0",
+		commitment.CommitmentID,
+	)
 
 	if err := configuration.ValidateCommitment(commitment); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -59,9 +62,9 @@ func TestCommitment_Validate_SignerIDInvalid(t *testing.T) {
 	commitment := signers[0].Commit()
 	commitment.SignerID = tt.maxSigners + 1
 	expectedErrorPrefix := fmt.Sprintf(
-		"signer identifier %d for commitment %d is above allowed values (%d)",
-		commitment.SignerID,
+		"invalid identifier for signer in commitment %d, the identifier %d is above authorized range [1:%d]",
 		commitment.CommitmentID,
+		commitment.SignerID,
 		tt.maxSigners,
 	)
 
@@ -99,28 +102,41 @@ func TestCommitment_Validate_BadHidingNonceCommitment(t *testing.T) {
 	}
 	configuration, signers := fullSetup(t, tt)
 	com := signers[0].Commit()
+
+	// nil
 	expectedErrorPrefix := fmt.Sprintf(
-		"commitment %d for signer %d has an invalid hiding nonce commitment (nil, identity, or generator)",
+		"invalid commitment %d for signer %d, the hiding nonce commitment is nil",
 		com.CommitmentID,
 		com.SignerID,
 	)
 
-	// generator
-	com.HidingNonceCommitment.Base()
+	com.HidingNonceCommitment = nil
 	if err := configuration.ValidateCommitment(com); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// point at infinity
-	com.HidingNonceCommitment.Identity()
+	expectedErrorPrefix = fmt.Sprintf(
+		"invalid commitment %d for signer %d, the hiding nonce commitment is the identity element",
+		com.CommitmentID,
+		com.SignerID,
+	)
+
+	com.HidingNonceCommitment = tt.ECGroup().NewElement()
 	if err := configuration.ValidateCommitment(com); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
-	// nil
-	com.HidingNonceCommitment = nil
+	// generator
+	expectedErrorPrefix = fmt.Sprintf(
+		"invalid commitment %d for signer %d, the hiding nonce commitment is the group generator (base element)",
+		com.CommitmentID,
+		com.SignerID,
+	)
+
+	com.HidingNonceCommitment.Base()
 	if err := configuration.ValidateCommitment(com); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
@@ -135,28 +151,41 @@ func TestCommitment_Validate_BadBindingNonceCommitment(t *testing.T) {
 	}
 	configuration, signers := fullSetup(t, tt)
 	com := signers[0].Commit()
+
+	// nil
 	expectedErrorPrefix := fmt.Sprintf(
-		"commitment %d for signer %d has an invalid binding nonce commitment (nil, identity, or generator)",
+		"invalid commitment %d for signer %d, the binding nonce commitment is nil",
 		com.CommitmentID,
 		com.SignerID,
 	)
 
-	// generator
-	com.BindingNonceCommitment.Base()
+	com.BindingNonceCommitment = nil
 	if err := configuration.ValidateCommitment(com); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
 	// point at infinity
-	com.BindingNonceCommitment.Identity()
+	expectedErrorPrefix = fmt.Sprintf(
+		"invalid commitment %d for signer %d, the binding nonce commitment is the identity element",
+		com.CommitmentID,
+		com.SignerID,
+	)
+
+	com.BindingNonceCommitment = tt.ECGroup().NewElement()
 	if err := configuration.ValidateCommitment(com); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
-	// nil
-	com.BindingNonceCommitment = nil
+	// generator
+	expectedErrorPrefix = fmt.Sprintf(
+		"invalid commitment %d for signer %d, the binding nonce commitment is the group generator (base element)",
+		com.CommitmentID,
+		com.SignerID,
+	)
+
+	com.BindingNonceCommitment.Base()
 	if err := configuration.ValidateCommitment(com); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
@@ -282,7 +311,7 @@ func TestCommitmentList_Validate_DuplicateSignerIDs(t *testing.T) {
 		coms[i] = s.Commit()
 	}
 
-	coms[2] = coms[1].Copy()
+	coms[2].SignerID = coms[1].SignerID
 
 	if err := configuration.ValidateCommitmentList(coms); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -305,7 +334,7 @@ func TestCommitmentList_Validate_InvalidCommitment(t *testing.T) {
 
 	coms[2].BindingNonceCommitment.Base()
 	expectedErrorPrefix := fmt.Sprintf(
-		"commitment %d for signer %d has an invalid binding nonce commitment (nil, identity, or generator)",
+		"invalid commitment %d for signer %d, the binding nonce commitment is the group generator (base element)",
 		coms[2].CommitmentID,
 		coms[2].SignerID,
 	)

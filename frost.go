@@ -127,9 +127,28 @@ type Configuration struct {
 var (
 	errInvalidThresholdParameter = errors.New("threshold is 0 or higher than maxSigners")
 	errInvalidMaxSignersOrder    = errors.New("maxSigners is higher than group order")
-	errInvalidGroupPublicKey     = errors.New("invalid group public key (nil, identity, or generator)")
 	errInvalidNumberOfPublicKeys = errors.New("invalid number of public keys (lower than threshold or above maximum)")
 )
+
+func (c *Configuration) validatePublicKeyShare(pks *PublicKeyShare) error {
+	if pks == nil {
+		return errors.New("public key share is nil")
+	}
+
+	if pks.Group != c.group {
+		return fmt.Errorf("key share has invalid group parameter, want %s got %s", c.group, pks.Group)
+	}
+
+	if err := c.validateIdentifier(pks.ID); err != nil {
+		return fmt.Errorf("invalid identifier for public key share, the %w", err)
+	}
+
+	if err := c.validateGroupElement(pks.PublicKey); err != nil {
+		return fmt.Errorf("invalid public key for participant %d, the key %w", pks.ID, err)
+	}
+
+	return nil
+}
 
 func (c *Configuration) verifySignerPublicKeys() error {
 	length := uint64(len(c.SignerPublicKeys))
@@ -140,16 +159,14 @@ func (c *Configuration) verifySignerPublicKeys() error {
 	// Sets to detect duplicates.
 	pkSet := make(map[string]uint64, len(c.SignerPublicKeys))
 	idSet := make(map[uint64]struct{}, len(c.SignerPublicKeys))
-	g := group.Group(c.Ciphersuite)
-	base := g.Base()
 
 	for i, pks := range c.SignerPublicKeys {
 		if pks == nil {
 			return fmt.Errorf("empty public key share at index %d", i)
 		}
 
-		if pks.PublicKey == nil || pks.PublicKey.IsIdentity() || pks.PublicKey.Equal(base) == 1 {
-			return fmt.Errorf("invalid signer public key (nil, identity, or generator) for participant %d", pks.ID)
+		if err := c.validatePublicKeyShare(pks); err != nil {
+			return err
 		}
 
 		// Verify whether the ID has duplicates
@@ -191,11 +208,8 @@ func (c *Configuration) verify() error {
 		return errInvalidMaxSignersOrder
 	}
 
-	g := group.Group(c.Ciphersuite)
-	base := g.Base()
-
-	if c.GroupPublicKey == nil || c.GroupPublicKey.IsIdentity() || c.GroupPublicKey.Equal(base) == 1 {
-		return errInvalidGroupPublicKey
+	if err := c.validateGroupElement(c.GroupPublicKey); err != nil {
+		return fmt.Errorf("invalid group public key, the key %w", err)
 	}
 
 	if err := c.verifySignerPublicKeys(); err != nil {
@@ -206,12 +220,13 @@ func (c *Configuration) verify() error {
 }
 
 func (c *Configuration) Init() error {
+	c.group = group.Group(c.Ciphersuite)
+
 	if err := c.verify(); err != nil {
 		return err
 	}
 
 	c.verified = true
-	c.group = group.Group(c.Ciphersuite)
 
 	return nil
 }
@@ -237,30 +252,14 @@ func (c *Configuration) ValidateKeyShare(keyShare *KeyShare) error {
 		return errors.New("provided key share is nil")
 	}
 
-	if keyShare.ID == 0 {
-		return errors.New("provided key share has invalid ID 0")
-	}
-
-	if keyShare.ID > c.MaxSigners {
-		return fmt.Errorf(
-			"provided key share has invalid ID %d, above authorized range [1:%d]",
-			keyShare.ID,
-			c.MaxSigners,
-		)
-	}
-
-	if keyShare.Group != c.group {
-		return fmt.Errorf("provided key share has invalid group parameter, want %s got %s", c.group, keyShare.Group)
+	if err := c.validatePublicKeyShare(keyShare.Public()); err != nil {
+		return err
 	}
 
 	if c.GroupPublicKey.Equal(keyShare.GroupPublicKey) != 1 {
 		return errors.New(
-			"the group's public key in the provided key share does not match the one in the configuration",
+			"the key share's group public key does not match the one in the configuration",
 		)
-	}
-
-	if keyShare.PublicKey == nil {
-		return errors.New("provided key share has nil public key")
 	}
 
 	if keyShare.Secret == nil || keyShare.Secret.IsZero() {
@@ -280,6 +279,30 @@ func (c *Configuration) ValidateKeyShare(keyShare *KeyShare) error {
 		return errors.New(
 			"provided key share has a different public key than the one registered for that signer in the configuration",
 		)
+	}
+
+	return nil
+}
+
+func (c *Configuration) validateIdentifier(id uint64) error {
+	switch {
+	case id == 0:
+		return errors.New("identifier is 0")
+	case id > c.MaxSigners:
+		return fmt.Errorf("identifier %d is above authorized range [1:%d]", id, c.MaxSigners)
+	}
+
+	return nil
+}
+
+func (c *Configuration) validateGroupElement(e *group.Element) error {
+	switch {
+	case e == nil:
+		return errors.New("is nil")
+	case e.IsIdentity():
+		return errors.New("is the identity element")
+	case c.group.Base().Equal(e) == 1:
+		return errors.New("is the group generator (base element)")
 	}
 
 	return nil

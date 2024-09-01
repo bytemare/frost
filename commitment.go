@@ -25,8 +25,6 @@ var (
 	errDecodeCommitmentLength = errors.New("failed to decode commitment: invalid length")
 	errInvalidCiphersuite     = errors.New("ciphersuite not available")
 	errInvalidLength          = errors.New("invalid encoding length")
-	errHidingNonceCommitment  = errors.New("invalid hiding nonce commitment (nil, identity, or generator)")
-	errBindingNonceCommitment = errors.New("invalid binding nonce commitment (nil, identity, or generator)")
 )
 
 // Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
@@ -47,11 +45,6 @@ func (c *Commitment) Copy() *Commitment {
 		SignerID:               c.SignerID,
 		Group:                  c.Group,
 	}
-}
-
-// EncodedSize returns the byte size of the output of Encode().
-func EncodedSize(g group.Group) uint64 {
-	return 1 + 8 + 8 + 2*uint64(g.ElementLength())
 }
 
 // CommitmentList is a sortable list of commitments with search functions.
@@ -128,7 +121,7 @@ func (c CommitmentList) Encode() []byte {
 	}
 
 	g := c[0].Group
-	size := 1 + 8 + uint64(n)*EncodedSize(g)
+	size := 1 + 8 + uint64(n)*encodedLength(encCommitment, g)
 	out := make([]byte, 9, size)
 	out[0] = byte(g)
 	binary.LittleEndian.PutUint64(out[1:9], uint64(n))
@@ -151,7 +144,7 @@ func DecodeList(data []byte) (CommitmentList, error) {
 	}
 
 	n := binary.LittleEndian.Uint64(data[1:9])
-	es := EncodedSize(g)
+	es := encodedLength(encCommitment, g)
 	size := 1 + 8 + n*es
 
 	if uint64(len(data)) != size {
@@ -260,17 +253,8 @@ func (c *Configuration) ValidateCommitment(commitment *Commitment) error {
 		return fmt.Errorf("the commitment list has a nil commitment")
 	}
 
-	if commitment.SignerID == 0 {
-		return fmt.Errorf("signer identifier for commitment %d is 0", commitment.CommitmentID)
-	}
-
-	if commitment.SignerID > c.MaxSigners {
-		return fmt.Errorf(
-			"signer identifier %d for commitment %d is above allowed values (%d)",
-			commitment.SignerID,
-			commitment.CommitmentID,
-			c.MaxSigners,
-		)
+	if err := c.validateIdentifier(commitment.SignerID); err != nil {
+		return fmt.Errorf("invalid identifier for signer in commitment %d, the %w", commitment.CommitmentID, err)
 	}
 
 	if commitment.Group != c.group {
@@ -283,18 +267,22 @@ func (c *Configuration) ValidateCommitment(commitment *Commitment) error {
 		)
 	}
 
-	generator := c.group.Base()
-
-	if commitment.HidingNonceCommitment == nil || commitment.HidingNonceCommitment.IsIdentity() ||
-		commitment.HidingNonceCommitment.Equal(generator) == 1 {
-		return fmt.Errorf("commitment %d for signer %d has an %w", commitment.CommitmentID,
-			commitment.SignerID, errHidingNonceCommitment)
+	if err := c.validateGroupElement(commitment.HidingNonceCommitment); err != nil {
+		return fmt.Errorf(
+			"invalid commitment %d for signer %d, the hiding nonce commitment %w",
+			commitment.CommitmentID,
+			commitment.SignerID,
+			err,
+		)
 	}
 
-	if commitment.BindingNonceCommitment == nil || commitment.BindingNonceCommitment.IsIdentity() ||
-		commitment.BindingNonceCommitment.Equal(generator) == 1 {
-		return fmt.Errorf("commitment %d for signer %d has an %w", commitment.CommitmentID,
-			commitment.SignerID, errBindingNonceCommitment)
+	if err := c.validateGroupElement(commitment.BindingNonceCommitment); err != nil {
+		return fmt.Errorf(
+			"invalid commitment %d for signer %d, the binding nonce commitment %w",
+			commitment.CommitmentID,
+			commitment.SignerID,
+			err,
+		)
 	}
 
 	// Validate that the commitment comes from a registered signer.

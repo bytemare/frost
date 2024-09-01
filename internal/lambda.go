@@ -48,19 +48,16 @@ func lambdaRegistryKey(participants []uint64) string {
 	return hex.EncodeToString(hash.SHA256.Hash([]byte(a))) // Length = 32 bytes, 64 in hex string
 }
 
+// New creates a new lambda and for the participant list for the participant id, and registers it.
+// This function assumes that:
+// - id is non-nil and != 0
+// - every participant id is != 0
+// - there are no duplicates in participants
 func (l LambdaRegistry) New(g group.Group, id uint64, participants []uint64) *group.Scalar {
 	polynomial := secretsharing.NewPolynomialFromListFunc(g, participants, func(p uint64) *group.Scalar {
 		return g.NewScalar().SetUInt64(p)
 	})
-	/*
-		lambda, err := Lambda(g, id, polynomial)
-		if err != nil {
-			return nil, err
-		}
-
-	*/
 	lambda := Lambda(g, id, polynomial)
-
 	l.Set(participants, lambda)
 
 	return lambda
@@ -89,4 +86,22 @@ func (l LambdaRegistry) Delete(participants []uint64) {
 	key := lambdaRegistryKey(participants)
 	l[key].Zero()
 	delete(l, key)
+}
+
+func (l LambdaRegistry) Decode(g group.Group, data []byte) error {
+	offset := 0
+	for offset < len(data) {
+		key := data[offset : offset+32]
+		offset += 32
+
+		lambda := g.NewScalar()
+		if err := lambda.Decode(data[offset : offset+g.ScalarLength()]); err != nil {
+			return fmt.Errorf("failed to decode lambda: %w", err)
+		}
+
+		l[hex.EncodeToString(key)] = lambda
+		offset += g.ScalarLength()
+	}
+
+	return nil
 }

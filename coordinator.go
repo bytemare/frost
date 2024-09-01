@@ -42,7 +42,7 @@ func (c *Configuration) AggregateSignatures(
 	commitments CommitmentList,
 	verify bool,
 ) (*Signature, error) {
-	groupCommitment, bindingFactors, participants, err := c.PrepareSignatureShareVerification(message, commitments)
+	groupCommitment, bindingFactors, participants, err := c.prepareSignatureShareVerification(message, commitments)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (c *Configuration) VerifySignatureShare(
 	message []byte,
 	commitments CommitmentList,
 ) error {
-	groupCommitment, bindingFactors, participants, err := c.PrepareSignatureShareVerification(message, commitments)
+	groupCommitment, bindingFactors, participants, err := c.prepareSignatureShareVerification(message, commitments)
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func (c *Configuration) VerifySignatureShare(
 	return c.verifySignatureShare(sigShare, message, commitments, participants, groupCommitment, bindingFactors)
 }
 
-func (c *Configuration) PrepareSignatureShareVerification(message []byte,
+func (c *Configuration) prepareSignatureShareVerification(message []byte,
 	commitments CommitmentList,
 ) (*group.Element, BindingFactors, []*group.Scalar, error) {
 	if !c.verified {
@@ -136,16 +136,8 @@ func (c *Configuration) validateSignatureShareExtensive(sigShare *SignatureShare
 		return err
 	}
 
-	if sigShare.SignerIdentifier == 0 {
-		return errors.New("signature share's signer identifier is 0 (invalid)")
-	}
-
-	if sigShare.SignerIdentifier > c.MaxSigners {
-		return fmt.Errorf(
-			"signature share has invalid ID %d, above authorized range [1:%d]",
-			sigShare.SignerIdentifier,
-			c.MaxSigners,
-		)
+	if err := c.validateIdentifier(sigShare.SignerIdentifier); err != nil {
+		return fmt.Errorf("invalid identifier for signer in signature share, the %w", err)
 	}
 
 	if sigShare.Group != c.group {
