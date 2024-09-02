@@ -39,11 +39,11 @@ func Example_signer() {
 
 	// This is how to set up the Configuration for FROST, the same for every signer and the coordinator.
 	configuration := &frost.Configuration{
-		Ciphersuite:      ciphersuite,
-		Threshold:        threshold,
-		MaxSigners:       maxSigners,
-		GroupPublicKey:   groupPublicKey,
-		SignerPublicKeys: publicKeyShares,
+		Ciphersuite:           ciphersuite,
+		Threshold:             threshold,
+		MaxSigners:            maxSigners,
+		GroupPublicKey:        groupPublicKey,
+		SignerPublicKeyShares: publicKeyShares,
 	}
 
 	if err := configuration.Init(); err != nil {
@@ -126,11 +126,11 @@ func Example_coordinator() {
 
 	// This is how to set up the Configuration for FROST, the same for every signer and the coordinator.
 	configuration := &frost.Configuration{
-		Ciphersuite:      ciphersuite,
-		Threshold:        threshold,
-		MaxSigners:       maxSigners,
-		GroupPublicKey:   groupPublicKey,
-		SignerPublicKeys: publicKeyShares,
+		Ciphersuite:           ciphersuite,
+		Threshold:             threshold,
+		MaxSigners:            maxSigners,
+		GroupPublicKey:        groupPublicKey,
+		SignerPublicKeyShares: publicKeyShares,
 	}
 
 	if err := configuration.Init(); err != nil {

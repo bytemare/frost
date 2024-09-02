@@ -42,6 +42,12 @@ func (c *Configuration) AggregateSignatures(
 	commitments CommitmentList,
 	verify bool,
 ) (*Signature, error) {
+	if !c.verified || !c.keysVerified {
+		if err := c.Init(); err != nil {
+			return nil, err
+		}
+	}
+
 	groupCommitment, bindingFactors, participants, err := c.prepareSignatureShareVerification(message, commitments)
 	if err != nil {
 		return nil, err
@@ -89,6 +95,12 @@ func (c *Configuration) VerifySignatureShare(
 	message []byte,
 	commitments CommitmentList,
 ) error {
+	if !c.verified || !c.keysVerified {
+		if err := c.Init(); err != nil {
+			return err
+		}
+	}
+
 	groupCommitment, bindingFactors, participants, err := c.prepareSignatureShareVerification(message, commitments)
 	if err != nil {
 		return err
@@ -100,12 +112,6 @@ func (c *Configuration) VerifySignatureShare(
 func (c *Configuration) prepareSignatureShareVerification(message []byte,
 	commitments CommitmentList,
 ) (*group.Element, BindingFactors, []*group.Scalar, error) {
-	if !c.verified {
-		if err := c.verify(); err != nil {
-			return nil, nil, nil, err
-		}
-	}
-
 	commitments.Sort()
 
 	// Validate general consistency of the commitment list.

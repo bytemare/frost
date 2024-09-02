@@ -29,11 +29,11 @@ func makeConfAndShares(t *testing.T, test *tableTest) (*frost.Configuration, []*
 	publicKeyShares := getPublicKeyShares(keyShares)
 
 	configuration := &frost.Configuration{
-		Ciphersuite:      test.Ciphersuite,
-		Threshold:        test.threshold,
-		MaxSigners:       test.maxSigners,
-		GroupPublicKey:   groupPublicKey,
-		SignerPublicKeys: publicKeyShares,
+		Ciphersuite:           test.Ciphersuite,
+		Threshold:             test.threshold,
+		MaxSigners:            test.maxSigners,
+		GroupPublicKey:        groupPublicKey,
+		SignerPublicKeyShares: publicKeyShares,
 	}
 
 	if err := configuration.Init(); err != nil {
@@ -100,16 +100,16 @@ func compareConfigurations(t *testing.T, c1, c2 *frost.Configuration, expectedMa
 		t.Fatalf("expected matching GroupPublicKey: %q / %q", c1.Ciphersuite, c2.Ciphersuite)
 	}
 
-	if len(c1.SignerPublicKeys) != len(c2.SignerPublicKeys) {
+	if len(c1.SignerPublicKeyShares) != len(c2.SignerPublicKeyShares) {
 		t.Fatalf(
-			"expected matching SignerPublicKeys lengths: %q / %q",
-			len(c1.SignerPublicKeys),
-			len(c2.SignerPublicKeys),
+			"expected matching SignerPublicKeyShares lengths: %q / %q",
+			len(c1.SignerPublicKeyShares),
+			len(c2.SignerPublicKeyShares),
 		)
 	}
 
-	for i, p1 := range c1.SignerPublicKeys {
-		p2 := c2.SignerPublicKeys[i]
+	for i, p1 := range c1.SignerPublicKeyShares {
+		p2 := c2.SignerPublicKeyShares[i]
 		if err := comparePublicKeyShare(p1, p2); !expectedMatch && err != nil {
 			t.Fatal(err)
 		}
@@ -387,11 +387,11 @@ func TestEncoding_Configuration_InvalidPublicKeyShare(t *testing.T) {
 		publicKeyShares := getPublicKeyShares(keyShares)
 
 		configuration := &frost.Configuration{
-			Ciphersuite:      test.Ciphersuite,
-			Threshold:        test.threshold,
-			MaxSigners:       test.maxSigners,
-			GroupPublicKey:   groupPublicKey,
-			SignerPublicKeys: publicKeyShares,
+			Ciphersuite:           test.Ciphersuite,
+			Threshold:             test.threshold,
+			MaxSigners:            test.maxSigners,
+			GroupPublicKey:        groupPublicKey,
+			SignerPublicKeyShares: publicKeyShares,
 		}
 		g := group.Group(test.Ciphersuite)
 		pksSize := len(publicKeyShares[0].Encode())

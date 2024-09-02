@@ -113,15 +113,16 @@ func (c Ciphersuite) ECGroup() group.Group {
 	return group.Group(c)
 }
 
-// Configuration holds long term Configuration information.
+// Configuration holds the Configuration for a signing session.
 type Configuration struct {
-	GroupPublicKey   *group.Element
-	SignerPublicKeys []*PublicKeyShare
-	Threshold        uint64
-	MaxSigners       uint64
-	Ciphersuite      Ciphersuite
-	group            group.Group
-	verified         bool
+	GroupPublicKey        *group.Element
+	SignerPublicKeyShares []*PublicKeyShare
+	Threshold             uint64
+	MaxSigners            uint64
+	Ciphersuite           Ciphersuite
+	group                 group.Group
+	verified              bool
+	keysVerified          bool
 }
 
 var (
@@ -130,13 +131,57 @@ var (
 	errInvalidNumberOfPublicKeys = errors.New("invalid number of public keys (lower than threshold or above maximum)")
 )
 
-func (c *Configuration) validatePublicKeyShare(pks *PublicKeyShare) error {
+func (c *Configuration) Init() error {
+	if !c.verified {
+		if err := c.verifyConfiguration(); err != nil {
+			return err
+		}
+	}
+
+	if !c.keysVerified {
+		if err := c.verifySignerPublicKeyShares(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Signer returns a new participant of the protocol instantiated from the Configuration and the signer's key share.
+func (c *Configuration) Signer(keyShare *KeyShare) (*Signer, error) {
+	if !c.verified || !c.keysVerified {
+		if err := c.Init(); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := c.ValidateKeyShare(keyShare); err != nil {
+		return nil, err
+	}
+
+	return &Signer{
+		KeyShare:         keyShare,
+		LambdaRegistry:   make(internal.LambdaRegistry),
+		NonceCommitments: make(map[uint64]*Nonce),
+		HidingRandom:     nil,
+		BindingRandom:    nil,
+		Configuration:    c,
+	}, nil
+}
+
+func (c *Configuration) ValidatePublicKeyShare(pks *PublicKeyShare) error {
+	if !c.verified {
+		if err := c.verifyConfiguration(); err != nil {
+			return err
+		}
+	}
+
 	if pks == nil {
 		return errors.New("public key share is nil")
 	}
 
 	if pks.Group != c.group {
-		return fmt.Errorf("key share has invalid group parameter, want %s got %s", c.group, pks.Group)
+		return fmt.Errorf("key share has invalid group parameter, want %s got %d", c.group, pks.Group)
 	}
 
 	if err := c.validateIdentifier(pks.ID); err != nil {
@@ -150,99 +195,8 @@ func (c *Configuration) validatePublicKeyShare(pks *PublicKeyShare) error {
 	return nil
 }
 
-func (c *Configuration) verifySignerPublicKeys() error {
-	length := uint64(len(c.SignerPublicKeys))
-	if length < c.Threshold || length > c.MaxSigners {
-		return errInvalidNumberOfPublicKeys
-	}
-
-	// Sets to detect duplicates.
-	pkSet := make(map[string]uint64, len(c.SignerPublicKeys))
-	idSet := make(map[uint64]struct{}, len(c.SignerPublicKeys))
-
-	for i, pks := range c.SignerPublicKeys {
-		if pks == nil {
-			return fmt.Errorf("empty public key share at index %d", i)
-		}
-
-		if err := c.validatePublicKeyShare(pks); err != nil {
-			return err
-		}
-
-		// Verify whether the ID has duplicates
-		if _, exists := idSet[pks.ID]; exists {
-			return fmt.Errorf("found duplicate identifier for signer %d", pks.ID)
-		}
-
-		// Verify whether the public key has duplicates
-		s := string(pks.PublicKey.Encode())
-		if id, exists := pkSet[s]; exists {
-			return fmt.Errorf("found duplicate public keys for signers %d and %d", pks.ID, id)
-		}
-
-		pkSet[s] = pks.ID
-		idSet[pks.ID] = struct{}{}
-	}
-
-	return nil
-}
-
-func (c *Configuration) verify() error {
-	if !c.Ciphersuite.Available() {
-		return internal.ErrInvalidCiphersuite
-	}
-
-	if c.Threshold == 0 || c.Threshold > c.MaxSigners {
-		return errInvalidThresholdParameter
-	}
-
-	order, _ := new(big.Int).SetString(group.Group(c.Ciphersuite).Order(), 0)
-	if order == nil {
-		panic("can't set group order number")
-	}
-
-	bigMax := new(big.Int).SetUint64(c.MaxSigners)
-	if order.Cmp(bigMax) != 1 {
-		// This is unlikely to happen, as the usual group orders cannot be represented in a uint64.
-		// Only a new, unregistered group would make it fail here.
-		return errInvalidMaxSignersOrder
-	}
-
-	if err := c.validateGroupElement(c.GroupPublicKey); err != nil {
-		return fmt.Errorf("invalid group public key, the key %w", err)
-	}
-
-	if err := c.verifySignerPublicKeys(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (c *Configuration) Init() error {
-	c.group = group.Group(c.Ciphersuite)
-
-	if err := c.verify(); err != nil {
-		return err
-	}
-
-	c.verified = true
-
-	return nil
-}
-
-func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
-	for _, pks := range c.SignerPublicKeys {
-		if pks.ID == id {
-			return pks.PublicKey
-		}
-	}
-
-	return nil
-}
-
 func (c *Configuration) ValidateKeyShare(keyShare *KeyShare) error {
-	if !c.verified {
+	if !c.verified || !c.keysVerified {
 		if err := c.Init(); err != nil {
 			return err
 		}
@@ -252,7 +206,7 @@ func (c *Configuration) ValidateKeyShare(keyShare *KeyShare) error {
 		return errors.New("provided key share is nil")
 	}
 
-	if err := c.validatePublicKeyShare(keyShare.Public()); err != nil {
+	if err := c.ValidatePublicKeyShare(keyShare.Public()); err != nil {
 		return err
 	}
 
@@ -284,6 +238,88 @@ func (c *Configuration) ValidateKeyShare(keyShare *KeyShare) error {
 	return nil
 }
 
+func (c *Configuration) verifySignerPublicKeyShares() error {
+	length := uint64(len(c.SignerPublicKeyShares))
+	if length < c.Threshold || length > c.MaxSigners {
+		return errInvalidNumberOfPublicKeys
+	}
+
+	// Sets to detect duplicates.
+	pkSet := make(map[string]uint64, len(c.SignerPublicKeyShares))
+	idSet := make(map[uint64]struct{}, len(c.SignerPublicKeyShares))
+
+	for i, pks := range c.SignerPublicKeyShares {
+		if pks == nil {
+			return fmt.Errorf("empty public key share at index %d", i)
+		}
+
+		if err := c.ValidatePublicKeyShare(pks); err != nil {
+			return err
+		}
+
+		// Verify whether the ID has duplicates
+		if _, exists := idSet[pks.ID]; exists {
+			return fmt.Errorf("found duplicate identifier for signer %d", pks.ID)
+		}
+
+		// Verify whether the public key has duplicates
+		s := string(pks.PublicKey.Encode())
+		if id, exists := pkSet[s]; exists {
+			return fmt.Errorf("found duplicate public keys for signers %d and %d", pks.ID, id)
+		}
+
+		pkSet[s] = pks.ID
+		idSet[pks.ID] = struct{}{}
+	}
+
+	c.keysVerified = true
+
+	return nil
+}
+
+func (c *Configuration) verifyConfiguration() error {
+	if !c.Ciphersuite.Available() {
+		return internal.ErrInvalidCiphersuite
+	}
+
+	g := group.Group(c.Ciphersuite)
+
+	if c.Threshold == 0 || c.Threshold > c.MaxSigners {
+		return errInvalidThresholdParameter
+	}
+
+	order, _ := new(big.Int).SetString(g.Order(), 0)
+	if order == nil {
+		panic("can't set group order number")
+	}
+
+	bigMax := new(big.Int).SetUint64(c.MaxSigners)
+	if order.Cmp(bigMax) != 1 {
+		// This is unlikely to happen, as the usual group orders cannot be represented in a uint64.
+		// Only a new, unregistered group would make it fail here.
+		return errInvalidMaxSignersOrder
+	}
+
+	if err := c.validateGroupElement(c.GroupPublicKey); err != nil {
+		return fmt.Errorf("invalid group public key, the key %w", err)
+	}
+
+	c.group = g
+	c.verified = true
+
+	return nil
+}
+
+func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
+	for _, pks := range c.SignerPublicKeyShares {
+		if pks.ID == id {
+			return pks.PublicKey
+		}
+	}
+
+	return nil
+}
+
 func (c *Configuration) validateIdentifier(id uint64) error {
 	switch {
 	case id == 0:
@@ -301,33 +337,11 @@ func (c *Configuration) validateGroupElement(e *group.Element) error {
 		return errors.New("is nil")
 	case e.IsIdentity():
 		return errors.New("is the identity element")
-	case c.group.Base().Equal(e) == 1:
+	case group.Group(c.Ciphersuite).Base().Equal(e) == 1:
 		return errors.New("is the group generator (base element)")
 	}
 
 	return nil
-}
-
-// Signer returns a new participant of the protocol instantiated from the Configuration and the signer's key share.
-func (c *Configuration) Signer(keyShare *KeyShare) (*Signer, error) {
-	if !c.verified {
-		if err := c.Init(); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := c.ValidateKeyShare(keyShare); err != nil {
-		return nil, err
-	}
-
-	return &Signer{
-		KeyShare:         keyShare,
-		LambdaRegistry:   make(internal.LambdaRegistry),
-		NonceCommitments: make(map[uint64]*Nonce),
-		HidingRandom:     nil,
-		BindingRandom:    nil,
-		Configuration:    c,
-	}, nil
 }
 
 func (c *Configuration) challenge(lambda *group.Scalar, message []byte, groupCommitment *group.Element) *group.Scalar {

@@ -6,7 +6,6 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-// Package commitment defines the FROST Signer commitment.
 package frost
 
 import (
@@ -238,7 +237,7 @@ func (c CommitmentList) groupCommitment(bf BindingFactors) *group.Element {
 }
 
 func (c *Configuration) isSignerRegistered(sid uint64) bool {
-	for _, peer := range c.SignerPublicKeys {
+	for _, peer := range c.SignerPublicKeyShares {
 		if peer.ID == sid {
 			return true
 		}
@@ -249,6 +248,12 @@ func (c *Configuration) isSignerRegistered(sid uint64) bool {
 
 // ValidateCommitment returns an error if the commitment is not valid.
 func (c *Configuration) ValidateCommitment(commitment *Commitment) error {
+	if !c.verified || !c.keysVerified {
+		if err := c.Init(); err != nil {
+			return err
+		}
+	}
+
 	if commitment == nil {
 		return fmt.Errorf("the commitment list has a nil commitment")
 	}
@@ -322,6 +327,12 @@ func (c *Configuration) validateCommitmentListLength(commitments CommitmentList)
 // - no duplicated in signer identifiers
 // - all commitment signer identifiers are registered in the configuration
 func (c *Configuration) ValidateCommitmentList(commitments CommitmentList) error {
+	if !c.verified || !c.keysVerified {
+		if err := c.Init(); err != nil {
+			return err
+		}
+	}
+
 	if err := c.validateCommitmentListLength(commitments); err != nil {
 		return err
 	}

@@ -380,7 +380,7 @@ func TestCommitmentList_Validate_UnregisteredKey(t *testing.T) {
 		coms[i] = s.Commit()
 	}
 
-	configuration.SignerPublicKeys = slices.Delete(configuration.SignerPublicKeys, 1, 2)
+	configuration.SignerPublicKeyShares = slices.Delete(configuration.SignerPublicKeyShares, 1, 2)
 	expectedErrorPrefix := fmt.Sprintf(
 		"signer identifier %d for commitment %d is not registered in the configuration",
 		coms[1].SignerID,

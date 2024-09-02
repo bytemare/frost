@@ -205,11 +205,11 @@ type testRoundTwoOutputs struct {
 
 func makeFrostConfig(c frost.Ciphersuite, threshold, maxSigners uint) *frost.Configuration {
 	return &frost.Configuration{
-		Ciphersuite:      c,
-		Threshold:        uint64(threshold),
-		MaxSigners:       uint64(maxSigners),
-		GroupPublicKey:   nil,
-		SignerPublicKeys: nil,
+		Ciphersuite:           c,
+		Threshold:             uint64(threshold),
+		MaxSigners:            uint64(maxSigners),
+		GroupPublicKey:        nil,
+		SignerPublicKeyShares: nil,
 	}
 }
 
@@ -313,10 +313,10 @@ func (v testVector) decode(t *testing.T) *test {
 	inputs := v.Inputs.decode(t, conf.Ciphersuite.ECGroup())
 
 	conf.GroupPublicKey = inputs.GroupPublicKey
-	conf.SignerPublicKeys = make([]*frost.PublicKeyShare, len(inputs.Participants))
+	conf.SignerPublicKeyShares = make([]*frost.PublicKeyShare, len(inputs.Participants))
 
 	for i, ks := range inputs.Participants {
-		conf.SignerPublicKeys[i] = ks.Public()
+		conf.SignerPublicKeyShares[i] = ks.Public()
 	}
 
 	if err := conf.Configuration.Init(); err != nil {

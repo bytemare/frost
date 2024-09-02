@@ -59,11 +59,11 @@ func runFrost(
 
 	// Set up configuration.
 	configuration := &frost.Configuration{
-		Ciphersuite:      test.Ciphersuite,
-		Threshold:        threshold,
-		MaxSigners:       maxSigners,
-		GroupPublicKey:   groupPublicKey,
-		SignerPublicKeys: publicKeyShares,
+		Ciphersuite:           test.Ciphersuite,
+		Threshold:             threshold,
+		MaxSigners:            maxSigners,
+		GroupPublicKey:        groupPublicKey,
+		SignerPublicKeyShares: publicKeyShares,
 	}
 
 	if err := configuration.Init(); err != nil {

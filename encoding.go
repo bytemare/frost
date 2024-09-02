@@ -68,16 +68,16 @@ func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
 func (c *Configuration) Encode() []byte {
 	g := group.Group(c.Ciphersuite)
 	pksLen := encodedLength(encPubKeyShare, g, c.Threshold*uint64(g.ElementLength()))
-	size := encodedLength(encConf, g, uint64(len(c.SignerPublicKeys))*pksLen)
+	size := encodedLength(encConf, g, uint64(len(c.SignerPublicKeyShares))*pksLen)
 	out := make([]byte, 25, size)
 	out[0] = byte(g)
 	binary.LittleEndian.PutUint64(out[1:9], c.Threshold)
 	binary.LittleEndian.PutUint64(out[9:17], c.MaxSigners)
-	binary.LittleEndian.PutUint64(out[17:25], uint64(len(c.SignerPublicKeys)))
+	binary.LittleEndian.PutUint64(out[17:25], uint64(len(c.SignerPublicKeyShares)))
 
 	out = append(out, c.GroupPublicKey.Encode()...)
 
-	for _, pk := range c.SignerPublicKeys {
+	for _, pk := range c.SignerPublicKeyShares {
 		out = append(out, pk.Encode()...)
 	}
 
@@ -106,7 +106,7 @@ func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
 	pksLen := encodedLength(encPubKeyShare, g, t*uint64(g.ElementLength()))
 	length := encodedLength(encConf, g, nPks*pksLen)
 
-	if t > n {
+	if t == 0 || t > n {
 		return nil, errInvalidConfigEncoding
 	}
 
@@ -135,12 +135,15 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	pks := make([]*PublicKeyShare, header.nPks)
 
 	conf := &Configuration{
-		Ciphersuite:      Ciphersuite(header.g),
-		Threshold:        header.t,
-		MaxSigners:       header.n,
-		GroupPublicKey:   gpk,
-		SignerPublicKeys: pks,
-		group:            header.g,
+		Ciphersuite:           Ciphersuite(header.g),
+		Threshold:             header.t,
+		MaxSigners:            header.n,
+		GroupPublicKey:        gpk,
+		SignerPublicKeyShares: pks,
+	}
+
+	if err := conf.verifyConfiguration(); err != nil {
+		return err
 	}
 
 	for j := range header.nPks {
@@ -149,15 +152,11 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 			return fmt.Errorf("could not decode signer public key share for signer %d: %w", j, err)
 		}
 
-		if err := conf.validatePublicKeyShare(pk); err != nil {
-			return err
-		}
-
 		offset += pksLen
 		pks[j] = pk
 	}
 
-	if err := conf.verify(); err != nil {
+	if err := conf.verifySignerPublicKeyShares(); err != nil {
 		return err
 	}
 
@@ -165,9 +164,10 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	c.Threshold = conf.Threshold
 	c.MaxSigners = conf.MaxSigners
 	c.GroupPublicKey = gpk
-	c.SignerPublicKeys = pks
+	c.SignerPublicKeyShares = pks
 	c.group = group.Group(conf.Ciphersuite)
 	c.verified = true
+	c.keysVerified = true
 
 	return nil
 }
