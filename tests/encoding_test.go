@@ -548,8 +548,8 @@ func TestEncoding_Signer_InvalidLambda(t *testing.T) {
 	})
 }
 
-func TestEncoding_Signer_InvalidKeyShare(t *testing.T) {
-	expectedErrorPrefix := "failed to decode key share:"
+func TestEncoding_Signer_BadKeyShare(t *testing.T) {
+	expectedErrorPrefix := "failed to decode key share: invalid group identifier"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -557,11 +557,28 @@ func TestEncoding_Signer_InvalidKeyShare(t *testing.T) {
 		offset := confLen + 6
 
 		// Set an invalid group in the key share encoding.
-		kse := s.KeyShare.Encode()
-		kse[0] = 2
-
 		encoded := s.Encode()
-		encoded = slices.Replace(encoded, offset, offset+len(kse), kse...)
+		encoded = slices.Replace(encoded, offset, offset+1, []byte{2}...)
+
+		decoded := new(frost.Signer)
+		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_Signer_InvalidKeyShare(t *testing.T) {
+	expectedErrorPrefix := "invalid key share: invalid identifier for public key share, the identifier is 0"
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		s := makeSigners(t, test)[0]
+		confLen := len(s.Configuration.Encode())
+		offset := confLen + 6 + 1
+
+		// Set an invalid identifier.
+		encoded := s.Encode()
+		badID := [8]byte{}
+		encoded = slices.Replace(encoded, offset, offset+8, badID[:]...)
 
 		decoded := new(frost.Signer)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -718,7 +735,7 @@ func TestEncoding_SignatureShare_InvalidLength2(t *testing.T) {
 	}
 }
 
-func TestEncoding_SignatureShare_ZeroID(t *testing.T) {
+func TestEncoding_SignatureShare_InvalidIdentifier(t *testing.T) {
 	// todo: check for zero id in all decodings
 	expectedError := errors.New("identifier cannot be 0")
 	encoded := make([]byte, 41)
@@ -909,6 +926,22 @@ func TestEncoding_Commitment_InvalidLength2(t *testing.T) {
 	})
 }
 
+func TestEncoding_Commitment_InvalidIdentifier(t *testing.T) {
+	expectedErrorPrefix := "identifier cannot be 0"
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+		com.SignerID = 0
+		encoded := com.Encode()
+
+		decoded := new(frost.Commitment)
+		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
 func TestEncoding_Commitment_InvalidHidingNonce(t *testing.T) {
 	expectedErrorPrefix := "invalid encoding of hiding nonce commitment: "
 
@@ -1092,6 +1125,15 @@ func TestEncoding_KeyShare_JSON(t *testing.T) {
 		if err := compareKeyShares(keyShare, decoded); err != nil {
 			t.Fatal(err)
 		}
+
+		// expect error
+		decoded = new(frost.KeyShare)
+		expectedError := errors.New("invalid group identifier")
+		encoded = replaceStringInBytes(encoded, fmt.Sprintf("\"group\":%d", test.ECGroup()), "\"group\":70")
+
+		if err := json.Unmarshal(encoded, decoded); err == nil || err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %q, got %q", expectedError, err)
+		}
 	})
 }
 
@@ -1130,6 +1172,15 @@ func TestEncoding_PublicKeyShare_JSON(t *testing.T) {
 
 		if err := comparePublicKeyShare(keyShare, decoded); err != nil {
 			t.Fatal(err)
+		}
+
+		// expect error
+		decoded = new(frost.PublicKeyShare)
+		expectedError := errors.New("invalid group identifier")
+		encoded = replaceStringInBytes(encoded, fmt.Sprintf("\"group\":%d", test.ECGroup()), "\"group\":70")
+
+		if err := json.Unmarshal(encoded, decoded); err == nil || err.Error() != expectedError.Error() {
+			t.Fatalf("expected error %q, got %q", expectedError, err)
 		}
 	})
 }

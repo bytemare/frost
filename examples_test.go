@@ -22,7 +22,8 @@ func Example_signer() {
 	message := []byte("example message")
 	ciphersuite := frost.Ristretto255
 
-	// We assume you already have a pool of participants with distinct non-zero identifiers and their signing share.
+	// We assume you already have a pool of participants with distinct non-zero identifiers in [1:maxSingers]
+	// and their signing share.
 	// This example uses a centralised trusted dealer, but it is strongly recommended to use distributed key generation,
 	// e.g. from github.com/bytemare/dkg, which is compatible with FROST.
 	secretKeyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
@@ -38,6 +39,8 @@ func Example_signer() {
 	}
 
 	// This is how to set up the Configuration for FROST, the same for every signer and the coordinator.
+	// Note that every configuration setup for a Signer needs the public key shares of all other signers participating
+	// in a signing session (at least for the Sign() step).
 	configuration := &frost.Configuration{
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
@@ -50,28 +53,30 @@ func Example_signer() {
 		panic(err)
 	}
 
-	// Instantiate the participant.
+	// Instantiate the participant using its secret share.
+	// A participant (or Signer) can be backed up by serialization, and directly instantiated from that backup.
 	participant, err := configuration.Signer(participantSecretKeyShare)
 	if err != nil {
 		panic(err)
 	}
 
 	// Step 1: call Commit() on each participant. This will return the participant's single-use commitment for a
-	// a signature. Every commitment has an identifier that must be provided to Sign() to use that commitment.
-	// Send this to the coordinator or all other participants over an authenticated
+	// signature (which is independent of the future message to sign).
+	// Send this to the coordinator or all other participants (depending on your setup) over an authenticated
 	// channel (confidentiality is not required).
-	// A participant keeps an internal state during the protocol run across the two rounds.
+	// A participant (or Signer) keeps an internal state during the protocol run across the two rounds.
 	// A participant can pre-compute multiple commitments in advance: these commitments can be shared, but the
 	// participant keeps an internal state of corresponding values, so it must the same instance or a backup of it using
 	// the serialization functions.
 	com := participant.Commit()
 
-	// Step 2: collect the commitments from the other participants and coordinator-chosen the message to sign,
+	// Step 2: collect the commitments from the other participants and coordinator-chosen message to sign,
 	// and finalize by signing the message.
 	commitments := make(frost.CommitmentList, threshold)
 	commitments[0] = com
 
-	// This is not part of a participant's flow, but we need to collect the commitments of the other participants.
+	// This is not part of a participant's flow, but we need to collect the commitments of the other participants for
+	// the demo.
 	{
 		for i := uint64(1); i < threshold; i++ {
 			signer, err := configuration.Signer(secretKeyShares[i])
@@ -102,8 +107,8 @@ func Example_signer() {
 	// Output: Signing successful.
 }
 
-// Example_coordinator shows how to aggregate signature shares into the final signature, and verify a FROST signature
-// produced by multiple signers.
+// Example_coordinator shows how to aggregate signature shares produced by signers into the final signature
+// and verify a final FROST signature.
 func Example_coordinator() {
 	maxSigners := uint64(5)
 	threshold := uint64(3)
@@ -170,7 +175,7 @@ func Example_coordinator() {
 
 	// The coordinator assembles the shares. If the verify argument is set to true, AggregateSignatures will internally
 	// verify each signature share and return an error on the first that is invalid. It will also verify whether the
-	// signature is valid.
+	// output signature is valid.
 	signature, err := configuration.AggregateSignatures(message, signatureShares, commitments, true)
 	if err != nil {
 		panic(err)

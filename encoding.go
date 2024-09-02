@@ -182,16 +182,6 @@ func (c *Configuration) Decode(data []byte) error {
 	return c.decode(header, data)
 }
 
-func (s *Signer) encodeNonceCommitments(out []byte) []byte {
-	for id, com := range s.NonceCommitments {
-		out = append(out, internal.Concatenate(internal.UInt64LE(id),
-			com.HidingNonce.Encode(),
-			com.BindingNonce.Encode(),
-			com.Commitment.Encode())...)
-	}
-	return out
-}
-
 // Encode serializes the client with its long term values, containing its secret share. This is useful for saving state
 // and backup.
 func (s *Signer) Encode() []byte {
@@ -216,6 +206,7 @@ func (s *Signer) Encode() []byte {
 	binary.LittleEndian.PutUint16(out[len(conf)+4:len(conf)+6], uint16(nLambdas))     // number of lambda entries
 
 	out = append(out, keyShare...)
+
 	for k, v := range s.LambdaRegistry {
 		b, err := hex.DecodeString(k)
 		if err != nil {
@@ -225,6 +216,7 @@ func (s *Signer) Encode() []byte {
 		out = append(out, b...)
 		out = append(out, v.Encode()...)
 	}
+
 	for id, com := range s.NonceCommitments {
 		out = append(out, internal.Concatenate(internal.UInt64LE(id),
 			com.HidingNonce.Encode(),
@@ -300,7 +292,7 @@ func (s *Signer) Decode(data []byte) error {
 	}
 
 	if err = conf.ValidateKeyShare(keyShare); err != nil {
-		return err
+		return fmt.Errorf("invalid key share: %w", err)
 	}
 
 	offset += ksLen

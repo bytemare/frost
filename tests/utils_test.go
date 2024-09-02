@@ -117,6 +117,13 @@ func expectErrorPrefix(expectedErrorMessagePrefix string, f func() error) error 
 	return nil
 }
 
+func replaceStringInBytes(data []byte, old, new string) []byte {
+	s := string(data)
+	s = strings.Replace(s, old, new, 1)
+
+	return []byte(s)
+}
+
 func TestConcatenate(t *testing.T) {
 	inputs := [][]byte{
 		{1, 2, 3},
