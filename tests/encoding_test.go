@@ -374,7 +374,7 @@ func TestEncoding_Configuration_InvalidGroupPublicKey(t *testing.T) {
 	})
 }
 
-func TestEncoding_Configuration_InvalidPublicKeyShare(t *testing.T) {
+func TestEncoding_Configuration_BadPublicKeyShare(t *testing.T) {
 	expectedErrorPrefix := "could not decode signer public key share for signer 1: "
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -399,6 +399,35 @@ func TestEncoding_Configuration_InvalidPublicKeyShare(t *testing.T) {
 		offset := 25 + g.ElementLength() + pksSize + 1 + 8 + 4
 		encoded := configuration.Encode()
 		encoded = slices.Replace(encoded, offset, offset+g.ElementLength(), bad...)
+
+		decoded := new(frost.Configuration)
+		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
+func TestEncoding_Configuration_InvalidPublicKeyShares(t *testing.T) {
+	expectedErrorPrefix := "invalid number of public keys (lower than threshold or above maximum)"
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(
+			test.Ciphersuite,
+			nil,
+			test.threshold,
+			test.maxSigners,
+		)
+		publicKeyShares := getPublicKeyShares(keyShares)
+
+		configuration := &frost.Configuration{
+			Ciphersuite:           test.Ciphersuite,
+			Threshold:             test.threshold,
+			MaxSigners:            test.maxSigners,
+			GroupPublicKey:        groupPublicKey,
+			SignerPublicKeyShares: publicKeyShares,
+		}
+		configuration.SignerPublicKeyShares = configuration.SignerPublicKeyShares[:test.threshold-1]
+		encoded := configuration.Encode()
 
 		decoded := new(frost.Configuration)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {

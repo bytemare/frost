@@ -17,6 +17,27 @@ import (
 	"github.com/bytemare/frost"
 )
 
+func TestCommitment_Validate_InvalidConfiguration(t *testing.T) {
+	expectedErrorPrefix := "invalid group public key, the key is nil"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   3,
+		maxSigners:  5,
+	}
+	configuration := &frost.Configuration{
+		Ciphersuite:           tt.Ciphersuite,
+		Threshold:             tt.threshold,
+		MaxSigners:            tt.maxSigners,
+		GroupPublicKey:        nil,
+		SignerPublicKeyShares: nil,
+	}
+
+	if err := configuration.ValidateCommitment(nil); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
 func TestCommitment_Validate_NilCommitment(t *testing.T) {
 	expectedErrorPrefix := "the commitment list has a nil commitment"
 	tt := &tableTest{
@@ -24,7 +45,7 @@ func TestCommitment_Validate_NilCommitment(t *testing.T) {
 		threshold:   3,
 		maxSigners:  4,
 	}
-	configuration, _ := fullSetup(t, tt)
+	configuration := makeConf(t, tt)
 
 	if err := configuration.ValidateCommitment(nil); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -231,6 +252,27 @@ func TestCommitmentList_Sort(t *testing.T) {
 	})
 }
 
+func TestCommitmentList_Validate_InvalidConfiguration(t *testing.T) {
+	expectedErrorPrefix := "invalid group public key, the key is nil"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   3,
+		maxSigners:  5,
+	}
+	configuration := &frost.Configuration{
+		Ciphersuite:           tt.Ciphersuite,
+		Threshold:             tt.threshold,
+		MaxSigners:            tt.maxSigners,
+		GroupPublicKey:        nil,
+		SignerPublicKeyShares: nil,
+	}
+
+	if err := configuration.ValidateCommitmentList(nil); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
 func TestCommitmentList_Validate_NoCommitments(t *testing.T) {
 	expectedErrorPrefix := "commitment list is empty"
 	tt := &tableTest{
@@ -338,6 +380,28 @@ func TestCommitmentList_Validate_InvalidCommitment(t *testing.T) {
 		coms[2].CommitmentID,
 		coms[2].SignerID,
 	)
+
+	if err := configuration.ValidateCommitmentList(coms); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
+}
+
+func TestCommitmentList_Validate_NilCommitment(t *testing.T) {
+	expectedErrorPrefix := "the commitment list has a nil commitment"
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   3,
+		maxSigners:  4,
+	}
+	configuration, signers := fullSetup(t, tt)
+	coms := make(frost.CommitmentList, len(signers))
+
+	for i, s := range signers {
+		coms[i] = s.Commit()
+	}
+
+	coms[2] = nil
 
 	if err := configuration.ValidateCommitmentList(coms); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {

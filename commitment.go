@@ -96,7 +96,7 @@ func (c CommitmentList) Participants() []uint64 {
 	return out
 }
 
-// ParticipantsScalar returns the group.Scalar list of participant identifier in the list
+// ParticipantsScalar returns the group.Scalar list of participant identifier in the list.
 func (c CommitmentList) ParticipantsScalar() []*group.Scalar {
 	if len(c) == 0 {
 		return nil
@@ -321,11 +321,11 @@ func (c *Configuration) validateCommitmentListLength(commitments CommitmentList)
 }
 
 // ValidateCommitmentList returns an error if at least one of the following conditions is not met:
-// - list length is within [threshold;max]
-// - no signer identifier in commitments is 0
-// - no singer identifier in commitments is > max signers
-// - no duplicated in signer identifiers
-// - all commitment signer identifiers are registered in the configuration
+// - list length is within [threshold;max].
+// - no signer identifier in commitments is 0.
+// - no singer identifier in commitments is > max signers.
+// - no duplicated in signer identifiers.
+// - all commitment signer identifiers are registered in the configuration.
 func (c *Configuration) ValidateCommitmentList(commitments CommitmentList) error {
 	if !c.verified || !c.keysVerified {
 		if err := c.Init(); err != nil {

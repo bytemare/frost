@@ -46,6 +46,7 @@ func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
 	case encConf:
 		return 1 + 3*8 + eLen + other[0]
 	case encSigner:
+		_ = other[3]
 		return other[0] + 2 + 2 + 2 + other[1] + other[2] + other[3]
 	case encSigShare:
 		return 1 + 8 + sLen

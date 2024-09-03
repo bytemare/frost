@@ -19,9 +19,9 @@ import (
 
 // Lambda derives the interpolating value for id in the polynomial made by the participant identifiers.
 // This function assumes that:
-// - id is non-nil and != 0
-// - every scalar in participants is non-nil and != 0
-// - there are no duplicates in participants
+// - id is non-nil and != 0.
+// - every scalar in participants is non-nil and != 0.
+// - there are no duplicates in participants.
 func Lambda(g group.Group, id uint64, participants []*group.Scalar) *group.Scalar {
 	sid := g.NewScalar().SetUInt64(id)
 	numerator := g.NewScalar().One()
@@ -39,6 +39,8 @@ func Lambda(g group.Group, id uint64, participants []*group.Scalar) *group.Scala
 	return numerator.Multiply(denominator.Invert())
 }
 
+// LambdaRegistry holds a signers pre-computed lambda values, indexed by the list of participants they are associated
+// to. A sorted set of participants will yield the same lambda.
 type LambdaRegistry map[string]*group.Scalar
 
 const lambdaRegistryKeyDomainSeparator = "FROST-participants"
@@ -50,9 +52,9 @@ func lambdaRegistryKey(participants []uint64) string {
 
 // New creates a new lambda and for the participant list for the participant id, and registers it.
 // This function assumes that:
-// - id is non-nil and != 0
-// - every participant id is != 0
-// - there are no duplicates in participants
+// - id is non-nil and != 0.
+// - every participant id is != 0.
+// - there are no duplicates in participants.
 func (l LambdaRegistry) New(g group.Group, id uint64, participants []uint64) *group.Scalar {
 	polynomial := secretsharing.NewPolynomialFromListFunc(g, participants, func(p uint64) *group.Scalar {
 		return g.NewScalar().SetUInt64(p)
@@ -63,11 +65,14 @@ func (l LambdaRegistry) New(g group.Group, id uint64, participants []uint64) *gr
 	return lambda
 }
 
+// Get returns the recorded lambda for the list of participants, or nil if it wasn't found.
 func (l LambdaRegistry) Get(participants []uint64) *group.Scalar {
 	key := lambdaRegistryKey(participants)
 	return l[key]
 }
 
+// GetOrNew returns the recorded lambda for the list of participants, or created, records, and returns a new one if
+// it wasn't found.
 func (l LambdaRegistry) GetOrNew(g group.Group, id uint64, participants []uint64) *group.Scalar {
 	lambda := l.Get(participants)
 	if lambda == nil {
@@ -77,17 +82,20 @@ func (l LambdaRegistry) GetOrNew(g group.Group, id uint64, participants []uint64
 	return lambda
 }
 
+// Set records lambda for the given set of participants.
 func (l LambdaRegistry) Set(participants []uint64, lambda *group.Scalar) {
 	key := lambdaRegistryKey(participants)
 	l[key] = lambda
 }
 
+// Delete deletes the lambda for the given set of participants.
 func (l LambdaRegistry) Delete(participants []uint64) {
 	key := lambdaRegistryKey(participants)
 	l[key].Zero()
 	delete(l, key)
 }
 
+// Decode populates the receiver from the byte encoded serialization in data.
 func (l LambdaRegistry) Decode(g group.Group, data []byte) error {
 	offset := 0
 	for offset < len(data) {
