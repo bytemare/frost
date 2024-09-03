@@ -231,7 +231,7 @@ func (c *Configuration) ValidateKeyShare(keyShare *KeyShare) error {
 
 	if pk.Equal(keyShare.PublicKey) != 1 {
 		return errors.New(
-			"provided key share has a different public key than" +
+			"provided key share has a different public key than " +
 				"the one registered for that signer in the configuration",
 		)
 	}
