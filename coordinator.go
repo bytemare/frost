@@ -62,21 +62,13 @@ func (c *Configuration) AggregateSignatures(
 		}
 	}
 
-	// Aggregate signatures
-	z := group.Group(c.Ciphersuite).NewScalar()
-	for _, sigShare := range sigShares {
-		if err := c.validateSignatureShareLight(sigShare); err != nil {
-			return nil, err
-		}
-
-		z.Add(sigShare.SignatureShare)
+	// Aggregate signatures.
+	signature, err := c.sumShares(sigShares, groupCommitment)
+	if err != nil {
+		return nil, err
 	}
 
-	signature := &Signature{
-		R: groupCommitment,
-		Z: z,
-	}
-
+	// Verify the final signature.
 	if verify {
 		if err = VerifySignature(c.Ciphersuite, message, signature, c.GroupPublicKey); err != nil {
 			// difficult to reach, because if all shares are valid, the final signature is valid.
@@ -85,6 +77,23 @@ func (c *Configuration) AggregateSignatures(
 	}
 
 	return signature, nil
+}
+
+func (c *Configuration) sumShares(shares []*SignatureShare, groupCommitment *group.Element) (*Signature, error) {
+	z := group.Group(c.Ciphersuite).NewScalar()
+
+	for _, sigShare := range shares {
+		if err := c.validateSignatureShareLight(sigShare); err != nil {
+			return nil, err
+		}
+
+		z.Add(sigShare.SignatureShare)
+	}
+
+	return &Signature{
+		R: groupCommitment,
+		Z: z,
+	}, nil
 }
 
 // VerifySignatureShare verifies a signature share. sigShare is the signer's signature share to be verified.
@@ -119,7 +128,7 @@ func (c *Configuration) prepareSignatureShareVerification(message []byte,
 		return nil, nil, nil, fmt.Errorf("invalid list of commitments: %w", err)
 	}
 
-	groupCommitment, bindingFactors := commitments.GroupCommitmentAndBindingFactors(c.GroupPublicKey, message)
+	groupCommitment, bindingFactors := commitments.groupCommitmentAndBindingFactors(c.GroupPublicKey, message)
 	participants := commitments.ParticipantsScalar()
 
 	return groupCommitment, bindingFactors, participants, nil

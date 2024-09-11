@@ -19,6 +19,7 @@ import (
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/frost/keys"
 )
 
 func TestConfiguration_Verify_InvalidCiphersuite(t *testing.T) {
@@ -186,7 +187,7 @@ func TestConfiguration_VerifySignerPublicKeys_InvalidNumber(t *testing.T) {
 	}
 
 	// empty
-	configuration.SignerPublicKeyShares = []*frost.PublicKeyShare{}
+	configuration.SignerPublicKeyShares = []*keys.PublicKeyShare{}
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
@@ -200,7 +201,7 @@ func TestConfiguration_VerifySignerPublicKeys_InvalidNumber(t *testing.T) {
 	}
 
 	// too many
-	configuration.SignerPublicKeyShares = append(publicKeyShares, &frost.PublicKeyShare{})
+	configuration.SignerPublicKeyShares = append(publicKeyShares, &keys.PublicKeyShare{})
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
@@ -379,7 +380,7 @@ func TestConfiguration_ValidatePublicKeyShare_WrongGroup(t *testing.T) {
 	}
 	configuration, _ := makeConfAndShares(t, tt)
 
-	pks := &frost.PublicKeyShare{
+	pks := &keys.PublicKeyShare{
 		Group: 0,
 	}
 
@@ -397,7 +398,7 @@ func TestConfiguration_ValidatePublicKeyShare_ID0(t *testing.T) {
 	}
 	configuration, _ := makeConfAndShares(t, tt)
 
-	pks := &frost.PublicKeyShare{
+	pks := &keys.PublicKeyShare{
 		Group: tt.ECGroup(),
 		ID:    0,
 	}
@@ -416,7 +417,7 @@ func TestConfiguration_ValidatePublicKeyShare_InvalidID(t *testing.T) {
 	}
 	configuration, _ := makeConfAndShares(t, tt)
 
-	pks := &frost.PublicKeyShare{
+	pks := &keys.PublicKeyShare{
 		Group: tt.ECGroup(),
 		ID:    tt.maxSigners + 1,
 	}
@@ -435,7 +436,7 @@ func TestConfiguration_ValidatePublicKeyShare_InvalidPublicKey(t *testing.T) {
 	}
 	configuration, _ := makeConfAndShares(t, tt)
 
-	pks := &frost.PublicKeyShare{
+	pks := &keys.PublicKeyShare{
 		Group:     tt.ECGroup(),
 		ID:        1,
 		PublicKey: tt.ECGroup().Base(),
@@ -569,7 +570,7 @@ func TestConfiguration_ValidateKeyShare_SignerIDNotRegistered(t *testing.T) {
 	}
 	configuration, keyShares := makeConfAndShares(t, tt)
 
-	pks := make([]*frost.PublicKeyShare, len(keyShares)-1)
+	pks := make([]*keys.PublicKeyShare, len(keyShares)-1)
 	for i, ks := range keyShares[1:] {
 		pks[i] = ks.Public()
 	}
@@ -591,7 +592,7 @@ func TestConfiguration_ValidateKeyShare_WrongPublicKey(t *testing.T) {
 	configuration, keyShares := makeConfAndShares(t, tt)
 
 	random := tt.ECGroup().NewScalar().Random()
-	keyShare := &frost.KeyShare{
+	keyShare := &keys.KeyShare{
 		Secret:         random,
 		GroupPublicKey: keyShares[0].GroupPublicKey,
 		PublicKeyShare: secretsharing.PublicKeyShare{

@@ -15,8 +15,10 @@ import (
 	"math/big"
 
 	group "github.com/bytemare/crypto"
+	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/frost/keys"
 )
 
 /*
@@ -32,39 +34,16 @@ import (
 	- Chu: https://eprint.iacr.org/2023/899
 	- re-randomize keys: https://eprint.iacr.org/2024/436.pdf
 
-Requirements:
-- group MUST be of prime order
-- threshold <= max
-- max < order
-- identifier is in [1:max] and must be distinct form other ids
-- each participant MUST know the group public key
-- each participant MUST know the pub key of each other
-- network channels must be authenticated (confidentiality is not required)
-- Signers have local secret data
-	- secret key is long term
-	- committed nonces between commitment and signature
-
-- When receiving the commitment list, each elements must be deserialized, and upon error, the signer MUST abort the
-  protocol
-- A signer must check whether their id and commitment appear in the commitment list
-
-- A coordinator aggregates, and then should verify the signature. If signature fails, then check shares.
-
 TODO:
+
+- identifiers, min and max, are uint16
+
 - verify serialize and deserialize functions of messages, scalars, and elements
-
-Notes:
-- Frost is not robust, i.e.
-	- if aggregated signature is not valid, SHOULD abort
-	- misbehaving signers can DOS the protocol by providing wrong sig shares or not contributing
-- Wrong shares can be identified, and with the authenticated channel associated with the signer, which can then be
-denied of further contributions
-- R255 is recommended
-- the coordinator does not not have any secret or private information
-- the coordinator is assumed to behave honestly
-- the coordinator may further hedge against nonce reuse by tracking the nonce commitments used for a given group key
-- for message pre-hashing, see RFC
-
+- add deserialization examples with hardcoded input
+- add versioning to encodings
+- align on serialization of https://frost.zfnd.org/user/serialization.html (good doc)\
+- make a `go run`-able program to generate trusted dealer keys
+- DKG: can derive an identifier from a byte string (e.g. name or email address)
 
 */
 
@@ -72,10 +51,10 @@ denied of further contributions
 type Ciphersuite byte
 
 const (
-	// Ed25519 uses Edwards25519 and SHA-512, producing Ed25519-compliant signatures as specified in RFC8032.
-	Ed25519 = Ciphersuite(group.Edwards25519Sha512)
+	// Default and recommended ciphersuite for FROST.
+	Default = Ristretto255
 
-	// Ristretto255 uses Ristretto255 and SHA-512.
+	// Ristretto255 uses Ristretto255 and SHA-512. This ciphersuite is recommended.
 	Ristretto255 = Ciphersuite(group.Ristretto255Sha512)
 
 	// Ed448 uses Edwards448 and SHAKE256, producing Ed448-compliant signatures as specified in RFC8032.
@@ -89,6 +68,9 @@ const (
 
 	// P521 uses P-521 and SHA-512.
 	P521 = Ciphersuite(group.P521Sha512)
+
+	// Ed25519 uses Edwards25519 and SHA-512, producing Ed25519-compliant signatures as specified in RFC8032.
+	Ed25519 = Ciphersuite(group.Edwards25519Sha512)
 
 	// Secp256k1 uses Secp256k1 and SHA-256.
 	Secp256k1 = Ciphersuite(group.Secp256k1)
@@ -116,7 +98,7 @@ func (c Ciphersuite) ECGroup() group.Group {
 // Configuration holds the Configuration for a signing session.
 type Configuration struct {
 	GroupPublicKey        *group.Element
-	SignerPublicKeyShares []*PublicKeyShare
+	SignerPublicKeyShares []*keys.PublicKeyShare
 	Threshold             uint64
 	MaxSigners            uint64
 	Ciphersuite           Ciphersuite
@@ -131,6 +113,8 @@ var (
 	errInvalidNumberOfPublicKeys = errors.New("invalid number of public keys (lower than threshold or above maximum)")
 )
 
+// Init verifies whether the configuration's components are valid, in which case it initializes internal values, or
+// returns an error otherwise.
 func (c *Configuration) Init() error {
 	if !c.verified {
 		if err := c.verifyConfiguration(); err != nil {
@@ -148,7 +132,7 @@ func (c *Configuration) Init() error {
 }
 
 // Signer returns a new participant of the protocol instantiated from the Configuration and the signer's key share.
-func (c *Configuration) Signer(keyShare *KeyShare) (*Signer, error) {
+func (c *Configuration) Signer(keyShare *keys.KeyShare) (*Signer, error) {
 	if !c.verified || !c.keysVerified {
 		if err := c.Init(); err != nil {
 			return nil, err
@@ -169,7 +153,9 @@ func (c *Configuration) Signer(keyShare *KeyShare) (*Signer, error) {
 	}, nil
 }
 
-func (c *Configuration) ValidatePublicKeyShare(pks *PublicKeyShare) error {
+// ValidatePublicKeyShare returns an error if they PublicKeyShare has invalid components or properties that not
+// compatible with the configuration.
+func (c *Configuration) ValidatePublicKeyShare(pks *keys.PublicKeyShare) error {
 	if !c.verified {
 		if err := c.verifyConfiguration(); err != nil {
 			return err
@@ -195,7 +181,9 @@ func (c *Configuration) ValidatePublicKeyShare(pks *PublicKeyShare) error {
 	return nil
 }
 
-func (c *Configuration) ValidateKeyShare(keyShare *KeyShare) error {
+// ValidateKeyShare returns an error if they KeyShare has invalid components or properties that not compatible with the
+// configuration.
+func (c *Configuration) ValidateKeyShare(keyShare *keys.KeyShare) error {
 	if !c.verified || !c.keysVerified {
 		if err := c.Init(); err != nil {
 			return err
@@ -324,7 +312,7 @@ func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
 func (c *Configuration) validateIdentifier(id uint64) error {
 	switch {
 	case id == 0:
-		return errors.New("identifier is 0")
+		return internal.ErrIdentifierIs0
 	case id > c.MaxSigners:
 		return fmt.Errorf("identifier %d is above authorized range [1:%d]", id, c.MaxSigners)
 	}
@@ -378,4 +366,61 @@ func VerifySignature(c Ciphersuite, message []byte, signature *Signature, public
 	}
 
 	return nil
+}
+
+// NewPublicKeyShare returns a PublicKeyShare from separately encoded key material. To deserialize a byte string
+// produced by the PublicKeyShare.Encode() method, use the PublicKeyShare.Decode() method.
+func NewPublicKeyShare(c Ciphersuite, id uint64, signerPublicKey []byte) (*keys.PublicKeyShare, error) {
+	if !c.Available() {
+		return nil, internal.ErrInvalidCiphersuite
+	}
+
+	if id == 0 {
+		return nil, internal.ErrIdentifierIs0
+	}
+
+	g := c.ECGroup()
+
+	pk := g.NewElement()
+	if err := pk.Decode(signerPublicKey); err != nil {
+		return nil, fmt.Errorf("could not decode public share: %w", err)
+	}
+
+	return &keys.PublicKeyShare{
+		PublicKey:  pk,
+		ID:         id,
+		Group:      g,
+		Commitment: nil,
+	}, nil
+}
+
+// NewKeyShare returns a KeyShare from separately encoded key material. To deserialize a byte string produced by the
+// KeyShare.Encode() method, use the KeyShare.Decode() method.
+func NewKeyShare(
+	c Ciphersuite,
+	id uint64,
+	secretShare, signerPublicKey, groupPublicKey []byte,
+) (*keys.KeyShare, error) {
+	pks, err := NewPublicKeyShare(c, id, signerPublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	g := c.ECGroup()
+
+	s := g.NewScalar()
+	if err = s.Decode(secretShare); err != nil {
+		return nil, fmt.Errorf("could not decode secret share: %w", err)
+	}
+
+	gpk := g.NewElement()
+	if err = gpk.Decode(groupPublicKey); err != nil {
+		return nil, fmt.Errorf("could not decode the group public key: %w", err)
+	}
+
+	return &keys.KeyShare{
+		Secret:         s,
+		GroupPublicKey: gpk,
+		PublicKeyShare: secretsharing.PublicKeyShare(*pks),
+	}, nil
 }

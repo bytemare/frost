@@ -16,6 +16,7 @@ import (
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
+	"github.com/bytemare/frost/keys"
 )
 
 type tableTest struct {
@@ -51,7 +52,7 @@ func runFrost(
 	test *tableTest,
 	threshold, maxSigners uint64,
 	message []byte,
-	keyShares []*frost.KeyShare,
+	keyShares []*keys.KeyShare,
 	groupPublicKey *group.Element,
 ) {
 	// Collect public keys.

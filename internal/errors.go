@@ -19,4 +19,7 @@ var (
 
 	// ErrInvalidLength indicates that a provided encoded data piece is not of the expected length.
 	ErrInvalidLength = errors.New("invalid encoding length")
+
+	// ErrIdentifierIs0 is returned when the invalid 0 identifier is encountered.
+	ErrIdentifierIs0 = errors.New("identifier is 0")
 )

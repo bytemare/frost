@@ -6,7 +6,8 @@
 // LICENSE file in the root directory of this source tree or at
 // https://spdx.org/licenses/MIT.html
 
-package frost
+// Package keys defines the Key structures used in FROST.
+package keys
 
 import (
 	"fmt"

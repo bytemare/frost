@@ -39,7 +39,7 @@ func TestCommitment_Validate_InvalidConfiguration(t *testing.T) {
 }
 
 func TestCommitment_Validate_NilCommitment(t *testing.T) {
-	expectedErrorPrefix := "the commitment list has a nil commitment"
+	expectedErrorPrefix := "the commitment is nil"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
 		threshold:   3,

@@ -22,9 +22,10 @@ import (
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/frost/keys"
 )
 
-func makeConfAndShares(t *testing.T, test *tableTest) (*frost.Configuration, []*frost.KeyShare) {
+func makeConfAndShares(t *testing.T, test *tableTest) (*frost.Configuration, []*keys.KeyShare) {
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
@@ -48,8 +49,8 @@ func makeConf(t *testing.T, test *tableTest) *frost.Configuration {
 	return c
 }
 
-func getPublicKeyShares(keyShares []*frost.KeyShare) []*frost.PublicKeyShare {
-	publicKeyShares := make([]*frost.PublicKeyShare, 0, len(keyShares))
+func getPublicKeyShares(keyShares []*keys.KeyShare) []*keys.PublicKeyShare {
+	publicKeyShares := make([]*keys.PublicKeyShare, 0, len(keyShares))
 	for _, ks := range keyShares {
 		publicKeyShares = append(publicKeyShares, ks.Public())
 	}
@@ -116,7 +117,7 @@ func compareConfigurations(t *testing.T, c1, c2 *frost.Configuration, expectedMa
 	}
 }
 
-func comparePublicKeyShare(p1, p2 *frost.PublicKeyShare) error {
+func comparePublicKeyShare(p1, p2 *keys.PublicKeyShare) error {
 	if p1.PublicKey.Equal(p2.PublicKey) != 1 {
 		return fmt.Errorf("Expected equality on PublicKey:\n\t%s\n\t%s\n", p1.PublicKey.Hex(), p2.PublicKey.Hex())
 	}
@@ -151,7 +152,7 @@ func comparePublicKeyShare(p1, p2 *frost.PublicKeyShare) error {
 	return nil
 }
 
-func compareKeyShares(s1, s2 *frost.KeyShare) error {
+func compareKeyShares(s1, s2 *keys.KeyShare) error {
 	if s1.Secret.Equal(s2.Secret) != 1 {
 		return fmt.Errorf("Expected equality on Secret:\n\t%s\n\t%s\n", s1.Secret.Hex(), s2.Secret.Hex())
 	}
@@ -543,7 +544,7 @@ func TestEncoding_Signer_InvalidLength2(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidLambda(t *testing.T) {
-	expectedErrorPrefix := "failed to decode lambda:"
+	expectedErrorPrefix := "failed to decode lambda registry in signer:"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
@@ -1125,7 +1126,7 @@ func TestEncoding_KeyShare_Bytes(t *testing.T) {
 
 		encoded := keyShare.Encode()
 
-		decoded := new(frost.KeyShare)
+		decoded := new(keys.KeyShare)
 		if err := decoded.Decode(encoded); err != nil {
 			t.Fatal(err)
 		}
@@ -1146,7 +1147,7 @@ func TestEncoding_KeyShare_JSON(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		decoded := new(frost.KeyShare)
+		decoded := new(keys.KeyShare)
 		if err := json.Unmarshal(encoded, decoded); err != nil {
 			t.Fatal(err)
 		}
@@ -1156,7 +1157,7 @@ func TestEncoding_KeyShare_JSON(t *testing.T) {
 		}
 
 		// expect error
-		decoded = new(frost.KeyShare)
+		decoded = new(keys.KeyShare)
 		expectedError := errors.New("invalid group identifier")
 		encoded = replaceStringInBytes(encoded, fmt.Sprintf("\"group\":%d", test.ECGroup()), "\"group\":70")
 
@@ -1173,7 +1174,7 @@ func TestEncoding_PublicKeyShare_Bytes(t *testing.T) {
 
 		encoded := keyShare.Encode()
 
-		decoded := new(frost.PublicKeyShare)
+		decoded := new(keys.PublicKeyShare)
 		if err := decoded.Decode(encoded); err != nil {
 			t.Fatal(err)
 		}
@@ -1194,7 +1195,7 @@ func TestEncoding_PublicKeyShare_JSON(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		decoded := new(frost.PublicKeyShare)
+		decoded := new(keys.PublicKeyShare)
 		if err := json.Unmarshal(encoded, decoded); err != nil {
 			t.Fatal(err)
 		}
@@ -1204,7 +1205,7 @@ func TestEncoding_PublicKeyShare_JSON(t *testing.T) {
 		}
 
 		// expect error
-		decoded = new(frost.PublicKeyShare)
+		decoded = new(keys.PublicKeyShare)
 		expectedError := errors.New("invalid group identifier")
 		encoded = replaceStringInBytes(encoded, fmt.Sprintf("\"group\":%d", test.ECGroup()), "\"group\":70")
 

@@ -14,7 +14,7 @@ import (
 	group "github.com/bytemare/crypto"
 	"github.com/bytemare/dkg"
 
-	"github.com/bytemare/frost"
+	"github.com/bytemare/frost/keys"
 )
 
 func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, maxSigners, threshold uint64) []*dkg.Participant {
@@ -35,7 +35,7 @@ func runDKG(
 	t *testing.T,
 	g group.Group,
 	threshold, maxSigners uint64,
-) ([]*frost.KeyShare, *group.Element, []*group.Element) {
+) ([]*keys.KeyShare, *group.Element, []*group.Element) {
 	c := dkg.Ciphersuite(g)
 
 	// valid r1DataSet set with and without own package
@@ -77,7 +77,7 @@ func runDKG(
 	}
 
 	// Step 4: Finalize and test outputs.
-	keyShares := make([]*frost.KeyShare, 0, maxSigners)
+	keyShares := make([]*keys.KeyShare, 0, maxSigners)
 
 	for _, p := range participants {
 		keyShare, err := p.Finalize(r1, r2[p.Identifier])
@@ -97,7 +97,7 @@ func runDKG(
 			t.Fatal(err)
 		}
 
-		keyShares = append(keyShares, (*frost.KeyShare)(keyShare))
+		keyShares = append(keyShares, (*keys.KeyShare)(keyShare))
 	}
 
 	return keyShares, pubKey, nil

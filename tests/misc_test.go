@@ -20,12 +20,13 @@ import (
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/frost/keys"
 )
 
 func verifyTrustedDealerKeygen(
 	t *testing.T,
 	test *tableTest,
-	ks []*frost.KeyShare,
+	ks []*keys.KeyShare,
 	pk *group.Element,
 	coms []*group.Element,
 ) {
@@ -302,7 +303,7 @@ func TestRecoverPublicKeys_InvalidCiphersuite(t *testing.T) {
 }
 
 func TestRecoverPublicKeys_BadCommitment(t *testing.T) {
-	expectedError := "commitment has nil element"
+	expectedError := "can't recover public keys: commitment has nil element"
 	ciphersuite := frost.Ristretto255
 	threshold := uint64(2)
 	maxSigners := uint64(3)
@@ -335,7 +336,7 @@ func TestPublicKeyShareVerification(t *testing.T) {
 		)
 
 		vssComs := make([][]*group.Element, test.maxSigners)
-		pkShares := make([]*frost.PublicKeyShare, test.maxSigners)
+		pkShares := make([]*keys.PublicKeyShare, test.maxSigners)
 
 		for i, keyShare := range keyShares {
 			pk := keyShare.Public()
@@ -365,7 +366,7 @@ func TestPublicKeyShareVerificationFail(t *testing.T) {
 		)
 
 		vssComs := make([][]*group.Element, test.maxSigners)
-		pkShares := make([]*frost.PublicKeyShare, test.maxSigners)
+		pkShares := make([]*keys.PublicKeyShare, test.maxSigners)
 
 		for i, keyShare := range keyShares {
 			pk := keyShare.Public()

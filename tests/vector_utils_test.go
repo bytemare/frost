@@ -19,6 +19,7 @@ import (
 	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost"
+	"github.com/bytemare/frost/keys"
 )
 
 type ParticipantList []*frost.Signer
@@ -168,7 +169,7 @@ type testInput struct {
 	GroupPublicKey              *group.Element
 	Message                     []byte
 	SharePolynomialCoefficients []*group.Scalar
-	Participants                []*frost.KeyShare
+	Participants                []*keys.KeyShare
 }
 
 type test struct {
@@ -250,7 +251,7 @@ func (i testVectorInput) decode(t *testing.T, g group.Group) *testInput {
 		GroupPublicKey:              decodeElement(t, g, i.GroupPublicKey),
 		Message:                     i.Message,
 		SharePolynomialCoefficients: make([]*group.Scalar, len(i.SharePolynomialCoefficients)+1),
-		Participants:                make([]*frost.KeyShare, len(i.ParticipantShares)),
+		Participants:                make([]*keys.KeyShare, len(i.ParticipantShares)),
 		ParticipantList:             make([]uint64, len(i.ParticipantList)),
 	}
 
@@ -266,7 +267,7 @@ func (i testVectorInput) decode(t *testing.T, g group.Group) *testInput {
 	for j, p := range i.ParticipantShares {
 		secret := decodeScalar(t, g, p.ParticipantShare)
 		public := g.Base().Multiply(secret)
-		input.Participants[j] = &frost.KeyShare{
+		input.Participants[j] = &keys.KeyShare{
 			Secret:         secret,
 			GroupPublicKey: input.GroupPublicKey,
 			PublicKeyShare: secretsharing.PublicKeyShare{
@@ -313,7 +314,7 @@ func (v testVector) decode(t *testing.T) *test {
 	inputs := v.Inputs.decode(t, conf.Ciphersuite.ECGroup())
 
 	conf.GroupPublicKey = inputs.GroupPublicKey
-	conf.SignerPublicKeyShares = make([]*frost.PublicKeyShare, len(inputs.Participants))
+	conf.SignerPublicKeyShares = make([]*keys.PublicKeyShare, len(inputs.Participants))
 
 	for i, ks := range inputs.Participants {
 		conf.SignerPublicKeyShares[i] = ks.Public()

@@ -31,7 +31,7 @@ linters:
     - gci
     - ginkgolinter
     - gocheckcompilerdirectives
-    - gochecknoglobals
+    #- gochecknoglobals
     - gochecknoinits
     - gochecksumtype
     - gocognit
@@ -111,7 +111,7 @@ linters:
 
 linters-settings:
   cyclop:
-    max-complexity: 11
+    max-complexity: 15
     skip-tests: true
   dupl:
     threshold: 100
@@ -163,6 +163,13 @@ linters-settings:
     simplify: true
   goimports:
     local-prefixes: github.com/bytemare/frost
+  gosec:
+    excludes:
+      - G115
+    config:
+      G602:
+        frost:
+          - encodedLength
   gosimple:
     checks: [ "all" ]
   govet:

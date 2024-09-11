@@ -18,6 +18,7 @@ import (
 	group "github.com/bytemare/crypto"
 
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/frost/keys"
 )
 
 const (
@@ -86,8 +87,8 @@ func (c *Configuration) Encode() []byte {
 }
 
 type confHeader struct {
-	g                     group.Group
-	h, t, n, nPks, length uint64
+	g                             group.Group
+	h, t, n, pksLen, nPks, length uint64
 }
 
 func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
@@ -116,6 +117,7 @@ func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
 		h:      25,
 		t:      t,
 		n:      n,
+		pksLen: pksLen,
 		nPks:   nPks,
 		length: length,
 	}, nil
@@ -132,8 +134,7 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	}
 
 	offset := header.h + uint64(header.g.ElementLength())
-	pksLen := encodedLength(encPubKeyShare, header.g, header.t*uint64(header.g.ElementLength()))
-	pks := make([]*PublicKeyShare, header.nPks)
+	pks := make([]*keys.PublicKeyShare, header.nPks)
 
 	conf := &Configuration{
 		Ciphersuite:           Ciphersuite(header.g),
@@ -141,6 +142,9 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 		MaxSigners:            header.n,
 		GroupPublicKey:        gpk,
 		SignerPublicKeyShares: pks,
+		group:                 header.g,
+		verified:              false,
+		keysVerified:          false,
 	}
 
 	if err := conf.verifyConfiguration(); err != nil {
@@ -148,12 +152,12 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	}
 
 	for j := range header.nPks {
-		pk := new(PublicKeyShare)
-		if err := pk.Decode(data[offset : offset+pksLen]); err != nil {
+		pk := new(keys.PublicKeyShare)
+		if err := pk.Decode(data[offset : offset+header.pksLen]); err != nil {
 			return fmt.Errorf("could not decode signer public key share for signer %d: %w", j, err)
 		}
 
-		offset += pksLen
+		offset += header.pksLen
 		pks[j] = pk
 	}
 
@@ -211,7 +215,7 @@ func (s *Signer) Encode() []byte {
 	for k, v := range s.LambdaRegistry {
 		b, err := hex.DecodeString(k)
 		if err != nil {
-			panic(fmt.Sprintf("failed te revert hex encoding to bytes of %s", k))
+			panic("failed te revert hex encoding to bytes of " + k)
 		}
 
 		out = append(out, b...)
@@ -287,7 +291,7 @@ func (s *Signer) Decode(data []byte) error {
 
 	offset := header.length + 6
 
-	keyShare := new(KeyShare)
+	keyShare := new(keys.KeyShare)
 	if err = keyShare.Decode(data[offset : offset+ksLen]); err != nil {
 		return fmt.Errorf("failed to decode key share: %w", err)
 	}
@@ -298,15 +302,17 @@ func (s *Signer) Decode(data []byte) error {
 
 	offset += ksLen
 	stop := offset + nLambdas*lLem
+
 	lambdaRegistry := make(internal.LambdaRegistry, lLem)
 	if err = lambdaRegistry.Decode(g, data[offset:stop]); err != nil {
-		return err
+		return fmt.Errorf("failed to decode lambda registry in signer: %w", err)
 	}
 
 	offset = stop
 	commitments := make(map[uint64]*Nonce)
 	comLen := encodedLength(encCommitment, g)
 	nComLen := encodedLength(encNonceCommitment, g)
+
 	for offset < uint64(len(data)) {
 		id := binary.LittleEndian.Uint64(data[offset : offset+8])
 

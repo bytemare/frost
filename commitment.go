@@ -21,9 +21,13 @@ import (
 )
 
 var (
-	errDecodeCommitmentLength = errors.New("failed to decode commitment: invalid length")
-	errInvalidCiphersuite     = errors.New("ciphersuite not available")
-	errInvalidLength          = errors.New("invalid encoding length")
+	errDecodeCommitmentLength  = errors.New("failed to decode commitment: invalid length")
+	errInvalidCiphersuite      = errors.New("ciphersuite not available")
+	errInvalidLength           = errors.New("invalid encoding length")
+	errCommitmentNil           = errors.New("the commitment is nil")
+	errCommitmentListEmpty     = errors.New("commitment list is empty")
+	errCommitmentListNotSorted = errors.New("commitment list is not sorted by signer identifiers")
+	errCommitmentListHasNil    = errors.New("the commitment list has a nil commitment")
 )
 
 // Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
@@ -113,6 +117,7 @@ func (c CommitmentList) ParticipantsScalar() []*group.Scalar {
 	})
 }
 
+// Encode serializes the CommitmentList into a compact byte encoding.
 func (c CommitmentList) Encode() []byte {
 	n := len(c)
 	if n == 0 {
@@ -132,6 +137,7 @@ func (c CommitmentList) Encode() []byte {
 	return out
 }
 
+// DecodeList decodes a byte string produced by the CommitmentList.Encode() method.
 func DecodeList(data []byte) (CommitmentList, error) {
 	if len(data) < 9 {
 		return nil, errInvalidLength
@@ -164,7 +170,7 @@ func DecodeList(data []byte) (CommitmentList, error) {
 	return c, nil
 }
 
-func (c CommitmentList) GroupCommitmentAndBindingFactors(
+func (c CommitmentList) groupCommitmentAndBindingFactors(
 	publicKey *group.Element,
 	message []byte,
 ) (*group.Element, BindingFactors) {
@@ -255,7 +261,7 @@ func (c *Configuration) ValidateCommitment(commitment *Commitment) error {
 	}
 
 	if commitment == nil {
-		return fmt.Errorf("the commitment list has a nil commitment")
+		return errCommitmentNil
 	}
 
 	if err := c.validateIdentifier(commitment.SignerID); err != nil {
@@ -306,7 +312,7 @@ func (c *Configuration) validateCommitmentListLength(commitments CommitmentList)
 	length := uint64(len(commitments))
 
 	if length == 0 {
-		return fmt.Errorf("commitment list is empty")
+		return errCommitmentListEmpty
 	}
 
 	if length < c.Threshold {
@@ -355,14 +361,23 @@ func (c *Configuration) ValidateCommitmentList(commitments CommitmentList) error
 
 		// List must be sorted, compare with the next commitment.
 		if i <= len(commitments)-2 {
-			if commitments[i+1] == nil {
-				return fmt.Errorf("the commitment list has a nil commitment")
-			}
-
-			if cmpID(commitment, commitments[i+1]) > 0 {
-				return fmt.Errorf("commitment list is not sorted by signer identifiers")
+			if err := compareCommitments(commitment, commitments[i+1]); err != nil {
+				return err
 			}
 		}
+	}
+
+	return nil
+}
+
+func compareCommitments(c1, c2 *Commitment) error {
+	if c2 == nil {
+		return errCommitmentListHasNil
+	}
+
+	// if the current commitment has an id higher than the next one, return error.
+	if cmpID(c1, c2) > 0 {
+		return errCommitmentListNotSorted
 	}
 
 	return nil

@@ -16,6 +16,7 @@ import (
 	group "github.com/bytemare/crypto"
 
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/frost/keys"
 )
 
 // SignatureShare represents a Signer's signature share and its identifier.
@@ -28,7 +29,7 @@ type SignatureShare struct {
 // Signer is a participant in a signing group.
 type Signer struct {
 	// The KeyShare holds the signer's secret and public info, such as keys and identifier.
-	KeyShare *KeyShare
+	KeyShare *keys.KeyShare
 
 	// LambdaRegistry records all interpolating values for the signers for different combinations of participant
 	// groups. Each group makes up a unique polynomial defined by the participants' identifiers. A value will be
@@ -177,11 +178,12 @@ func (s *Signer) VerifyCommitmentList(commitments CommitmentList) error {
 // and nonces are cleared and another call to Sign() with the same Commitment will return an error.
 func (s *Signer) Sign(message []byte, commitments CommitmentList) (*SignatureShare, error) {
 	commitments.Sort()
+
 	if err := s.VerifyCommitmentList(commitments); err != nil {
 		return nil, err
 	}
 
-	groupCommitment, bindingFactors := commitments.GroupCommitmentAndBindingFactors(
+	groupCommitment, bindingFactors := commitments.groupCommitmentAndBindingFactors(
 		s.Configuration.GroupPublicKey,
 		message,
 	)

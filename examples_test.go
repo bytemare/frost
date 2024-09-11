@@ -13,6 +13,7 @@ import (
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
+	"github.com/bytemare/frost/keys"
 )
 
 // Example_signer shows the execution steps of a FROST participant.
@@ -20,7 +21,7 @@ func Example_signer() {
 	maxSigners := uint64(5)
 	threshold := uint64(3)
 	message := []byte("example message")
-	ciphersuite := frost.Ristretto255
+	ciphersuite := frost.Default
 
 	// We assume you already have a pool of participants with distinct non-zero identifiers in [1:maxSingers]
 	// and their signing share.
@@ -33,7 +34,7 @@ func Example_signer() {
 
 	// At key generation, each participant must send their public key share to the coordinator, and the collection must
 	// be broadcast to every participant.
-	publicKeyShares := make([]*frost.PublicKeyShare, len(secretKeyShares))
+	publicKeyShares := make([]*keys.PublicKeyShare, len(secretKeyShares))
 	for i, sk := range secretKeyShares {
 		publicKeyShares[i] = sk.Public()
 	}
@@ -113,7 +114,7 @@ func Example_coordinator() {
 	maxSigners := uint64(5)
 	threshold := uint64(3)
 	message := []byte("example message")
-	ciphersuite := frost.Ristretto255
+	ciphersuite := frost.Default
 
 	// We assume you already have a pool of participants with distinct non-zero identifiers and their signing share.
 	// The following block uses a centralised trusted dealer to do this, but it is strongly recommended to use
@@ -124,7 +125,7 @@ func Example_coordinator() {
 
 	// At key generation, each participant must send their public key share to the coordinator, and the collection must
 	// be broadcast to every participant.
-	publicKeyShares := make([]*frost.PublicKeyShare, len(secretKeyShares))
+	publicKeyShares := make([]*keys.PublicKeyShare, len(secretKeyShares))
 	for i, sk := range secretKeyShares {
 		publicKeyShares[i] = sk.Public()
 	}
@@ -206,4 +207,19 @@ func Example_coordinator() {
 	fmt.Println("Signature is valid.")
 
 	// Output: Signature is valid.
+}
+
+func Example_key_generation() {
+}
+
+func Example_existing_keys() {
+}
+
+// Example_serialization shows how to encode and decode data used in FROST.
+func Example_serialization() {
+	// Private keys and scalars.
+
+	// Public keys and elements.
+
+	// Key shares
 }

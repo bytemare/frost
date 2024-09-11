@@ -20,9 +20,10 @@ import (
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
+	"github.com/bytemare/frost/keys"
 )
 
-func (v test) testTrustedDealer(t *testing.T) ([]*frost.KeyShare, *group.Element) {
+func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *group.Element) {
 	g := v.Config.Ciphersuite.ECGroup()
 
 	keyShares, dealerGroupPubKey, secretsharingCommitment := debug.TrustedDealerKeygen(
