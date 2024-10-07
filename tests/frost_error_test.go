@@ -171,7 +171,7 @@ func TestFrost_NewKeyShare_BadSecretKey(t *testing.T) {
 }
 
 func TestFrost_NewKeyShare_BadPublicKey(t *testing.T) {
-	expectedErrorPrefix := "the signer's public key doesn't match its private key"
+	expectedErrorPrefix := "provided key share has non-matching secret and public keys"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		g := test.Ciphersuite.Group()

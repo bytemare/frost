@@ -81,7 +81,7 @@ easily recovered using the corresponding ```Decode()``` method.
 More generally, to decode an element (or point) in the Ristretto255 group,
 ```go
 import (
-    group "https://github.com/bytemare"
+    "https://github.com/bytemare/ecc"
 )
 
 bytesPublicKey := []byte{1, 2, 3, ...}
@@ -97,7 +97,7 @@ if err := publicKey.Decode(bytesPublicKey); err != nil {
 The same goes for secret keys (or scalars),
 ```go
 import (
-    group "https://github.com/bytemare"
+    "https://github.com/bytemare/ecc"
 )
 
 bytesSecretKey := []byte{1, 2, 3, ...}
