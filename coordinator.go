@@ -78,7 +78,6 @@ func (c *Configuration) AggregateSignatures(
 	// Verify the final signature. Failure is unlikely to happen, as the signature is valid if the signature shares are.
 	if verify {
 		if err = VerifySignature(c.Ciphersuite, message, signature, c.GroupPublicKey); err != nil {
-			// difficult to reach, because if all shares are valid, the final signature is valid.
 			return nil, err
 		}
 	}

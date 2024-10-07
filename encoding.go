@@ -14,13 +14,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
-
 	"github.com/bytemare/ecc"
-	"github.com/bytemare/secret-sharing/keys"
-
+	"github.com/bytemare/ecc/encoding"
 	"github.com/bytemare/frost/internal"
+	"github.com/bytemare/secret-sharing/keys"
 )
 
 const (
@@ -755,44 +752,8 @@ func (s *signatureShadow) init(g ecc.Group) {
 	s.Z = g.NewScalar()
 }
 
-func jsonReGetField(key, s, catch string) (string, error) {
-	r := fmt.Sprintf(`%q:%s`, key, catch)
-	re := regexp.MustCompile(r)
-	matches := re.FindStringSubmatch(s)
-
-	if len(matches) != 2 {
-		return "", internal.ErrEncodingInvalidJSONEncoding
-	}
-
-	return matches[1], nil
-}
-
-// jsonReGetGroup attempts to find the Ciphersuite JSON encoding in s.
-func jsonReGetGroup(s string) (ecc.Group, error) {
-	f, err := jsonReGetField("group", s, `(\w+)`)
-	if err != nil {
-		return 0, err
-	}
-
-	g, err := strconv.Atoi(f)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read Group: %w", err)
-	}
-
-	if g < 0 || g > 63 {
-		return 0, errInvalidCiphersuite
-	}
-
-	c := Ciphersuite(g)
-	if !c.Available() {
-		return 0, errInvalidCiphersuite
-	}
-
-	return ecc.Group(g), nil
-}
-
 func unmarshalJSON(data []byte, target shadowInit) error {
-	g, err := jsonReGetGroup(string(data))
+	g, err := encoding.JSONReGetGroup(string(data))
 	if err != nil {
 		return err
 	}
