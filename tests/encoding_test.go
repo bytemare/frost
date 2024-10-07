@@ -1211,7 +1211,7 @@ func TestEncoding_CommitmentList_Empty(t *testing.T) {
 }
 
 func TestEncoding_CommitmentList_InvalidCiphersuite(t *testing.T) {
-	expectedErrorPrefix := internal.ErrInvalidCiphersuite.Error()
+	expectedErrorPrefix := "failed to decode CommitmentList: " + internal.ErrInvalidCiphersuite.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
@@ -1240,7 +1240,7 @@ func TestEncoding_CommitmentList_InvalidLength_Short(t *testing.T) {
 }
 
 func TestEncoding_CommitmentList_InvalidLength1(t *testing.T) {
-	expectedErrorPrefix := internal.ErrInvalidLength.Error()
+	expectedErrorPrefix := "failed to decode CommitmentList: " + internal.ErrInvalidLength.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
@@ -1259,7 +1259,7 @@ func TestEncoding_CommitmentList_InvalidLength1(t *testing.T) {
 }
 
 func TestEncoding_CommitmentList_InvalidLength2(t *testing.T) {
-	expectedErrorPrefix := internal.ErrInvalidLength.Error()
+	expectedErrorPrefix := "failed to decode CommitmentList: " + internal.ErrInvalidLength.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
@@ -1278,7 +1278,7 @@ func TestEncoding_CommitmentList_InvalidLength2(t *testing.T) {
 }
 
 func TestEncoding_CommitmentList_InvalidCommitment(t *testing.T) {
-	expectedErrorPrefix := "invalid encoding of commitment: failed to decode Commitment: " + internal.ErrInvalidCiphersuite.Error()
+	expectedErrorPrefix := "failed to decode CommitmentList: invalid encoding of commitment: failed to decode Commitment: " + internal.ErrInvalidCiphersuite.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
