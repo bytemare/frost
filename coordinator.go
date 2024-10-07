@@ -41,8 +41,8 @@ func (s *Signature) Clear() {
 // The coordinator should verify this signature using the group public key before publishing or releasing the signature.
 // This aggregate signature will verify if and only if all signature shares are valid. If an invalid share is identified
 // a reasonable approach is to remove the signer from the set of allowed participants in future runs of FROST. If verify
-// is set to true, AggregateSignatures will automatically verify the signature shares and the output signature, and will
-// return an error with the first encountered invalid signature share.
+// is set to true, AggregateSignatures will automatically verify the signature shares, and will return an error on the
+// first encountered invalid signature share
 func (c *Configuration) AggregateSignatures(
 	message []byte,
 	sigShares []*SignatureShare,
@@ -73,13 +73,6 @@ func (c *Configuration) AggregateSignatures(
 	signature, err := c.sumShares(sigShares, groupCommitment)
 	if err != nil {
 		return nil, err
-	}
-
-	// Verify the final signature. Failure is unlikely to happen, as the signature is valid if the signature shares are.
-	if verify {
-		if err = VerifySignature(c.Ciphersuite, message, signature, c.GroupPublicKey); err != nil {
-			return nil, err
-		}
 	}
 
 	return signature, nil

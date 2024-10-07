@@ -755,7 +755,7 @@ func (s *signatureShadow) init(g ecc.Group) {
 func unmarshalJSON(data []byte, target shadowInit) error {
 	g, err := encoding.JSONReGetGroup(string(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("%w", err)
 	}
 
 	target.init(g)
