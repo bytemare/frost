@@ -10,27 +10,26 @@ package frost_test
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
-	group "github.com/bytemare/crypto"
 	"github.com/bytemare/dkg"
+	"github.com/bytemare/ecc"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/keys"
 )
 
 func verifyTrustedDealerKeygen(
 	t *testing.T,
 	test *tableTest,
 	ks []*keys.KeyShare,
-	pk *group.Element,
-	coms []*group.Element,
+	pk *ecc.Element,
+	coms []*ecc.Element,
 ) {
-	if uint64(len(coms)) != test.threshold {
+	if len(coms) != int(test.threshold) {
 		t.Fatalf("%d / %d", len(coms), test.threshold)
 	}
 
@@ -48,15 +47,15 @@ func verifyTrustedDealerKeygen(
 		t.Fatal(err)
 	}
 
-	if uint64(len(participantPublicKeys)) != test.maxSigners {
+	if len(participantPublicKeys) != int(test.maxSigners) {
 		t.Fatal()
 	}
 
-	if groupPublicKey.Equal(pk) != 1 {
+	if !groupPublicKey.Equal(pk) {
 		t.Fatal()
 	}
 
-	g := test.Ciphersuite.ECGroup()
+	g := test.Ciphersuite.Group()
 
 	for i, shareI := range ks {
 		if !debug.VerifyVSS(g, shareI, coms) {
@@ -76,7 +75,7 @@ func verifyTrustedDealerKeygen(
 
 func TestTrustedDealerKeygen(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
-		g := test.Ciphersuite.ECGroup()
+		g := test.Ciphersuite.Group()
 		groupSecretKey := g.NewScalar().Random()
 		keyShares, dealerGroupPubKey, secretsharingCommitment := debug.TrustedDealerKeygen(
 			test.Ciphersuite,
@@ -138,7 +137,7 @@ func TestSchnorrSign(t *testing.T) {
 	message1 := []byte("message-1")
 	message2 := []byte("message-2")
 	testAll(t, func(t *testing.T, test *tableTest) {
-		g := test.ECGroup()
+		g := test.Group()
 		secretKey1 := g.NewScalar().Random()
 		verificationKey1 := g.Base().Multiply(secretKey1)
 		secretKey2 := g.NewScalar().Random()
@@ -164,9 +163,7 @@ func TestSchnorrSign(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = compareSignatures(signature1, signature2, false); err != nil {
-			t.Fatal(err)
-		}
+		compareSignatures(t, signature1, signature2, false)
 
 		// Same key, same message = different signatures
 		signature1, err = debug.Sign(test.Ciphersuite, message1, secretKey1)
@@ -179,9 +176,7 @@ func TestSchnorrSign(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = compareSignatures(signature1, signature2, false); err != nil {
-			t.Fatal(err)
-		}
+		compareSignatures(t, signature1, signature2, false)
 
 		// Same key, same message, same random = same signatures
 		k := g.NewScalar().Random()
@@ -196,15 +191,13 @@ func TestSchnorrSign(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = compareSignatures(signature1, signature2, true); err != nil {
-			t.Fatal(err)
-		}
+		compareSignatures(t, signature1, signature2, true)
 
 		// Same key, same message, explicit different random = same signatures
 		k1 := g.NewScalar().Random()
 		k2 := g.NewScalar().Random()
 
-		if k1.Equal(k2) == 1 {
+		if k1.Equal(k2) {
 			t.Fatal("unexpected equality")
 		}
 
@@ -218,9 +211,7 @@ func TestSchnorrSign(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = compareSignatures(signature1, signature2, false); err != nil {
-			t.Fatal(err)
-		}
+		compareSignatures(t, signature1, signature2, false)
 
 		// Different keys, same message = different signatures
 		signature1, err = debug.Sign(test.Ciphersuite, message1, secretKey1)
@@ -233,9 +224,7 @@ func TestSchnorrSign(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = compareSignatures(signature1, signature2, false); err != nil {
-			t.Fatal(err)
-		}
+		compareSignatures(t, signature1, signature2, false)
 
 		// Different keys, different messages = different signatures
 		signature1, err = debug.Sign(test.Ciphersuite, message1, secretKey1)
@@ -248,9 +237,7 @@ func TestSchnorrSign(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = compareSignatures(signature1, signature2, false); err != nil {
-			t.Fatal(err)
-		}
+		compareSignatures(t, signature1, signature2, false)
 	})
 }
 
@@ -279,7 +266,7 @@ func TestRecoverPublicKeys(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if dealerGroupPubKey.Equal(groupPublicKey) != 1 {
+		if !dealerGroupPubKey.Equal(groupPublicKey) {
 			t.Fatal("expected equality")
 		}
 
@@ -288,7 +275,7 @@ func TestRecoverPublicKeys(t *testing.T) {
 		}
 
 		for i, keyShare := range keyShares {
-			if keyShare.PublicKey.Equal(participantPublicKeys[i]) != 1 {
+			if !keyShare.PublicKey.Equal(participantPublicKeys[i]) {
 				t.Fatal("expected equality")
 			}
 		}
@@ -305,8 +292,8 @@ func TestRecoverPublicKeys_InvalidCiphersuite(t *testing.T) {
 func TestRecoverPublicKeys_BadCommitment(t *testing.T) {
 	expectedError := "can't recover public keys: commitment has nil element"
 	ciphersuite := frost.Ristretto255
-	threshold := uint64(2)
-	maxSigners := uint64(3)
+	threshold := uint16(2)
+	maxSigners := uint16(3)
 	_, _, secretsharingCommitment := debug.TrustedDealerKeygen(
 		ciphersuite,
 		nil,
@@ -330,17 +317,17 @@ func TestPublicKeyShareVerification(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		keyShares, dealerGroupPubKey, _ := runDKG(
 			t,
-			test.Ciphersuite.ECGroup(),
+			test.Ciphersuite.Group(),
 			test.threshold,
 			test.maxSigners,
 		)
 
-		vssComs := make([][]*group.Element, test.maxSigners)
+		vssComs := make([][]*ecc.Element, test.maxSigners)
 		pkShares := make([]*keys.PublicKeyShare, test.maxSigners)
 
 		for i, keyShare := range keyShares {
 			pk := keyShare.Public()
-			vssComs[i] = pk.Commitment
+			vssComs[i] = pk.VssCommitment
 			pkShares[i] = pk
 		}
 
@@ -349,8 +336,8 @@ func TestPublicKeyShareVerification(t *testing.T) {
 		}
 
 		for _, pk := range pkShares {
-			if !pk.Verify(vssComs) {
-				t.Fatal("expected validity")
+			if err := dkg.VerifyPublicKey(dkg.Ciphersuite(test.Ciphersuite), pk.ID, pk.PublicKey, vssComs); err != nil {
+				t.Fatalf("expected validity: %s", err)
 			}
 		}
 	})
@@ -360,18 +347,18 @@ func TestPublicKeyShareVerificationFail(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		keyShares, dealerGroupPubKey, _ := runDKG(
 			t,
-			test.Ciphersuite.ECGroup(),
+			test.Ciphersuite.Group(),
 			test.threshold,
 			test.maxSigners,
 		)
 
-		vssComs := make([][]*group.Element, test.maxSigners)
+		vssComs := make([][]*ecc.Element, test.maxSigners)
 		pkShares := make([]*keys.PublicKeyShare, test.maxSigners)
 
 		for i, keyShare := range keyShares {
 			pk := keyShare.Public()
-			vssComs[i] = pk.Commitment
-			pk.PublicKey = nil
+			vssComs[i] = pk.VssCommitment
+			pk.PublicKey = test.Group().Base()
 			pkShares[i] = pk
 		}
 
@@ -380,7 +367,7 @@ func TestPublicKeyShareVerificationFail(t *testing.T) {
 		}
 
 		for _, pk := range pkShares {
-			if pk.Verify(vssComs) {
+			if dkg.VerifyPublicKey(dkg.Ciphersuite(test.Ciphersuite), pk.ID, pk.PublicKey, vssComs) == nil {
 				t.Fatal("expected invalidity")
 			}
 		}
@@ -389,13 +376,13 @@ func TestPublicKeyShareVerificationFail(t *testing.T) {
 
 func TestLambda_BadID(t *testing.T) {
 	// expectedErrorPrefix := "anomaly in participant identifiers: one of the polynomial's coefficients is zero"
-	g := group.Ristretto255Sha512
-	polynomial := []*group.Scalar{
+	g := ecc.Ristretto255Sha512
+	polynomial := []*ecc.Scalar{
 		g.NewScalar().SetUInt64(1),
 		g.NewScalar().SetUInt64(2),
 		g.NewScalar().SetUInt64(3),
 	}
 
 	// todo : what happens if the participant list is not vetted?
-	fmt.Println(internal.Lambda(g, 4, polynomial).Hex())
+	t.Log(internal.ComputeLambda(g, 4, polynomial).Hex())
 }

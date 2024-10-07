@@ -103,13 +103,19 @@ func TestCommitment_Validate_WrongGroup(t *testing.T) {
 	}
 	configuration, signers := fullSetup(t, tt)
 	com := signers[0].Commit()
-	com.Group = 2
+	commitment := &frost.Commitment{
+		HidingNonceCommitment:  com.HidingNonceCommitment,
+		BindingNonceCommitment: com.BindingNonceCommitment,
+		CommitmentID:           com.CommitmentID,
+		SignerID:               com.SignerID,
+		Group:                  0,
+	}
 	expectedErrorPrefix := fmt.Sprintf(
-		"commitment %d for participant 1 has an unexpected ciphersuite: expected ristretto255_XMD:SHA-512_R255MAP_RO_, got 2",
+		"commitment %d for participant 1 has an unexpected ciphersuite: expected ristretto255_XMD:SHA-512_R255MAP_RO_, got 0",
 		com.CommitmentID,
 	)
 
-	if err := configuration.ValidateCommitment(com); err == nil ||
+	if err := configuration.ValidateCommitment(commitment); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
@@ -144,7 +150,7 @@ func TestCommitment_Validate_BadHidingNonceCommitment(t *testing.T) {
 		com.SignerID,
 	)
 
-	com.HidingNonceCommitment = tt.ECGroup().NewElement()
+	com.HidingNonceCommitment = tt.Group().NewElement()
 	if err := configuration.ValidateCommitment(com); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
@@ -193,7 +199,7 @@ func TestCommitment_Validate_BadBindingNonceCommitment(t *testing.T) {
 		com.SignerID,
 	)
 
-	com.BindingNonceCommitment = tt.ECGroup().NewElement()
+	com.BindingNonceCommitment = tt.Group().NewElement()
 	if err := configuration.ValidateCommitment(com); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)

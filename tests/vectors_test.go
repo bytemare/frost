@@ -16,15 +16,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
-	"github.com/bytemare/frost/keys"
 )
 
-func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *group.Element) {
-	g := v.Config.Ciphersuite.ECGroup()
+func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *ecc.Element) {
+	g := v.Config.Ciphersuite.Group()
 
 	keyShares, dealerGroupPubKey, secretsharingCommitment := debug.TrustedDealerKeygen(
 		v.Config.Ciphersuite,
@@ -33,7 +33,7 @@ func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *group.Element)
 		v.Config.Configuration.MaxSigners,
 		v.Inputs.SharePolynomialCoefficients...)
 
-	if uint64(len(secretsharingCommitment)) != v.Config.Configuration.Threshold {
+	if len(secretsharingCommitment) != int(v.Config.Configuration.Threshold) {
 		t.Fatalf(
 			"%d / %d", len(secretsharingCommitment), v.Config.Configuration.Threshold)
 	}
@@ -44,7 +44,7 @@ func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *group.Element)
 		t.Fatal(err)
 	}
 
-	if recoveredKey.Equal(v.Inputs.GroupSecretKey) != 1 {
+	if !recoveredKey.Equal(v.Inputs.GroupSecretKey) {
 		t.Fatal()
 	}
 
@@ -57,11 +57,11 @@ func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *group.Element)
 		t.Fatal(err)
 	}
 
-	if uint64(len(participantPublicKey)) != v.Config.Configuration.MaxSigners {
+	if len(participantPublicKey) != int(v.Config.Configuration.MaxSigners) {
 		t.Fatal()
 	}
 
-	if groupPublicKey.Equal(dealerGroupPubKey) != 1 {
+	if !groupPublicKey.Equal(dealerGroupPubKey) {
 		t.Fatal()
 	}
 
@@ -81,7 +81,7 @@ func (v test) test(t *testing.T) {
 	cpt := len(keyShares)
 	for _, p := range keyShares {
 		for _, p2 := range v.Inputs.Participants {
-			if p2.Identifier() == p.Identifier() && p2.SecretKey().Equal(p.Secret) == 1 {
+			if p2.Identifier() == p.Identifier() && p2.SecretKey().Equal(p.Secret) {
 				cpt--
 			}
 		}
@@ -126,16 +126,16 @@ func (v test) test(t *testing.T) {
 
 		com := p.Commit()
 
-		if p.NonceCommitments[com.CommitmentID].HidingNonce.Equal(pv.HidingNonce) != 1 {
+		if !p.NonceCommitments[com.CommitmentID].HidingNonce.Equal(pv.HidingNonce) {
 			t.Fatal(i)
 		}
-		if p.NonceCommitments[com.CommitmentID].BindingNonce.Equal(pv.BindingNonce) != 1 {
+		if !p.NonceCommitments[com.CommitmentID].BindingNonce.Equal(pv.BindingNonce) {
 			t.Fatal(i)
 		}
-		if com.HidingNonceCommitment.Equal(pv.HidingNonceCommitment) != 1 {
+		if !com.HidingNonceCommitment.Equal(pv.HidingNonceCommitment) {
 			t.Fatal(i)
 		}
-		if com.BindingNonceCommitment.Equal(pv.BindingNonceCommitment) != 1 {
+		if !com.BindingNonceCommitment.Equal(pv.BindingNonceCommitment) {
 			t.Fatal(i)
 		}
 
@@ -157,7 +157,7 @@ func (v test) test(t *testing.T) {
 		}
 
 		// Check against vector
-		if share.SignatureShare.Equal(sigShares[i].SignatureShare) != 1 {
+		if !share.SignatureShare.Equal(sigShares[i].SignatureShare) {
 			t.Fatalf("%s\n%s\n", share.SignatureShare.Hex(), sigShares[i].SignatureShare.Hex())
 		}
 
@@ -172,7 +172,7 @@ func (v test) test(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !bytes.Equal(sig.Encode(), v.FinalOutput) {
+	if !bytes.Equal(sig.Encode()[1:], v.FinalOutput) {
 		t.Fatal("")
 	}
 

@@ -11,14 +11,16 @@ package frost
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
+	"regexp"
+	"strconv"
 
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/keys"
 )
 
 const (
@@ -30,6 +32,8 @@ const (
 	encNonceCommitment
 	encLambda
 	encCommitment
+
+	errFmt = "%w: %w"
 )
 
 var (
@@ -37,45 +41,66 @@ var (
 		"the threshold in the encoded configuration is higher than the number of maximum participants",
 	)
 	errZeroIdentifier = errors.New("identifier cannot be 0")
+
+	errDecodeConfigurationPrefix  = errors.New("failed to decode Configuration")
+	errDecodeSignerPrefix         = errors.New("failed to decode Signer")
+	errDecodeCommitmentPrefix     = errors.New("failed to decode Commitment")
+	errDecodeSignatureSharePrefix = errors.New("failed to decode SignatureShare")
+	errDecodeSignaturePrefix      = errors.New("failed to decode Signature")
+
+	errDecodeProofR = errors.New("invalid encoding of R proof")
+	errDecodeProofZ = errors.New("invalid encoding of z proof")
 )
 
-func encodedLength(encID byte, g group.Group, other ...uint64) uint64 {
-	eLen := uint64(g.ElementLength())
-	sLen := uint64(g.ScalarLength())
+func encodedLength(encID byte, g ecc.Group, other ...int) (int, int) {
+	eLen := g.ElementLength()
+	sLen := g.ScalarLength()
+	var header, tail int
 
 	switch encID {
 	case encConf:
-		return 1 + 3*8 + eLen + other[0]
+		header = 1 + 3*2       // group, threshold, max, n signer public key shares
+		tail = eLen + other[0] // verification key, signer public key shares
 	case encSigner:
-		_ = other[3]
-		return other[0] + 2 + 2 + 2 + other[1] + other[2] + other[3]
+		_ = other[3]                          // #nosec G602 -- false positive
+		header = other[0] + 6                 // conf length, length key share, n commitments, n lambdas
+		tail = other[1] + other[2] + other[3] // #nosec G602 -- key share, lambdas, nonce commitments
 	case encSigShare:
-		return 1 + 8 + sLen
+		header = 1 + 2 // group, signer id
+		tail = sLen    // signature share
 	case encSig:
-		return eLen + sLen
+		header = 1
+		tail = eLen + sLen // R, z
 	case encPubKeyShare:
-		return 1 + 8 + 4 + eLen + other[0]
+		header = 1 + 2 + 4     // group, signer id, length VSS commitment
+		tail = eLen + other[0] // public key, vss commitment
 	case encNonceCommitment:
-		return 8 + 2*sLen + encodedLength(encCommitment, g)
+		header = 8 // commitment id
+		_, com := encodedLength(encCommitment, g)
+		tail = 2*sLen + com // nonces, commitment
 	case encLambda:
-		return 32 + sLen
+		header = 0
+		tail = 32 + sLen // SHA256 hash of identifier key, lambda
 	case encCommitment:
-		return 1 + 8 + 8 + 2*eLen
+		header = 1 + 8 + 2 // group, commitment ID, signer id
+		tail = 2 * eLen    // nonce commitments
 	default:
 		panic("encoded id not recognized")
 	}
+
+	return header, header + tail
 }
 
 // Encode serializes the Configuration into a compact byte slice.
 func (c *Configuration) Encode() []byte {
-	g := group.Group(c.Ciphersuite)
-	pksLen := encodedLength(encPubKeyShare, g, c.Threshold*uint64(g.ElementLength()))
-	size := encodedLength(encConf, g, uint64(len(c.SignerPublicKeyShares))*pksLen)
-	out := make([]byte, 25, size)
+	g := ecc.Group(c.Ciphersuite)
+	_, pksLen := encodedLength(encPubKeyShare, g, int(c.Threshold)*g.ElementLength())
+	header, size := encodedLength(encConf, g, len(c.SignerPublicKeyShares)*pksLen)
+	out := make([]byte, header, size)
 	out[0] = byte(g)
-	binary.LittleEndian.PutUint64(out[1:9], c.Threshold)
-	binary.LittleEndian.PutUint64(out[9:17], c.MaxSigners)
-	binary.LittleEndian.PutUint64(out[17:25], uint64(len(c.SignerPublicKeyShares)))
+	binary.LittleEndian.PutUint16(out[1:3], c.Threshold)
+	binary.LittleEndian.PutUint16(out[3:5], c.MaxSigners)
+	binary.LittleEndian.PutUint16(out[5:7], uint16(len(c.SignerPublicKeyShares)))
 
 	out = append(out, c.GroupPublicKey.Encode()...)
 
@@ -87,34 +112,34 @@ func (c *Configuration) Encode() []byte {
 }
 
 type confHeader struct {
-	g                             group.Group
-	h, t, n, pksLen, nPks, length uint64
+	g                             ecc.Group
+	h, t, n, pksLen, nPks, length int
 }
 
 func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
-	if len(data) <= 25 {
-		return nil, internal.ErrInvalidLength
+	if len(data) <= 7 {
+		return nil, fmt.Errorf(errFmt, errDecodeConfigurationPrefix, internal.ErrInvalidLength)
 	}
 
 	cs := Ciphersuite(data[0])
 	if !cs.Available() {
-		return nil, internal.ErrInvalidCiphersuite
+		return nil, fmt.Errorf(errFmt, errDecodeConfigurationPrefix, internal.ErrInvalidCiphersuite)
 	}
 
-	g := group.Group(data[0])
-	t := binary.LittleEndian.Uint64(data[1:9])
-	n := binary.LittleEndian.Uint64(data[9:17])
-	nPks := binary.LittleEndian.Uint64(data[17:25])
-	pksLen := encodedLength(encPubKeyShare, g, t*uint64(g.ElementLength()))
-	length := encodedLength(encConf, g, nPks*pksLen)
+	g := ecc.Group(data[0])
+	t := int(binary.LittleEndian.Uint16(data[1:3]))
+	n := int(binary.LittleEndian.Uint16(data[3:5]))
+	nPks := int(binary.LittleEndian.Uint16(data[5:7]))
+	_, pksLen := encodedLength(encPubKeyShare, g, t*g.ElementLength())
+	_, length := encodedLength(encConf, g, nPks*pksLen)
 
 	if t == 0 || t > n {
-		return nil, errInvalidConfigEncoding
+		return nil, fmt.Errorf(errFmt, errDecodeConfigurationPrefix, errInvalidConfigEncoding)
 	}
 
 	return &confHeader{
 		g:      g,
-		h:      25,
+		h:      7,
 		t:      t,
 		n:      n,
 		pksLen: pksLen,
@@ -124,22 +149,22 @@ func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
 }
 
 func (c *Configuration) decode(header *confHeader, data []byte) error {
-	if uint64(len(data)) != header.length {
+	if len(data) != header.length {
 		return internal.ErrInvalidLength
 	}
 
 	gpk := header.g.NewElement()
-	if err := gpk.Decode(data[header.h : header.h+uint64(header.g.ElementLength())]); err != nil {
-		return fmt.Errorf("could not decode group public key: %w", err)
+	if err := gpk.Decode(data[header.h : header.h+header.g.ElementLength()]); err != nil {
+		return fmt.Errorf("%w: could not decode group public key: %w", errDecodeConfigurationPrefix, err)
 	}
 
-	offset := header.h + uint64(header.g.ElementLength())
+	offset := header.h + header.g.ElementLength()
 	pks := make([]*keys.PublicKeyShare, header.nPks)
 
 	conf := &Configuration{
 		Ciphersuite:           Ciphersuite(header.g),
-		Threshold:             header.t,
-		MaxSigners:            header.n,
+		Threshold:             uint16(header.t),
+		MaxSigners:            uint16(header.n),
 		GroupPublicKey:        gpk,
 		SignerPublicKeyShares: pks,
 		group:                 header.g,
@@ -148,13 +173,18 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	}
 
 	if err := conf.verifyConfiguration(); err != nil {
-		return err
+		return fmt.Errorf(errFmt, errDecodeConfigurationPrefix, err)
 	}
 
 	for j := range header.nPks {
 		pk := new(keys.PublicKeyShare)
 		if err := pk.Decode(data[offset : offset+header.pksLen]); err != nil {
-			return fmt.Errorf("could not decode signer public key share for signer %d: %w", j, err)
+			return fmt.Errorf(
+				"%w: could not decode signer public key share for signer %d: %w",
+				errDecodeConfigurationPrefix,
+				j,
+				err,
+			)
 		}
 
 		offset += header.pksLen
@@ -162,7 +192,7 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	}
 
 	if err := conf.verifySignerPublicKeyShares(); err != nil {
-		return err
+		return fmt.Errorf(errFmt, errDecodeConfigurationPrefix, err)
 	}
 
 	c.Ciphersuite = conf.Ciphersuite
@@ -170,7 +200,7 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	c.MaxSigners = conf.MaxSigners
 	c.GroupPublicKey = gpk
 	c.SignerPublicKeyShares = pks
-	c.group = group.Group(conf.Ciphersuite)
+	c.group = ecc.Group(conf.Ciphersuite)
 	c.verified = true
 	c.keysVerified = true
 
@@ -187,23 +217,57 @@ func (c *Configuration) Decode(data []byte) error {
 	return c.decode(header, data)
 }
 
+// Hex returns the hexadecimal representation of the byte encoding returned by Encode().
+func (c *Configuration) Hex() string {
+	return hex.EncodeToString(c.Encode())
+}
+
+// DecodeHex sets s to the decoding of the hex encoded representation returned by Hex().
+func (c *Configuration) DecodeHex(h string) error {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		return fmt.Errorf(errFmt, errDecodeConfigurationPrefix, err)
+	}
+
+	return c.Decode(b)
+}
+
+// UnmarshalJSON decodes data into c, or returns an error.
+func (c *Configuration) UnmarshalJSON(data []byte) error {
+	shadow := new(configurationShadow)
+	if err := unmarshalJSON(data, shadow); err != nil {
+		return fmt.Errorf(errFmt, errDecodeConfigurationPrefix, err)
+	}
+
+	c2 := (*Configuration)(shadow)
+	if err := c2.Init(); err != nil {
+		return fmt.Errorf(errFmt, errDecodeConfigurationPrefix, err)
+	}
+
+	*c = *c2
+
+	return nil
+}
+
 // Encode serializes the client with its long term values, containing its secret share. This is useful for saving state
 // and backup.
 func (s *Signer) Encode() []byte {
-	g := s.KeyShare.Group
+	g := s.KeyShare.Group()
 	keyShare := s.KeyShare.Encode()
 	nCommitments := len(s.NonceCommitments)
 	nLambdas := len(s.LambdaRegistry)
 	conf := s.Configuration.Encode()
-	outLength := encodedLength(
+	_, lambdaLength := encodedLength(encLambda, g)
+	_, ncLength := encodedLength(encNonceCommitment, g)
+	header, size := encodedLength(
 		encSigner,
 		g,
-		uint64(len(conf)),
-		uint64(len(keyShare)),
-		uint64(nLambdas)*encodedLength(encLambda, g),
-		uint64(nCommitments)*encodedLength(encNonceCommitment, g),
+		len(conf),
+		len(keyShare),
+		nLambdas*lambdaLength,
+		nCommitments*ncLength,
 	)
-	out := make([]byte, len(conf)+6, outLength)
+	out := make([]byte, header, size)
 
 	copy(out, conf)
 	binary.LittleEndian.PutUint16(out[len(conf):len(conf)+2], uint16(len(keyShare)))  // key share length
@@ -219,7 +283,7 @@ func (s *Signer) Encode() []byte {
 		}
 
 		out = append(out, b...)
-		out = append(out, v.Encode()...)
+		out = append(out, v.Value.Encode()...)
 	}
 
 	for id, com := range s.NonceCommitments {
@@ -232,9 +296,9 @@ func (s *Signer) Encode() []byte {
 	return out
 }
 
-func (n *Nonce) decode(g group.Group, id, comLen uint64, data []byte) error {
-	sLen := uint64(g.ScalarLength())
-	offset := uint64(g.ScalarLength())
+func (n *Nonce) decode(g ecc.Group, id uint64, comLen int, data []byte) error {
+	sLen := g.ScalarLength()
+	offset := g.ScalarLength()
 
 	hn := g.NewScalar()
 	if err := hn.Decode(data[:offset]); err != nil {
@@ -260,44 +324,62 @@ func (n *Nonce) decode(g group.Group, id, comLen uint64, data []byte) error {
 	return nil
 }
 
+func (n *Nonce) populate(ns *nonceShadow) {
+	n.HidingNonce = ns.HidingNonce
+	n.BindingNonce = ns.BindingNonce
+	n.Commitment = (*Commitment)(ns.commitmentShadow)
+}
+
+// UnmarshalJSON decodes data into n, or returns an error.
+func (n *Nonce) UnmarshalJSON(data []byte) error {
+	shadow := new(nonceShadow)
+	if err := unmarshalJSON(data, shadow); err != nil {
+		return fmt.Errorf(errFmt, errDecodeCommitmentPrefix, err)
+	}
+
+	n.populate(shadow)
+
+	return nil
+}
+
 // Decode attempts to deserialize the encoded backup data into the Signer.
 func (s *Signer) Decode(data []byte) error {
 	conf := new(Configuration)
 
 	header, err := conf.decodeHeader(data)
 	if err != nil {
-		return err
+		return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
 	}
 
 	if err = conf.decode(header, data[:header.length]); err != nil {
-		return err
+		return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
 	}
 
-	if uint64(len(data)) <= header.length+6 {
-		return internal.ErrInvalidLength
+	if len(data) <= header.length+6 {
+		return fmt.Errorf(errFmt, errDecodeSignerPrefix, errInvalidLength)
 	}
 
-	ksLen := uint64(binary.LittleEndian.Uint16(data[header.length : header.length+2]))
-	nCommitments := uint64(binary.LittleEndian.Uint16(data[header.length+2 : header.length+4]))
-	nLambdas := uint64(binary.LittleEndian.Uint16(data[header.length+4 : header.length+6]))
+	ksLen := int(binary.LittleEndian.Uint16(data[header.length : header.length+2]))
+	nCommitments := int(binary.LittleEndian.Uint16(data[header.length+2 : header.length+4]))
+	nLambdas := int(binary.LittleEndian.Uint16(data[header.length+4 : header.length+6]))
 	g := conf.group
-	nLen := encodedLength(encNonceCommitment, g)
-	lLem := encodedLength(encLambda, g)
+	_, nLen := encodedLength(encNonceCommitment, g)
+	_, lLem := encodedLength(encLambda, g)
 
-	length := encodedLength(encSigner, g, header.length, ksLen, nCommitments*nLen, nLambdas*lLem)
-	if uint64(len(data)) != length {
-		return internal.ErrInvalidLength
+	_, length := encodedLength(encSigner, g, header.length, ksLen, nCommitments*nLen, nLambdas*lLem)
+	if len(data) != length {
+		return fmt.Errorf(errFmt, errDecodeSignerPrefix, errInvalidLength)
 	}
 
 	offset := header.length + 6
 
 	keyShare := new(keys.KeyShare)
 	if err = keyShare.Decode(data[offset : offset+ksLen]); err != nil {
-		return fmt.Errorf("failed to decode key share: %w", err)
+		return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
 	}
 
 	if err = conf.ValidateKeyShare(keyShare); err != nil {
-		return fmt.Errorf("invalid key share: %w", err)
+		return fmt.Errorf("%w: invalid key share: %w", errDecodeSignerPrefix, err)
 	}
 
 	offset += ksLen
@@ -305,24 +387,25 @@ func (s *Signer) Decode(data []byte) error {
 
 	lambdaRegistry := make(internal.LambdaRegistry, lLem)
 	if err = lambdaRegistry.Decode(g, data[offset:stop]); err != nil {
-		return fmt.Errorf("failed to decode lambda registry in signer: %w", err)
+		return fmt.Errorf("%w: failed to decode lambda registry in signer: %w", errDecodeSignerPrefix, err)
 	}
 
 	offset = stop
 	commitments := make(map[uint64]*Nonce)
-	comLen := encodedLength(encCommitment, g)
-	nComLen := encodedLength(encNonceCommitment, g)
+	_, comLen := encodedLength(encCommitment, g)
+	_, nComLen := encodedLength(encNonceCommitment, g)
 
-	for offset < uint64(len(data)) {
+	for offset < len(data) {
+		// commitment ID
 		id := binary.LittleEndian.Uint64(data[offset : offset+8])
 
 		if _, exists := commitments[id]; exists {
-			return fmt.Errorf("multiple encoded commitments with the same id: %d", id)
+			return fmt.Errorf("%w: multiple encoded commitments with the same id: %d", errDecodeSignerPrefix, id)
 		}
 
 		n := new(Nonce)
 		if err = n.decode(g, id, comLen, data[offset+8:]); err != nil {
-			return err
+			return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
 		}
 
 		commitments[id] = n
@@ -337,15 +420,43 @@ func (s *Signer) Decode(data []byte) error {
 	return nil
 }
 
+// Hex returns the hexadecimal representation of the byte encoding returned by Encode().
+func (s *Signer) Hex() string {
+	return hex.EncodeToString(s.Encode())
+}
+
+// DecodeHex sets s to the decoding of the hex encoded representation returned by Hex().
+func (s *Signer) DecodeHex(h string) error {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
+	}
+
+	return s.Decode(b)
+}
+
+// UnmarshalJSON decodes data into s, or returns an error.
+func (s *Signer) UnmarshalJSON(data []byte) error {
+	shadow := new(signerShadow)
+	if err := unmarshalJSON(data, shadow); err != nil {
+		return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
+	}
+
+	*s = Signer(*shadow)
+
+	return nil
+}
+
 // Encode returns the serialized byte encoding of a participant's commitment.
 func (c *Commitment) Encode() []byte {
 	hNonce := c.HidingNonceCommitment.Encode()
 	bNonce := c.BindingNonceCommitment.Encode()
 
-	out := make([]byte, 17, encodedLength(encCommitment, c.Group))
+	header, size := encodedLength(encCommitment, c.Group)
+	out := make([]byte, header, size)
 	out[0] = byte(c.Group)
 	binary.LittleEndian.PutUint64(out[1:9], c.CommitmentID)
-	binary.LittleEndian.PutUint64(out[9:17], c.SignerID)
+	binary.LittleEndian.PutUint16(out[9:11], c.SignerID)
 	out = append(out, hNonce...)
 	out = append(out, bNonce...)
 
@@ -354,38 +465,39 @@ func (c *Commitment) Encode() []byte {
 
 // Decode attempts to deserialize the encoded commitment given as input, and to return it.
 func (c *Commitment) Decode(data []byte) error {
-	if len(data) < 17 {
-		return errDecodeCommitmentLength
+	if len(data) < 11 {
+		return fmt.Errorf(errFmt, errDecodeCommitmentPrefix, errInvalidLength)
 	}
 
-	g := group.Group(data[0])
+	g := ecc.Group(data[0])
 	if !g.Available() {
-		return errInvalidCiphersuite
+		return fmt.Errorf(errFmt, errDecodeCommitmentPrefix, errInvalidCiphersuite)
 	}
 
-	if uint64(len(data)) != encodedLength(encCommitment, g) {
-		return errDecodeCommitmentLength
+	_, size := encodedLength(encCommitment, g)
+	if len(data) != size {
+		return fmt.Errorf(errFmt, errDecodeCommitmentPrefix, errInvalidLength)
 	}
 
 	cID := binary.LittleEndian.Uint64(data[1:9])
 
-	pID := binary.LittleEndian.Uint64(data[9:17])
+	pID := binary.LittleEndian.Uint16(data[9:11])
 	if pID == 0 {
-		return errZeroIdentifier
+		return fmt.Errorf(errFmt, errDecodeCommitmentPrefix, errZeroIdentifier)
 	}
 
-	offset := 17
+	offset := 11
 
 	hn := g.NewElement()
 	if err := hn.Decode(data[offset : offset+g.ElementLength()]); err != nil {
-		return fmt.Errorf("invalid encoding of hiding nonce commitment: %w", err)
+		return fmt.Errorf("%w: invalid encoding of hiding nonce commitment: %w", errDecodeCommitmentPrefix, err)
 	}
 
 	offset += g.ElementLength()
 
 	bn := g.NewElement()
 	if err := bn.Decode(data[offset : offset+g.ElementLength()]); err != nil {
-		return fmt.Errorf("invalid encoding of binding nonce commitment: %w", err)
+		return fmt.Errorf("%w: invalid encoding of binding nonce commitment: %w", errDecodeCommitmentPrefix, err)
 	}
 
 	c.Group = g
@@ -397,14 +509,42 @@ func (c *Commitment) Decode(data []byte) error {
 	return nil
 }
 
+// Hex returns the hexadecimal representation of the byte encoding returned by Encode().
+func (c *Commitment) Hex() string {
+	return hex.EncodeToString(c.Encode())
+}
+
+// DecodeHex sets s to the decoding of the hex encoded representation returned by Hex().
+func (c *Commitment) DecodeHex(h string) error {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		return fmt.Errorf(errFmt, errDecodeCommitmentPrefix, err)
+	}
+
+	return c.Decode(b)
+}
+
+// UnmarshalJSON decodes data into c, or returns an error.
+func (c *Commitment) UnmarshalJSON(data []byte) error {
+	shadow := new(commitmentShadow)
+	if err := unmarshalJSON(data, shadow); err != nil {
+		return fmt.Errorf(errFmt, errDecodeCommitmentPrefix, err)
+	}
+
+	*c = Commitment(*shadow)
+
+	return nil
+}
+
 // Encode returns a compact byte encoding of the signature share.
 func (s *SignatureShare) Encode() []byte {
 	share := s.SignatureShare.Encode()
 
-	out := make([]byte, encodedLength(encSigShare, s.Group))
+	_, size := encodedLength(encSigShare, s.Group)
+	out := make([]byte, size)
 	out[0] = byte(s.Group)
-	binary.LittleEndian.PutUint64(out[1:9], s.SignerIdentifier)
-	copy(out[9:], share)
+	binary.LittleEndian.PutUint16(out[1:3], s.SignerIdentifier)
+	copy(out[3:], share)
 
 	return out
 }
@@ -412,28 +552,29 @@ func (s *SignatureShare) Encode() []byte {
 // Decode takes a byte string and attempts to decode it to return the signature share.
 func (s *SignatureShare) Decode(data []byte) error {
 	if len(data) < 1 {
-		return internal.ErrInvalidLength
+		return fmt.Errorf(errFmt, errDecodeSignatureSharePrefix, errInvalidLength)
 	}
 
 	c := Ciphersuite(data[0])
 
-	g := c.ECGroup()
+	g := c.Group()
 	if g == 0 {
-		return internal.ErrInvalidCiphersuite
+		return fmt.Errorf(errFmt, errDecodeSignatureSharePrefix, errInvalidCiphersuite)
 	}
 
-	if uint64(len(data)) != encodedLength(encSigShare, g) {
-		return internal.ErrInvalidLength
+	_, size := encodedLength(encSigShare, g)
+	if len(data) != size {
+		return fmt.Errorf(errFmt, errDecodeSignatureSharePrefix, errInvalidLength)
 	}
 
-	id := binary.LittleEndian.Uint64(data[1:9])
+	id := binary.LittleEndian.Uint16(data[1:3])
 	if id == 0 {
-		return errZeroIdentifier
+		return fmt.Errorf(errFmt, errDecodeSignatureSharePrefix, errZeroIdentifier)
 	}
 
 	share := g.NewScalar()
-	if err := share.Decode(data[9:]); err != nil {
-		return fmt.Errorf("failed to decode signature share: %w", err)
+	if err := share.Decode(data[3:]); err != nil {
+		return fmt.Errorf(errFmt, errDecodeSignatureSharePrefix, err)
 	}
 
 	s.Group = g
@@ -443,36 +584,223 @@ func (s *SignatureShare) Decode(data []byte) error {
 	return nil
 }
 
-// Encode serializes the signature into a byte string.
-func (s *Signature) Encode() []byte {
-	r := s.R.Encode()
-	z := s.Z.Encode()
-	r = slices.Grow(r, len(z))
-
-	return append(r, z...)
+// Hex returns the hexadecimal representation of the byte encoding returned by Encode().
+func (s *SignatureShare) Hex() string {
+	return hex.EncodeToString(s.Encode())
 }
 
-// Decode attempts to deserialize the encoded input into the signature in the group.
-func (s *Signature) Decode(c Ciphersuite, data []byte) error {
-	g := c.ECGroup()
-	if g == 0 {
-		return internal.ErrInvalidCiphersuite
+// DecodeHex sets s to the decoding of the hex encoded representation returned by Hex().
+func (s *SignatureShare) DecodeHex(h string) error {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		return fmt.Errorf(errFmt, errDecodeSignatureSharePrefix, err)
 	}
 
-	eLen := g.ElementLength()
+	return s.Decode(b)
+}
 
-	if uint64(len(data)) != encodedLength(encSig, g) {
-		return internal.ErrInvalidLength
+// UnmarshalJSON decodes data into s, or returns an error.
+func (s *SignatureShare) UnmarshalJSON(data []byte) error {
+	shadow := new(signatureShareShadow)
+	if err := unmarshalJSON(data, shadow); err != nil {
+		return fmt.Errorf(errFmt, errDecodeSignatureSharePrefix, err)
 	}
 
+	*s = SignatureShare(*shadow)
+
+	return nil
+}
+
+// Encode serializes the signature into a byte string.
+func (s *Signature) Encode() []byte {
+	h, l := encodedLength(encSig, s.Group)
+	out := make([]byte, h, l)
+	out[0] = byte(s.Group)
+	out = append(out, s.R.Encode()...)
+	out = append(out, s.Z.Encode()...)
+
+	return out
+}
+
+// Decode deserializes the compact encoding obtained from Encode(), or returns an error.
+func (s *Signature) Decode(data []byte) error {
+	if len(data) <= 1 {
+		return fmt.Errorf(errFmt, errDecodeSignaturePrefix, errInvalidLength)
+	}
+
+	if !Ciphersuite(data[0]).Available() {
+		return fmt.Errorf(errFmt, errDecodeSignaturePrefix, errInvalidCiphersuite)
+	}
+
+	g := ecc.Group(data[0])
+	_, expectedLength := encodedLength(encSig, g)
+
+	if len(data) != expectedLength {
+		return fmt.Errorf(errFmt, errDecodeSignaturePrefix, errInvalidLength)
+	}
+
+	r := g.NewElement()
+	if err := r.Decode(data[1 : 1+g.ElementLength()]); err != nil {
+		return fmt.Errorf("%w: %w: %w", errDecodeSignaturePrefix, errDecodeProofR, err)
+	}
+
+	z := g.NewScalar()
+	if err := z.Decode(data[1+g.ElementLength():]); err != nil {
+		return fmt.Errorf("%w: %w: %w", errDecodeSignaturePrefix, errDecodeProofZ, err)
+	}
+
+	s.Group = g
+	s.R = r
+	s.Z = z
+
+	return nil
+}
+
+// Hex returns the hexadecimal representation of the byte encoding returned by Encode().
+func (s *Signature) Hex() string {
+	return hex.EncodeToString(s.Encode())
+}
+
+// DecodeHex sets s to the decoding of the hex encoded representation returned by Hex().
+func (s *Signature) DecodeHex(h string) error {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		return fmt.Errorf(errFmt, errDecodeSignaturePrefix, err)
+	}
+
+	return s.Decode(b)
+}
+
+// UnmarshalJSON decodes data into s, or returns an error.
+func (s *Signature) UnmarshalJSON(data []byte) error {
+	shadow := new(signatureShadow)
+	if err := unmarshalJSON(data, shadow); err != nil {
+		return fmt.Errorf(errFmt, errDecodeSignaturePrefix, err)
+	}
+
+	*s = Signature(*shadow)
+
+	return nil
+}
+
+// decoding helpers
+
+type shadowInit interface {
+	init(g ecc.Group)
+}
+
+type configurationShadow Configuration
+
+func (c *configurationShadow) init(g ecc.Group) {
+	c.GroupPublicKey = g.NewElement()
+}
+
+type signerShadow Signer
+
+func (s *signerShadow) init(g ecc.Group) {
+	s.KeyShare = &keys.KeyShare{
+		Secret:         g.NewScalar(),
+		GroupPublicKey: g.NewElement(),
+		PublicKeyShare: keys.PublicKeyShare{
+			PublicKey:     g.NewElement(),
+			VssCommitment: nil,
+			ID:            0,
+			Group:         g,
+		},
+	}
+	s.Configuration = &Configuration{
+		GroupPublicKey:        g.NewElement(),
+		SignerPublicKeyShares: nil,
+		Threshold:             0,
+		MaxSigners:            0,
+		Ciphersuite:           0,
+		group:                 0,
+		verified:              false,
+		keysVerified:          false,
+	}
+	s.NonceCommitments = make(map[uint64]*Nonce)
+}
+
+type nonceShadow struct {
+	HidingNonce       *ecc.Scalar `json:"hidingNonce"`
+	BindingNonce      *ecc.Scalar `json:"bindingNonce"`
+	*commitmentShadow `json:"commitment"`
+}
+
+func (n *nonceShadow) init(g ecc.Group) {
+	n.HidingNonce = g.NewScalar()
+	n.BindingNonce = g.NewScalar()
+	n.commitmentShadow = new(commitmentShadow)
+	n.commitmentShadow.init(g)
+}
+
+type commitmentShadow Commitment
+
+func (c *commitmentShadow) init(g ecc.Group) {
+	c.HidingNonceCommitment = g.NewElement()
+	c.BindingNonceCommitment = g.NewElement()
+	c.Group = g
+}
+
+type signatureShareShadow SignatureShare
+
+func (s *signatureShareShadow) init(g ecc.Group) {
+	s.SignatureShare = g.NewScalar()
+}
+
+type signatureShadow Signature
+
+func (s *signatureShadow) init(g ecc.Group) {
 	s.R = g.NewElement()
-	if err := s.R.Decode(data[:eLen]); err != nil {
-		return fmt.Errorf("invalid signature - decoding R: %w", err)
+	s.Z = g.NewScalar()
+}
+
+func jsonReGetField(key, s, catch string) (string, error) {
+	r := fmt.Sprintf(`%q:%s`, key, catch)
+	re := regexp.MustCompile(r)
+	matches := re.FindStringSubmatch(s)
+
+	if len(matches) != 2 {
+		return "", internal.ErrEncodingInvalidJSONEncoding
 	}
 
-	s.Z = g.NewScalar()
-	if err := s.Z.Decode(data[eLen:]); err != nil {
-		return fmt.Errorf("invalid signature - decoding Z: %w", err)
+	return matches[1], nil
+}
+
+// jsonReGetGroup attempts to find the Ciphersuite JSON encoding in s.
+func jsonReGetGroup(s string) (ecc.Group, error) {
+	f, err := jsonReGetField("group", s, `(\w+)`)
+	if err != nil {
+		return 0, err
+	}
+
+	g, err := strconv.Atoi(f)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read Group: %w", err)
+	}
+
+	if g < 0 || g > 63 {
+		return 0, errInvalidCiphersuite
+	}
+
+	c := Ciphersuite(g)
+	if !c.Available() {
+		return 0, errInvalidCiphersuite
+	}
+
+	return ecc.Group(g), nil
+}
+
+func unmarshalJSON(data []byte, target shadowInit) error {
+	g, err := jsonReGetGroup(string(data))
+	if err != nil {
+		return err
+	}
+
+	target.init(g)
+
+	if err = json.Unmarshal(data, target); err != nil {
+		return fmt.Errorf("%w", err)
 	}
 
 	return nil

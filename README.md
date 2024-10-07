@@ -86,7 +86,7 @@ import (
 
 bytesPublicKey := []byte{1, 2, 3, ...}
 
-g := group.Ristretto255Sha512
+g := ecc.Ristretto255Sha512
 
 publicKey := g.NewElement()
 if err := publicKey.Decode(bytesPublicKey); err != nil {
@@ -102,7 +102,7 @@ import (
 
 bytesSecretKey := []byte{1, 2, 3, ...}
 
-g := group.Ristretto255Sha512
+g := ecc.Ristretto255Sha512
 
 secretKey := g.NewScalar()
 if err := secretKey.Decode(bytesSecretKey); err != nil {

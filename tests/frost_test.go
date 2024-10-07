@@ -12,16 +12,16 @@ import (
 	"fmt"
 	"testing"
 
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
-	"github.com/bytemare/frost/keys"
 )
 
 type tableTest struct {
 	frost.Ciphersuite
-	threshold, maxSigners uint64
+	threshold, maxSigners uint16
 }
 
 var testTable = []tableTest{
@@ -41,6 +41,16 @@ var testTable = []tableTest{
 		maxSigners:  3,
 	},
 	{
+		Ciphersuite: frost.P384,
+		threshold:   2,
+		maxSigners:  3,
+	},
+	{
+		Ciphersuite: frost.P521,
+		threshold:   2,
+		maxSigners:  3,
+	},
+	{
 		Ciphersuite: frost.Secp256k1,
 		threshold:   2,
 		maxSigners:  3,
@@ -50,10 +60,10 @@ var testTable = []tableTest{
 func runFrost(
 	t *testing.T,
 	test *tableTest,
-	threshold, maxSigners uint64,
+	threshold, maxSigners uint16,
 	message []byte,
 	keyShares []*keys.KeyShare,
-	groupPublicKey *group.Element,
+	groupPublicKey *ecc.Element,
 ) {
 	// Collect public keys.
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -126,7 +136,7 @@ func TestFrost_WithTrustedDealer(t *testing.T) {
 	message := []byte("test")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		g := test.Ciphersuite.ECGroup()
+		g := test.Ciphersuite.Group()
 		sk := g.NewScalar().Random()
 		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, sk, test.threshold, test.maxSigners)
 		runFrost(t, test, test.threshold, test.maxSigners, message, keyShares, groupPublicKey)
@@ -137,7 +147,7 @@ func TestFrost_WithDKG(t *testing.T) {
 	message := []byte("test")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		g := test.Ciphersuite.ECGroup()
+		g := test.Ciphersuite.Group()
 		keyShares, groupPublicKey, _ := runDKG(t, g, test.threshold, test.maxSigners)
 		runFrost(t, test, test.threshold, test.maxSigners, message, keyShares, groupPublicKey)
 	})
@@ -145,7 +155,7 @@ func TestFrost_WithDKG(t *testing.T) {
 
 func testAll(t *testing.T, f func(*testing.T, *tableTest)) {
 	for _, test := range testTable {
-		t.Run(fmt.Sprintf("%s", test.ECGroup()), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s", test.Group()), func(t *testing.T) {
 			f(t, &test)
 		})
 	}

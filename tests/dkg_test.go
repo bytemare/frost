@@ -11,16 +11,15 @@ package frost_test
 import (
 	"testing"
 
-	group "github.com/bytemare/crypto"
 	"github.com/bytemare/dkg"
-
-	"github.com/bytemare/frost/keys"
+	"github.com/bytemare/ecc"
+	"github.com/bytemare/secret-sharing/keys"
 )
 
-func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, maxSigners, threshold uint64) []*dkg.Participant {
+func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, threshold, maxSigners uint16) []*dkg.Participant {
 	ps := make([]*dkg.Participant, 0, maxSigners)
 	for i := range maxSigners {
-		p, err := ciphersuite.NewParticipant(i+1, uint(maxSigners), uint(threshold))
+		p, err := ciphersuite.NewParticipant(i+1, threshold, maxSigners)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -33,15 +32,15 @@ func dkgMakeParticipants(t *testing.T, ciphersuite dkg.Ciphersuite, maxSigners, 
 
 func runDKG(
 	t *testing.T,
-	g group.Group,
-	threshold, maxSigners uint64,
-) ([]*keys.KeyShare, *group.Element, []*group.Element) {
+	g ecc.Group,
+	threshold, maxSigners uint16,
+) ([]*keys.KeyShare, *ecc.Element, []*ecc.Element) {
 	c := dkg.Ciphersuite(g)
 
 	// valid r1DataSet set with and without own package
-	participants := dkgMakeParticipants(t, c, maxSigners, threshold)
+	participants := dkgMakeParticipants(t, c, threshold, maxSigners)
 	r1 := make([]*dkg.Round1Data, maxSigners)
-	commitments := make([][]*group.Element, maxSigners)
+	commitments := make([][]*ecc.Element, maxSigners)
 
 	// Step 1: Start and assemble packages.
 	for i := range maxSigners {
@@ -55,7 +54,7 @@ func runDKG(
 	}
 
 	// Step 2: Continue and assemble + triage packages.
-	r2 := make(map[uint64][]*dkg.Round2Data, maxSigners)
+	r2 := make(map[uint16][]*dkg.Round2Data, maxSigners)
 	for i := range maxSigners {
 		r, err := participants[i].Continue(r1)
 		if err != nil {
@@ -85,11 +84,15 @@ func runDKG(
 			t.Fatal()
 		}
 
-		if keyShare.GroupPublicKey.Equal(pubKey) != 1 {
-			t.Fatalf("expected same public key")
+		//if !secretsharing.VerifyPublicKeyShare(keyShare.Public()) {
+		//	t.Fatal("expected validity")
+		//}
+
+		if !keyShare.GroupPublicKey.Equal(pubKey) {
+			t.Fatal("expected same public key")
 		}
 
-		if keyShare.PublicKey.Equal(g.Base().Multiply(keyShare.SecretKey())) != 1 {
+		if !keyShare.PublicKey.Equal(g.Base().Multiply(keyShare.SecretKey())) {
 			t.Fatal("expected equality")
 		}
 
@@ -97,7 +100,7 @@ func runDKG(
 			t.Fatal(err)
 		}
 
-		keyShares = append(keyShares, (*keys.KeyShare)(keyShare))
+		keyShares = append(keyShares, keyShare)
 	}
 
 	return keyShares, pubKey, nil

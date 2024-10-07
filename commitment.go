@@ -14,14 +14,13 @@ import (
 	"fmt"
 	"slices"
 
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
 	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
 )
 
 var (
-	errDecodeCommitmentLength  = errors.New("failed to decode commitment: invalid length")
 	errInvalidCiphersuite      = errors.New("ciphersuite not available")
 	errInvalidLength           = errors.New("invalid encoding length")
 	errCommitmentNil           = errors.New("the commitment is nil")
@@ -32,11 +31,11 @@ var (
 
 // Commitment is a participant's one-time commitment holding its identifier, and hiding and binding nonces.
 type Commitment struct {
-	HidingNonceCommitment  *group.Element
-	BindingNonceCommitment *group.Element
-	CommitmentID           uint64
-	SignerID               uint64
-	Group                  group.Group
+	HidingNonceCommitment  *ecc.Element `json:"hidingNonceCommitment"`
+	BindingNonceCommitment *ecc.Element `json:"bindingNonceCommitment"`
+	CommitmentID           uint64       `json:"commitmentId"`
+	SignerID               uint16       `json:"signerId"`
+	Group                  ecc.Group    `json:"group"`
 }
 
 // Copy returns a new Commitment struct populated with the same values as the receiver.
@@ -79,7 +78,7 @@ func (c CommitmentList) IsSorted() bool {
 }
 
 // Get returns the commitment of the participant with the corresponding identifier, or nil if it was not found.
-func (c CommitmentList) Get(identifier uint64) *Commitment {
+func (c CommitmentList) Get(identifier uint16) *Commitment {
 	for _, com := range c {
 		if com.SignerID == identifier {
 			return com
@@ -90,8 +89,8 @@ func (c CommitmentList) Get(identifier uint64) *Commitment {
 }
 
 // Participants returns the uint64 list of participant identifiers in the list.
-func (c CommitmentList) Participants() []uint64 {
-	out := make([]uint64, len(c))
+func (c CommitmentList) Participants() []uint16 {
+	out := make([]uint16, len(c))
 
 	for i, com := range c {
 		out[i] = com.SignerID
@@ -100,8 +99,8 @@ func (c CommitmentList) Participants() []uint64 {
 	return out
 }
 
-// ParticipantsScalar returns the group.Scalar list of participant identifier in the list.
-func (c CommitmentList) ParticipantsScalar() []*group.Scalar {
+// ParticipantsScalar returns the ecc.Scalar list of participant identifier in the list.
+func (c CommitmentList) ParticipantsScalar() []*ecc.Scalar {
 	if len(c) == 0 {
 		return nil
 	}
@@ -112,8 +111,8 @@ func (c CommitmentList) ParticipantsScalar() []*group.Scalar {
 
 	g := c[0].Group
 
-	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *group.Scalar {
-		return g.NewScalar().SetUInt64(c.SignerID)
+	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *ecc.Scalar {
+		return g.NewScalar().SetUInt64(uint64(c.SignerID))
 	})
 }
 
@@ -125,10 +124,11 @@ func (c CommitmentList) Encode() []byte {
 	}
 
 	g := c[0].Group
-	size := 1 + 8 + uint64(n)*encodedLength(encCommitment, g)
-	out := make([]byte, 9, size)
+	_, comLength := encodedLength(encCommitment, g)
+	size := 1 + 2 + n*comLength
+	out := make([]byte, 3, size)
 	out[0] = byte(g)
-	binary.LittleEndian.PutUint64(out[1:9], uint64(n))
+	binary.LittleEndian.PutUint16(out[1:3], uint16(n))
 
 	for _, com := range c {
 		out = append(out, com.Encode()...)
@@ -139,28 +139,28 @@ func (c CommitmentList) Encode() []byte {
 
 // DecodeList decodes a byte string produced by the CommitmentList.Encode() method.
 func DecodeList(data []byte) (CommitmentList, error) {
-	if len(data) < 9 {
+	if len(data) < 3 {
 		return nil, errInvalidLength
 	}
 
-	g := group.Group(data[0])
+	g := ecc.Group(data[0])
 	if !g.Available() {
 		return nil, errInvalidCiphersuite
 	}
 
-	n := binary.LittleEndian.Uint64(data[1:9])
-	es := encodedLength(encCommitment, g)
-	size := 1 + 8 + n*es
+	n := int(binary.LittleEndian.Uint16(data[1:3]))
+	_, comLength := encodedLength(encCommitment, g)
+	size := 1 + 2 + n*comLength
 
-	if uint64(len(data)) != size {
+	if len(data) != size {
 		return nil, errInvalidLength
 	}
 
 	c := make(CommitmentList, 0, n)
 
-	for offset := uint64(9); offset < uint64(len(data)); offset += es {
+	for offset := 3; offset < len(data); offset += comLength {
 		com := new(Commitment)
-		if err := com.Decode(data[offset : offset+es]); err != nil {
+		if err := com.Decode(data[offset : offset+comLength]); err != nil {
 			return nil, fmt.Errorf("invalid encoding of commitment: %w", err)
 		}
 
@@ -171,9 +171,9 @@ func DecodeList(data []byte) (CommitmentList, error) {
 }
 
 func (c CommitmentList) groupCommitmentAndBindingFactors(
-	publicKey *group.Element,
+	publicKey *ecc.Element,
 	message []byte,
-) (*group.Element, BindingFactors) {
+) (*ecc.Element, BindingFactors) {
 	bindingFactors := c.bindingFactors(publicKey, message)
 	groupCommitment := c.groupCommitment(bindingFactors)
 
@@ -181,15 +181,15 @@ func (c CommitmentList) groupCommitmentAndBindingFactors(
 }
 
 type commitmentWithEncodedID struct {
-	*Commitment
-	ParticipantID []byte
+	*Commitment   `json:"commitment"`
+	ParticipantID []byte `json:"participantId"`
 }
 
-func commitmentsWithEncodedID(g group.Group, commitments CommitmentList) []*commitmentWithEncodedID {
+func commitmentsWithEncodedID(g ecc.Group, commitments CommitmentList) []*commitmentWithEncodedID {
 	r := make([]*commitmentWithEncodedID, len(commitments))
 	for i, com := range commitments {
 		r[i] = &commitmentWithEncodedID{
-			ParticipantID: g.NewScalar().SetUInt64(com.SignerID).Encode(),
+			ParticipantID: g.NewScalar().SetUInt64(uint64(com.SignerID)).Encode(),
 			Commitment:    com,
 		}
 	}
@@ -197,7 +197,7 @@ func commitmentsWithEncodedID(g group.Group, commitments CommitmentList) []*comm
 	return r
 }
 
-func encodeCommitmentList(g group.Group, commitments []*commitmentWithEncodedID) []byte {
+func encodeCommitmentList(g ecc.Group, commitments []*commitmentWithEncodedID) []byte {
 	size := len(commitments) * (g.ScalarLength() + 2*g.ElementLength())
 	encoded := make([]byte, 0, size)
 
@@ -211,9 +211,9 @@ func encodeCommitmentList(g group.Group, commitments []*commitmentWithEncodedID)
 }
 
 // BindingFactors is a map of participant identifiers to BindingFactors.
-type BindingFactors map[uint64]*group.Scalar
+type BindingFactors map[uint16]*ecc.Scalar
 
-func (c CommitmentList) bindingFactors(publicKey *group.Element, message []byte) BindingFactors {
+func (c CommitmentList) bindingFactors(publicKey *ecc.Element, message []byte) BindingFactors {
 	g := c[0].Group
 	coms := commitmentsWithEncodedID(g, c)
 	encodedCommitHash := internal.H5(g, encodeCommitmentList(g, coms))
@@ -229,7 +229,7 @@ func (c CommitmentList) bindingFactors(publicKey *group.Element, message []byte)
 	return bindingFactors
 }
 
-func (c CommitmentList) groupCommitment(bf BindingFactors) *group.Element {
+func (c CommitmentList) groupCommitment(bf BindingFactors) *ecc.Element {
 	g := c[0].Group
 	gc := g.NewElement()
 
@@ -242,7 +242,7 @@ func (c CommitmentList) groupCommitment(bf BindingFactors) *group.Element {
 	return gc
 }
 
-func (c *Configuration) isSignerRegistered(sid uint64) bool {
+func (c *Configuration) isSignerRegistered(sid uint16) bool {
 	for _, peer := range c.SignerPublicKeyShares {
 		if peer.ID == sid {
 			return true
@@ -309,7 +309,7 @@ func (c *Configuration) ValidateCommitment(commitment *Commitment) error {
 }
 
 func (c *Configuration) validateCommitmentListLength(commitments CommitmentList) error {
-	length := uint64(len(commitments))
+	length := uint16(len(commitments))
 
 	if length == 0 {
 		return errCommitmentListEmpty
@@ -344,7 +344,7 @@ func (c *Configuration) ValidateCommitmentList(commitments CommitmentList) error
 	}
 
 	// set to detect duplication
-	set := make(map[uint64]struct{}, len(commitments))
+	set := make(map[uint16]struct{}, len(commitments))
 
 	for i, commitment := range commitments {
 		// Check general validity of the commitment.

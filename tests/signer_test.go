@@ -13,16 +13,16 @@ import (
 	"strings"
 	"testing"
 
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
 )
 
 func TestLambdaRegistry(t *testing.T) {
-	g := group.Ristretto255Sha512
-	id := uint64(2)
-	participants := []uint64{1, 2, 3, 4}
+	g := ecc.Ristretto255Sha512
+	id := uint16(2)
+	participants := []uint16{1, 2, 3, 4}
 	lambdas := make(internal.LambdaRegistry)
 
 	// Get should return nil
@@ -39,26 +39,26 @@ func TestLambdaRegistry(t *testing.T) {
 
 	// Getting the same entry
 	lambda2 := lambdas.Get(participants)
-	if lambda.Equal(lambda2) != 1 {
+	if !lambda.Equal(lambda2) {
 		t.Fatal("expected equality")
 	}
 
 	lambda3 := lambdas.GetOrNew(g, id, participants)
 
-	if lambda.Equal(lambda3) != 1 {
+	if !lambda.Equal(lambda3) {
 		t.Fatal("expected equality")
 	}
 
 	// Getting another entry must result in another returned value
 	lambda4 := lambdas.GetOrNew(g, id, participants[:3])
 
-	if lambda.Equal(lambda4) == 1 {
+	if lambda.Equal(lambda4) {
 		t.Fatal("unexpected equality")
 	}
 
 	lambda5 := lambdas.GetOrNew(g, id, participants[:3])
 
-	if lambda4.Equal(lambda5) != 1 {
+	if !lambda4.Equal(lambda5) {
 		t.Fatal("expected equality")
 	}
 
@@ -73,7 +73,7 @@ func TestLambdaRegistry(t *testing.T) {
 	lambdas.Set(participants, lambda6)
 	lambda7 := lambdas.Get(participants)
 
-	if lambda6.Equal(lambda7) != 1 {
+	if !lambda6.Equal(lambda7) {
 		t.Fatal("expected equality")
 	}
 }

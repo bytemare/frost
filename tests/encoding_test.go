@@ -12,17 +12,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
+	debugec "github.com/bytemare/ecc/debug"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/keys"
 )
 
 func makeConfAndShares(t *testing.T, test *tableTest) (*frost.Configuration, []*keys.KeyShare) {
@@ -79,8 +79,18 @@ func makeSigners(t *testing.T, test *tableTest) []*frost.Signer {
 	return s
 }
 
-func compareConfigurations(t *testing.T, c1, c2 *frost.Configuration, expectedMatch bool) {
-	if c1 == nil || c2 == nil {
+func compareConfigurations(t *testing.T, a, b serde, expectedMatch bool) {
+	c1, ok := a.(*frost.Configuration)
+	if !ok && expectedMatch {
+		t.Fatal("first argument is of wrong type")
+	}
+
+	c2, ok := b.(*frost.Configuration)
+	if !ok && expectedMatch {
+		t.Fatal("second argument is of wrong type")
+	}
+
+	if (c1 == nil || c2 == nil) && expectedMatch {
 		t.Fatal("nil config")
 	}
 
@@ -96,12 +106,12 @@ func compareConfigurations(t *testing.T, c1, c2 *frost.Configuration, expectedMa
 		t.Fatalf("expected matching max signers: %q / %q", c1.MaxSigners, c2.MaxSigners)
 	}
 
-	if ((c1.GroupPublicKey == nil || c2.GroupPublicKey == nil) || (c1.GroupPublicKey.Equal(c2.GroupPublicKey) != 1)) &&
+	if ((c1.GroupPublicKey == nil || c2.GroupPublicKey == nil) || !c1.GroupPublicKey.Equal(c2.GroupPublicKey)) &&
 		expectedMatch {
 		t.Fatalf("expected matching GroupPublicKey: %q / %q", c1.Ciphersuite, c2.Ciphersuite)
 	}
 
-	if len(c1.SignerPublicKeyShares) != len(c2.SignerPublicKeyShares) {
+	if len(c1.SignerPublicKeyShares) != len(c2.SignerPublicKeyShares) && expectedMatch {
 		t.Fatalf(
 			"expected matching SignerPublicKeyShares lengths: %q / %q",
 			len(c1.SignerPublicKeyShares),
@@ -111,124 +121,170 @@ func compareConfigurations(t *testing.T, c1, c2 *frost.Configuration, expectedMa
 
 	for i, p1 := range c1.SignerPublicKeyShares {
 		p2 := c2.SignerPublicKeyShares[i]
-		if err := comparePublicKeyShare(p1, p2); !expectedMatch && err != nil {
-			t.Fatal(err)
-		}
+		comparePublicKeyShare(t, p1, p2, expectedMatch)
 	}
 }
 
-func comparePublicKeyShare(p1, p2 *keys.PublicKeyShare) error {
-	if p1.PublicKey.Equal(p2.PublicKey) != 1 {
-		return fmt.Errorf("Expected equality on PublicKey:\n\t%s\n\t%s\n", p1.PublicKey.Hex(), p2.PublicKey.Hex())
+func comparePublicKeyShare(t *testing.T, a, b serde, expectedMatch bool) {
+	p1, ok := a.(*keys.PublicKeyShare)
+	if !ok && expectedMatch {
+		t.Fatal("first argument is of wrong type")
 	}
 
-	if p1.ID != p2.ID {
-		return fmt.Errorf("Expected equality on ID:\n\t%d\n\t%d\n", p1.ID, p2.ID)
+	p2, ok := b.(*keys.PublicKeyShare)
+	if !ok && expectedMatch {
+		t.Fatal("second argument is of wrong type")
 	}
 
-	if p1.Group != p2.Group {
-		return fmt.Errorf("Expected equality on Group:\n\t%v\n\t%v\n", p1.Group, p2.Group)
+	if !p1.PublicKey.Equal(p2.PublicKey) && expectedMatch {
+		t.Fatalf("Expected equality on PublicKey:\n\t%s\n\t%s\n", p1.PublicKey.Hex(), p2.PublicKey.Hex())
 	}
 
-	if len(p1.Commitment) != len(p2.Commitment) {
-		return fmt.Errorf(
-			"Expected equality on Commitment length:\n\t%d\n\t%d\n",
-			len(p1.Commitment),
-			len(p1.Commitment),
-		)
+	if p1.ID != p2.ID && expectedMatch {
+		t.Fatalf("Expected equality on ID:\n\t%d\n\t%d\n", p1.ID, p2.ID)
 	}
 
-	for i := range p1.Commitment {
-		if p1.Commitment[i].Equal(p2.Commitment[i]) != 1 {
-			return fmt.Errorf(
-				"Expected equality on Commitment %d:\n\t%s\n\t%s\n",
-				i,
-				p1.Commitment[i].Hex(),
-				p1.Commitment[i].Hex(),
+	if p1.Group != p2.Group && expectedMatch {
+		t.Fatalf("Expected equality on Group:\n\t%v\n\t%v\n", p1.Group, p2.Group)
+	}
+
+	lenP1Com := len(p1.VssCommitment)
+	lenP2Com := len(p2.VssCommitment)
+
+	if lenP1Com != 0 && lenP2Com != 0 {
+		if lenP1Com != lenP2Com && expectedMatch {
+			t.Fatalf(
+				"Expected equality on Commitment length:\n\t%d\n\t%d\n",
+				len(p1.VssCommitment),
+				len(p2.VssCommitment),
 			)
 		}
-	}
 
-	return nil
+		for i := range p1.VssCommitment {
+			if !p1.VssCommitment[i].Equal(p2.VssCommitment[i]) && expectedMatch {
+				t.Fatalf(
+					"Expected equality on Commitment %d:\n\t%s\n\t%s\n",
+					i,
+					p1.VssCommitment[i].Hex(),
+					p2.VssCommitment[i].Hex(),
+				)
+			}
+		}
+	}
 }
 
-func compareKeyShares(s1, s2 *keys.KeyShare) error {
-	if s1.Secret.Equal(s2.Secret) != 1 {
-		return fmt.Errorf("Expected equality on Secret:\n\t%s\n\t%s\n", s1.Secret.Hex(), s2.Secret.Hex())
+func compareKeyShares(t *testing.T, a, b serde, expectedMatch bool) {
+	s1, ok := a.(*keys.KeyShare)
+	if !ok && expectedMatch {
+		t.Fatal("first argument is of wrong type")
 	}
 
-	if s1.GroupPublicKey.Equal(s2.GroupPublicKey) != 1 {
-		return fmt.Errorf(
+	s2, ok := b.(*keys.KeyShare)
+	if !ok && expectedMatch {
+		t.Fatal("second argument is of wrong type")
+	}
+
+	if !s1.Secret.Equal(s2.Secret) && expectedMatch {
+		t.Fatalf("Expected equality on Secret:\n\t%s\n\t%s\n", s1.Secret.Hex(), s2.Secret.Hex())
+	}
+
+	if !s1.GroupPublicKey.Equal(s2.GroupPublicKey) && expectedMatch {
+		t.Fatalf(
 			"Expected equality on GroupPublicKey:\n\t%s\n\t%s\n",
 			s1.GroupPublicKey.Hex(),
 			s2.GroupPublicKey.Hex(),
 		)
 	}
 
-	return comparePublicKeyShare(s1.Public(), s2.Public())
+	comparePublicKeyShare(t, s1.Public(), s2.Public(), expectedMatch)
 }
 
-func compareCommitments(c1, c2 *frost.Commitment) error {
-	if c1.Group != c2.Group {
-		return errors.New("different groups")
+func compareCommitments(t *testing.T, a, b serde, expectedMatch bool) {
+	c1, ok := a.(*frost.Commitment)
+	if !ok && expectedMatch {
+		t.Fatal("first argument is of wrong type")
 	}
 
-	if c1.SignerID != c2.SignerID {
-		return errors.New("different SignerID")
+	c2, ok := b.(*frost.Commitment)
+	if !ok && expectedMatch {
+		t.Fatal("second argument is of wrong type")
 	}
 
-	if c1.CommitmentID != c2.CommitmentID {
-		return errors.New("different CommitmentID")
+	if c1.SignerID != c2.SignerID && expectedMatch {
+		t.Fatal("different SignerID")
 	}
 
-	if c1.HidingNonceCommitment.Equal(c2.HidingNonceCommitment) != 1 {
-		return errors.New("different HidingNonceCommitment")
+	if c1.CommitmentID != c2.CommitmentID && expectedMatch {
+		t.Fatal("different CommitmentID")
 	}
 
-	if c1.BindingNonceCommitment.Equal(c2.BindingNonceCommitment) != 1 {
-		return errors.New("different BindingNonceCommitment")
+	if !c1.HidingNonceCommitment.Equal(c2.HidingNonceCommitment) && expectedMatch {
+		t.Fatal("different HidingNonceCommitment")
 	}
 
-	return nil
+	if !c1.BindingNonceCommitment.Equal(c2.BindingNonceCommitment) && expectedMatch {
+		t.Fatal("different BindingNonceCommitment")
+	}
 }
 
-func compareNonceCommitments(c1, c2 *frost.Nonce) error {
-	if c1.HidingNonce.Equal(c2.HidingNonce) != 1 {
-		return errors.New("different HidingNonce")
+func compareNonceCommitments(t *testing.T, a, b serde, expectedMatch bool) {
+	c1, ok := a.(*frost.Nonce)
+	if !ok && expectedMatch {
+		t.Fatal("first argument is of wrong type")
 	}
 
-	if c1.BindingNonce.Equal(c2.BindingNonce) != 1 {
-		return errors.New("different BindingNonce")
+	c2, ok := b.(*frost.Nonce)
+	if !ok && expectedMatch {
+		t.Fatal("second argument is of wrong type")
 	}
 
-	return compareCommitments(c1.Commitment, c2.Commitment)
+	if !c1.HidingNonce.Equal(c2.HidingNonce) && expectedMatch {
+		t.Fatalf("different HidingNonce:\n\t%s\n\t%s\n", c1.HidingNonce.Hex(), c2.HidingNonce.Hex())
+	}
+
+	if !c1.BindingNonce.Equal(c2.BindingNonce) && expectedMatch {
+		t.Fatalf("different BindingNonce:\n\t%s\n\t%s\n", c1.BindingNonce.Hex(), c2.BindingNonce.Hex())
+	}
+
+	compareCommitments(t, c1.Commitment, c2.Commitment, expectedMatch)
 }
 
-func compareLambdaRegistries(t *testing.T, m1, m2 map[string]*group.Scalar) {
-	if len(m1) != len(m2) {
+func compareLambdaRegistries(t *testing.T, m1, m2 map[string]*internal.Lambda, expectedMatch bool) {
+	if len(m1) != len(m2) && expectedMatch {
 		t.Fatalf("unequal lengths: %d / %d", len(m1), len(m2))
 	}
 
 	for k1, v1 := range m1 {
 		v2, exists := m2[k1]
-		if !exists {
+		if !exists && expectedMatch {
 			t.Fatalf("key %s is not present in second map", k1)
 		}
 
-		if v1.Equal(v2) != 1 {
+		if v1.Group != v2.Group && expectedMatch {
+			t.Fatalf("unequal lambdas for the participant list %s", k1)
+		}
+
+		if !v1.Value.Equal(v2.Value) && expectedMatch {
 			t.Fatalf("unequal lambdas for the participant list %s", k1)
 		}
 	}
 }
 
-func compareSigners(t *testing.T, s1, s2 *frost.Signer) {
-	if err := compareKeyShares(s1.KeyShare, s2.KeyShare); err != nil {
-		t.Fatal(err)
+func compareSigners(t *testing.T, a, b serde, expectedMatch bool) {
+	s1, ok := a.(*frost.Signer)
+	if !ok && expectedMatch {
+		t.Fatal("first argument is of wrong type")
 	}
 
-	compareLambdaRegistries(t, s1.LambdaRegistry, s2.LambdaRegistry)
+	s2, ok := b.(*frost.Signer)
+	if !ok && expectedMatch {
+		t.Fatal("second argument is of wrong type")
+	}
 
-	if len(s1.NonceCommitments) != len(s2.NonceCommitments) {
+	compareKeyShares(t, s1.KeyShare, s2.KeyShare, expectedMatch)
+	compareLambdaRegistries(t, s1.LambdaRegistry, s2.LambdaRegistry, expectedMatch)
+
+	if len(s1.NonceCommitments) != len(s2.NonceCommitments) && expectedMatch {
 		t.Fatal("expected equality")
 	}
 
@@ -236,25 +292,33 @@ func compareSigners(t *testing.T, s1, s2 *frost.Signer) {
 		if com2, exists := s2.NonceCommitments[id]; !exists {
 			t.Fatalf("com id %d does not exist in s2", id)
 		} else {
-			if err := compareNonceCommitments(com, com2); err != nil {
-				t.Fatal(err)
-			}
+			compareNonceCommitments(t, com, com2, expectedMatch)
 		}
 	}
 
-	if bytes.Compare(s1.HidingRandom, s2.HidingRandom) != 0 {
+	if bytes.Compare(s1.HidingRandom, s2.HidingRandom) != 0 && expectedMatch {
 		t.Fatal("expected equality")
 	}
 
-	if bytes.Compare(s1.BindingRandom, s2.BindingRandom) != 0 {
+	if bytes.Compare(s1.BindingRandom, s2.BindingRandom) != 0 && expectedMatch {
 		t.Fatal("expected equality")
 	}
 
-	compareConfigurations(t, s1.Configuration, s2.Configuration, true)
+	compareConfigurations(t, s1.Configuration, s2.Configuration, expectedMatch)
 }
 
-func compareSignatureShares(t *testing.T, s1, s2 *frost.SignatureShare) {
-	if s1.Group != s2.Group {
+func compareSignatureShares(t *testing.T, a, b serde, expectedMatch bool) {
+	s1, ok := a.(*frost.SignatureShare)
+	if !ok && expectedMatch {
+		t.Fatal("first argument is of wrong type")
+	}
+
+	s2, ok := b.(*frost.SignatureShare)
+	if !ok && expectedMatch {
+		t.Fatal("second argument is of wrong type")
+	}
+
+	if s1.Group != s2.Group && expectedMatch {
 		t.Fatal("unexpected group")
 	}
 
@@ -262,34 +326,38 @@ func compareSignatureShares(t *testing.T, s1, s2 *frost.SignatureShare) {
 		t.Fatal("expected equality")
 	}
 
-	if s1.SignatureShare.Equal(s2.SignatureShare) != 1 {
+	if !s1.SignatureShare.Equal(s2.SignatureShare) {
 		t.Fatal("expected equality")
 	}
 }
 
-func compareSignatures(s1, s2 *frost.Signature, expectEqual bool) error {
-	if s1.R.Equal(s2.R) == 1 != expectEqual {
-		return fmt.Errorf("expected %v R", expectEqual)
+func compareSignatures(t *testing.T, a, b serde, expectedMatch bool) {
+	s1, ok := a.(*frost.Signature)
+	if !ok && expectedMatch {
+		t.Fatal("first argument is of wrong type")
 	}
 
-	if s1.Z.Equal(s2.Z) == 1 != expectEqual {
-		return fmt.Errorf("expected %v Z", expectEqual)
+	s2, ok := b.(*frost.Signature)
+	if !ok && expectedMatch {
+		t.Fatal("second argument is of wrong type")
 	}
 
-	return nil
+	if !s1.R.Equal(s2.R) && expectedMatch {
+		t.Fatalf("expected %v R", expectedMatch)
+	}
+
+	if !s1.Z.Equal(s2.Z) && expectedMatch {
+		t.Fatalf("expected %v Z", expectedMatch)
+	}
 }
 
 func TestEncoding_Configuration(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		configuration := makeConf(t, test)
-		encoded := configuration.Encode()
 
-		decoded := new(frost.Configuration)
-		if err := decoded.Decode(encoded); err != nil {
-			t.Fatal(err)
-		}
-
-		compareConfigurations(t, configuration, decoded, true)
+		testAndCompareSerde(t, configuration, true, compareConfigurations, func() serde {
+			return new(frost.Configuration)
+		})
 	})
 }
 
@@ -308,7 +376,7 @@ func TestEncoding_Configuration_InvalidHeaderLength(t *testing.T) {
 }
 
 func TestEncoding_Configuration_InvalidCiphersuite(t *testing.T) {
-	expectedError := internal.ErrInvalidCiphersuite
+	expectedError := "failed to decode Configuration: " + internal.ErrInvalidCiphersuite.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		configuration := makeConf(t, test)
@@ -316,7 +384,7 @@ func TestEncoding_Configuration_InvalidCiphersuite(t *testing.T) {
 		encoded[0] = 2
 
 		decoded := new(frost.Configuration)
-		if err := decoded.Decode(encoded); err == nil || err.Error() != expectedError.Error() {
+		if err := decoded.Decode(encoded); err == nil || err.Error() != expectedError {
 			t.Fatalf("expected %q, got %q", expectedError, err)
 		}
 	})
@@ -342,7 +410,7 @@ func TestEncoding_Configuration_InvalidLength(t *testing.T) {
 }
 
 func TestEncoding_Configuration_InvalidConfigEncoding(t *testing.T) {
-	expectedErrorPrefix := "the threshold in the encoded configuration is higher than the number of maximum participants"
+	expectedErrorPrefix := "failed to decode Configuration: the threshold in the encoded configuration is higher than the number of maximum participants"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
 		threshold:   2,
@@ -359,14 +427,14 @@ func TestEncoding_Configuration_InvalidConfigEncoding(t *testing.T) {
 }
 
 func TestEncoding_Configuration_InvalidGroupPublicKey(t *testing.T) {
-	expectedErrorPrefix := "could not decode group public key: element Decode: "
+	expectedErrorPrefix := "failed to decode Configuration: could not decode group public key: element Decode: "
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		configuration := makeConf(t, test)
-		g := group.Group(test.Ciphersuite)
+		g := ecc.Group(test.Ciphersuite)
 		encoded := configuration.Encode()
-		bad := badElement(t, g)
-		encoded = slices.Replace(encoded, 25, 25+g.ElementLength(), bad...)
+		bad := debugec.BadElementOffCurve(g)
+		encoded = slices.Replace(encoded, 7, 7+g.ElementLength(), bad...)
 
 		decoded := new(frost.Configuration)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -376,7 +444,7 @@ func TestEncoding_Configuration_InvalidGroupPublicKey(t *testing.T) {
 }
 
 func TestEncoding_Configuration_BadPublicKeyShare(t *testing.T) {
-	expectedErrorPrefix := "could not decode signer public key share for signer 1: "
+	expectedErrorPrefix := "failed to decode Configuration: could not decode signer public key share for signer 1: "
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(
@@ -394,10 +462,10 @@ func TestEncoding_Configuration_BadPublicKeyShare(t *testing.T) {
 			GroupPublicKey:        groupPublicKey,
 			SignerPublicKeyShares: publicKeyShares,
 		}
-		g := group.Group(test.Ciphersuite)
+		g := ecc.Group(test.Ciphersuite)
 		pksSize := len(publicKeyShares[0].Encode())
-		bad := badElement(t, g)
-		offset := 25 + g.ElementLength() + pksSize + 1 + 8 + 4
+		bad := debugec.BadElementOffCurve(g)
+		offset := 7 + g.ElementLength() + pksSize + 1 + 2 + 4
 		encoded := configuration.Encode()
 		encoded = slices.Replace(encoded, offset, offset+g.ElementLength(), bad...)
 
@@ -409,7 +477,7 @@ func TestEncoding_Configuration_BadPublicKeyShare(t *testing.T) {
 }
 
 func TestEncoding_Configuration_InvalidPublicKeyShares(t *testing.T) {
-	expectedErrorPrefix := "invalid number of public keys (lower than threshold or above maximum)"
+	expectedErrorPrefix := "failed to decode Configuration: invalid number of public keys (lower than threshold or above maximum)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(
@@ -438,7 +506,7 @@ func TestEncoding_Configuration_InvalidPublicKeyShares(t *testing.T) {
 }
 
 func TestEncoding_Configuration_CantVerify_InvalidPubKey(t *testing.T) {
-	expectedErrorPrefix := "invalid group public key, the key is the group generator (base element)"
+	expectedErrorPrefix := "failed to decode Configuration: invalid group public key, the key is the group generator (base element)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		configuration := makeConf(t, test)
@@ -458,47 +526,42 @@ func TestEncoding_Signer(t *testing.T) {
 		s.Commit()
 		s.Commit()
 
-		participants := make([]uint64, test.maxSigners)
+		participants := make([]uint16, test.maxSigners)
 		for i := range test.maxSigners {
 			participants[i] = i + 1
 		}
 
-		s.LambdaRegistry.New(test.ECGroup(), s.Identifier(), participants)
-		s.LambdaRegistry.New(test.ECGroup(), s.Identifier(), participants[1:])
+		s.LambdaRegistry.New(test.Group(), s.Identifier(), participants)
+		// s.LambdaRegistry.New(test.Group(), s.Identifier(), participants[1:])
 
-		encoded := s.Encode()
-
-		decoded := new(frost.Signer)
-		if err := decoded.Decode(encoded); err != nil {
-			t.Fatal(err)
-		}
-
-		compareSigners(t, s, decoded)
+		testAndCompareSerde(t, s, true, compareSigners, func() serde {
+			return new(frost.Signer)
+		})
 	})
 }
 
 func TestEncoding_Signer_BadConfHeader(t *testing.T) {
-	expectedErr := internal.ErrInvalidLength
+	expectedErr := "failed to decode Signer: " + internal.ErrInvalidLength.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
 		encoded := s.Encode()
 
 		decoded := new(frost.Signer)
-		if err := decoded.Decode(encoded[:20]); err == nil || err.Error() != expectedErr.Error() {
+		if err := decoded.Decode(encoded[:20]); err == nil || err.Error() != expectedErr {
 			t.Fatalf("expected error %q, got %q", expectedErr, err)
 		}
 	})
 }
 
 func TestEncoding_Signer_BadConf(t *testing.T) {
-	expectedErrorPrefix := "could not decode group public key:"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode Configuration: could not decode group public key:"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
-		eLen := s.Configuration.Ciphersuite.ECGroup().ElementLength()
+		eLen := s.Configuration.Ciphersuite.Group().ElementLength()
 		encoded := s.Encode()
-		encoded = slices.Replace(encoded, 25, 25+eLen, badElement(t, test.ECGroup())...)
+		encoded = slices.Replace(encoded, 7, 7+eLen, debugec.BadElementOffCurve(test.Group())...)
 
 		decoded := new(frost.Signer)
 		if err := decoded.Decode(encoded); err == nil ||
@@ -509,47 +572,47 @@ func TestEncoding_Signer_BadConf(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidLength1(t *testing.T) {
-	expectedErr := internal.ErrInvalidLength
+	expectedErr := "failed to decode Signer: " + internal.ErrInvalidLength.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
 		encoded := s.Encode()
-		eLen := s.Configuration.Ciphersuite.ECGroup().ElementLength()
+		eLen := s.Configuration.Ciphersuite.Group().ElementLength()
 		pksLen := 1 + 8 + 4 + eLen + int(test.threshold)*eLen
 		confLen := 1 + 3*8 + eLen + int(test.maxSigners)*pksLen
 
 		decoded := new(frost.Signer)
-		if err := decoded.Decode(encoded[:confLen+2]); err == nil || err.Error() != expectedErr.Error() {
+		if err := decoded.Decode(encoded[:confLen+2]); err == nil || err.Error() != expectedErr {
 			t.Fatalf("expected error %q, got %q", expectedErr, err)
 		}
 	})
 }
 
 func TestEncoding_Signer_InvalidLength2(t *testing.T) {
-	expectedErr := internal.ErrInvalidLength
+	expectedErr := "failed to decode Signer: " + internal.ErrInvalidLength.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
 		encoded := s.Encode()
 
 		decoded := new(frost.Signer)
-		if err := decoded.Decode(encoded[:len(encoded)-1]); err == nil || err.Error() != expectedErr.Error() {
+		if err := decoded.Decode(encoded[:len(encoded)-1]); err == nil || err.Error() != expectedErr {
 			t.Fatalf("expected error %q, got %q", expectedErr, err)
 		}
 
-		if err := decoded.Decode(append(encoded, []byte{0}...)); err == nil || err.Error() != expectedErr.Error() {
+		if err := decoded.Decode(append(encoded, []byte{0}...)); err == nil || err.Error() != expectedErr {
 			t.Fatalf("expected error %q, got %q", expectedErr, err)
 		}
 	})
 }
 
 func TestEncoding_Signer_InvalidLambda(t *testing.T) {
-	expectedErrorPrefix := "failed to decode lambda registry in signer:"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode lambda registry in signer:"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
 
-		g := group.Group(test.Ciphersuite)
+		g := ecc.Group(test.Ciphersuite)
 		message := []byte("message")
 
 		coms := make(frost.CommitmentList, len(signers))
@@ -567,7 +630,7 @@ func TestEncoding_Signer_InvalidLambda(t *testing.T) {
 		confLen := len(s.Configuration.Encode())
 		ksLen := len(s.KeyShare.Encode())
 		encoded := s.Encode()
-		bad := badScalar(t, g)
+		bad := debugec.BadScalarHigh(g)
 		offset := confLen + 6 + ksLen + 32
 		encoded = slices.Replace(encoded, offset, offset+g.ScalarLength(), bad...)
 
@@ -579,7 +642,7 @@ func TestEncoding_Signer_InvalidLambda(t *testing.T) {
 }
 
 func TestEncoding_Signer_BadKeyShare(t *testing.T) {
-	expectedErrorPrefix := "failed to decode key share: invalid group identifier"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode KeyShare: invalid group identifier"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -598,7 +661,7 @@ func TestEncoding_Signer_BadKeyShare(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidKeyShare(t *testing.T) {
-	expectedErrorPrefix := "invalid key share: invalid identifier for public key share, the identifier is 0"
+	expectedErrorPrefix := "failed to decode Signer: invalid key share: invalid identifier for public key share, the identifier is 0"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -607,8 +670,8 @@ func TestEncoding_Signer_InvalidKeyShare(t *testing.T) {
 
 		// Set an invalid identifier.
 		encoded := s.Encode()
-		badID := [8]byte{}
-		encoded = slices.Replace(encoded, offset, offset+8, badID[:]...)
+		badID := [2]byte{}
+		encoded = slices.Replace(encoded, offset, offset+2, badID[:]...)
 
 		decoded := new(frost.Signer)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -618,18 +681,18 @@ func TestEncoding_Signer_InvalidKeyShare(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidCommitmentNonces_DuplicateID(t *testing.T) {
-	expectedErrorPrefix := "multiple encoded commitments with the same id:"
+	expectedErrorPrefix := "failed to decode Signer: multiple encoded commitments with the same id:"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
 		s.Commit()
 		s.Commit()
 		s.Commit()
-		g := group.Group(test.Ciphersuite)
+		g := ecc.Group(test.Ciphersuite)
 		sLen := g.ScalarLength()
 		confLen := len(s.Configuration.Encode())
 		keyShareLen := len(s.KeyShare.Encode())
-		commitmentLength := 1 + 8 + 8 + 2*uint64(g.ElementLength())
+		commitmentLength := 1 + 8 + 2 + 2*uint64(g.ElementLength())
 		nonceCommitmentLength := 8 + 2*sLen + int(commitmentLength)
 		offset := confLen + 6 + keyShareLen
 		offset2 := offset + nonceCommitmentLength
@@ -645,18 +708,18 @@ func TestEncoding_Signer_InvalidCommitmentNonces_DuplicateID(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidHidingNonceCommitment(t *testing.T) {
-	expectedErrorPrefix := "can't decode hiding nonce for commitment"
+	expectedErrorPrefix := "failed to decode Signer: can't decode hiding nonce for commitment"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
 		s.Commit()
-		g := group.Group(test.Ciphersuite)
+		g := ecc.Group(test.Ciphersuite)
 		confLen := len(s.Configuration.Encode())
 		keyShareLen := len(s.KeyShare.Encode())
 		offset := confLen + 6 + keyShareLen + 8
 
 		encoded := s.Encode()
-		data := slices.Replace(encoded, offset, offset+g.ScalarLength(), badScalar(t, g)...)
+		data := slices.Replace(encoded, offset, offset+g.ScalarLength(), debugec.BadScalarHigh(g)...)
 
 		decoded := new(frost.Signer)
 		if err := decoded.Decode(data); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -666,18 +729,18 @@ func TestEncoding_Signer_InvalidHidingNonceCommitment(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidBindingNonceCommitment(t *testing.T) {
-	expectedErrorPrefix := "can't decode binding nonce for commitment"
+	expectedErrorPrefix := "failed to decode Signer: can't decode binding nonce for commitment"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
 		s.Commit()
-		g := group.Group(test.Ciphersuite)
+		g := ecc.Group(test.Ciphersuite)
 		confLen := len(s.Configuration.Encode())
 		keyShareLen := len(s.KeyShare.Encode())
 		offset := confLen + 6 + keyShareLen + 8 + g.ScalarLength()
 
 		encoded := s.Encode()
-		data := slices.Replace(encoded, offset, offset+g.ScalarLength(), badScalar(t, g)...)
+		data := slices.Replace(encoded, offset, offset+g.ScalarLength(), debugec.BadScalarHigh(g)...)
 
 		decoded := new(frost.Signer)
 		if err := decoded.Decode(data); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -687,12 +750,12 @@ func TestEncoding_Signer_InvalidBindingNonceCommitment(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidCommitment(t *testing.T) {
-	expectedErrorPrefix := "can't decode nonce commitment"
+	expectedErrorPrefix := "failed to decode Signer: can't decode nonce commitment"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
 		s.Commit()
-		g := group.Group(test.Ciphersuite)
+		g := ecc.Group(test.Ciphersuite)
 		sLen := g.ScalarLength()
 		confLen := len(s.Configuration.Encode())
 		keyShareLen := len(s.KeyShare.Encode())
@@ -724,51 +787,46 @@ func TestEncoding_SignatureShare(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			encoded := sigShare.Encode()
-
-			decoded := new(frost.SignatureShare)
-			if err = decoded.Decode(encoded); err != nil {
-				t.Fatalf("unexpected error %q", err)
-			}
-
-			compareSignatureShares(t, sigShare, decoded)
+			testAndCompareSerde(t, sigShare, true, compareSignatureShares, func() serde {
+				return new(frost.SignatureShare)
+			})
 		}
 	})
 }
 
 func TestEncoding_SignatureShare_InvalidCiphersuite(t *testing.T) {
-	expectedError := internal.ErrInvalidCiphersuite
+	expectedError := "failed to decode SignatureShare: " + internal.ErrInvalidCiphersuite.Error()
 
 	encoded := make([]byte, 3)
 
 	decoded := new(frost.SignatureShare)
-	if err := decoded.Decode(encoded); err == nil || err.Error() != expectedError.Error() {
+	if err := decoded.Decode(encoded); err == nil || err.Error() != expectedError {
 		t.Fatalf("expected %q, got %q", expectedError, err)
 	}
 }
 
 func TestEncoding_SignatureShare_InvalidLength1(t *testing.T) {
-	expectedError := internal.ErrInvalidLength
+	expectedError := "failed to decode SignatureShare: " + internal.ErrInvalidLength.Error()
 
 	decoded := new(frost.SignatureShare)
-	if err := decoded.Decode([]byte{}); err == nil || err.Error() != expectedError.Error() {
+	if err := decoded.Decode([]byte{}); err == nil || err.Error() != expectedError {
 		t.Fatalf("expected %q, got %q", expectedError, err)
 	}
 }
 
 func TestEncoding_SignatureShare_InvalidLength2(t *testing.T) {
-	expectedError := internal.ErrInvalidLength
+	expectedError := "failed to decode SignatureShare: " + internal.ErrInvalidLength.Error()
 
 	decoded := new(frost.SignatureShare)
-	if err := decoded.Decode([]byte{1, 0, 0}); err == nil || err.Error() != expectedError.Error() {
+	if err := decoded.Decode([]byte{1, 0, 0}); err == nil || err.Error() != expectedError {
 		t.Fatalf("expected %q, got %q", expectedError, err)
 	}
 }
 
 func TestEncoding_SignatureShare_InvalidIdentifier(t *testing.T) {
 	// todo: check for zero id in all decodings
-	expectedError := errors.New("identifier cannot be 0")
-	encoded := make([]byte, 41)
+	expectedError := errors.New("failed to decode SignatureShare: identifier cannot be 0")
+	encoded := make([]byte, 35)
 	encoded[0] = 1
 
 	decoded := new(frost.SignatureShare)
@@ -778,7 +836,7 @@ func TestEncoding_SignatureShare_InvalidIdentifier(t *testing.T) {
 }
 
 func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
-	expectedErrorPrefix := "failed to decode signature share: "
+	expectedErrorPrefix := "failed to decode SignatureShare: scalar Decode: invalid scalar encoding"
 	message := []byte("message")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -796,7 +854,7 @@ func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
 		}
 
 		encoded := sigShare.Encode()
-		slices.Replace(encoded, 9, 9+test.ECGroup().ScalarLength(), badScalar(t, test.ECGroup())...)
+		slices.Replace(encoded, 3, 3+test.Group().ScalarLength(), debugec.BadScalarHigh(test.Group())...)
 
 		decoded := new(frost.SignatureShare)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -809,59 +867,59 @@ func TestEncoding_Signature(t *testing.T) {
 	message := []byte("message")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		key := test.ECGroup().NewScalar().Random()
+		key := test.Group().NewScalar().Random()
 		signature, err := debug.Sign(test.Ciphersuite, message, key)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		encoded := signature.Encode()
-
-		decoded := new(frost.Signature)
-		if err = decoded.Decode(test.Ciphersuite, encoded); err != nil {
-			t.Fatal(err)
-		}
-
-		if err = compareSignatures(signature, decoded, true); err != nil {
-			t.Fatal(err)
-		}
+		testAndCompareSerde(t, signature, true, compareSignatures, func() serde {
+			return new(frost.Signature)
+		})
 	})
 }
 
 func TestEncoding_Signature_InvalidCiphersuite(t *testing.T) {
+	expectedError := "failed to decode Signature: " + internal.ErrInvalidCiphersuite.Error()
 	decoded := new(frost.Signature)
-	if err := decoded.Decode(0, nil); err == nil || err.Error() != internal.ErrInvalidCiphersuite.Error() {
-		t.Fatalf("expected %q, got %q", internal.ErrInvalidCiphersuite, err)
+
+	if err := decoded.Decode([]byte{2, 0}); err == nil || err.Error() != expectedError {
+		t.Fatalf("expected %q, got %q", expectedError, err)
 	}
 }
 
 func TestEncoding_Signature_InvalidLength(t *testing.T) {
+	expectedError := "failed to decode Signature: " + internal.ErrInvalidLength.Error()
 	decoded := new(frost.Signature)
-	if err := decoded.Decode(1, make([]byte, 63)); err == nil || err.Error() != internal.ErrInvalidLength.Error() {
-		t.Fatalf("expected %q, got %q", internal.ErrInvalidLength, err)
+	b := make([]byte, 63)
+	b[0] = 1
+	if err := decoded.Decode(b); err == nil || err.Error() != expectedError {
+		t.Fatalf("expected %q, got %q", expectedError, err)
 	}
 }
 
 func TestEncoding_Signature_InvalidR(t *testing.T) {
-	expectedErrorPrefix := "invalid signature - decoding R:"
+	expectedErrorPrefix := "failed to decode Signature: invalid encoding of R proof: element Decode: "
 	message := []byte("message")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		key := test.ECGroup().NewScalar().Random()
+		key := test.Group().NewScalar().Random()
 		signature, err := debug.Sign(test.Ciphersuite, message, key)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		encoded := signature.Encode()
+
+		bad := debugec.BadElementOffCurve(test.Ciphersuite.Group())
 		slices.Replace(
 			encoded,
-			0,
-			test.Ciphersuite.ECGroup().ElementLength(),
-			badElement(t, test.Ciphersuite.ECGroup())...)
+			1,
+			1+test.Ciphersuite.Group().ElementLength(),
+			bad...)
 
 		decoded := new(frost.Signature)
-		if err := decoded.Decode(test.Ciphersuite, encoded); err == nil ||
+		if err = decoded.Decode(encoded); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -869,24 +927,24 @@ func TestEncoding_Signature_InvalidR(t *testing.T) {
 }
 
 func TestEncoding_Signature_InvalidZ(t *testing.T) {
-	expectedErrorPrefix := "invalid signature - decoding Z:"
+	expectedErrorPrefix := "failed to decode Signature: invalid encoding of z proof: scalar Decode: "
 	message := []byte("message")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		key := test.ECGroup().NewScalar().Random()
+		key := test.Group().NewScalar().Random()
 		signature, err := debug.Sign(test.Ciphersuite, message, key)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		encoded := signature.Encode()
-		g := test.Ciphersuite.ECGroup()
+		g := test.Ciphersuite.Group()
 		eLen := g.ElementLength()
 		sLen := g.ScalarLength()
-		slices.Replace(encoded, eLen, eLen+sLen, badScalar(t, g)...)
+		slices.Replace(encoded, 1+eLen, 1+eLen+sLen, debugec.BadScalarHigh(g)...)
 
 		decoded := new(frost.Signature)
-		if err := decoded.Decode(test.Ciphersuite, encoded); err == nil ||
+		if err := decoded.Decode(encoded); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -897,21 +955,15 @@ func TestEncoding_Commitment(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signer := makeSigners(t, test)[0]
 		com := signer.Commit()
-		encoded := com.Encode()
 
-		decoded := new(frost.Commitment)
-		if err := decoded.Decode(encoded); err != nil {
-			t.Fatal(err)
-		}
-
-		if err := compareCommitments(com, decoded); err != nil {
-			t.Fatal(err)
-		}
+		testAndCompareSerde(t, com, true, compareCommitments, func() serde {
+			return new(frost.Commitment)
+		})
 	})
 }
 
 func TestEncoding_Commitment_BadCiphersuite(t *testing.T) {
-	expectedErrorPrefix := internal.ErrInvalidCiphersuite.Error()
+	expectedErrorPrefix := "failed to decode Commitment: " + internal.ErrInvalidCiphersuite.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signer := makeSigners(t, test)[0]
@@ -927,7 +979,7 @@ func TestEncoding_Commitment_BadCiphersuite(t *testing.T) {
 }
 
 func TestEncoding_Commitment_InvalidLength1(t *testing.T) {
-	expectedErrorPrefix := "failed to decode commitment: invalid length"
+	expectedErrorPrefix := "failed to decode Commitment: " + internal.ErrInvalidLength.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signer := makeSigners(t, test)[0]
@@ -942,7 +994,7 @@ func TestEncoding_Commitment_InvalidLength1(t *testing.T) {
 }
 
 func TestEncoding_Commitment_InvalidLength2(t *testing.T) {
-	expectedErrorPrefix := "failed to decode commitment: invalid length"
+	expectedErrorPrefix := "failed to decode Commitment: " + internal.ErrInvalidLength.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signer := makeSigners(t, test)[0]
@@ -957,7 +1009,7 @@ func TestEncoding_Commitment_InvalidLength2(t *testing.T) {
 }
 
 func TestEncoding_Commitment_InvalidIdentifier(t *testing.T) {
-	expectedErrorPrefix := "identifier cannot be 0"
+	expectedErrorPrefix := "failed to decode Commitment: identifier cannot be 0"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signer := makeSigners(t, test)[0]
@@ -973,14 +1025,14 @@ func TestEncoding_Commitment_InvalidIdentifier(t *testing.T) {
 }
 
 func TestEncoding_Commitment_InvalidHidingNonce(t *testing.T) {
-	expectedErrorPrefix := "invalid encoding of hiding nonce commitment: "
+	expectedErrorPrefix := "failed to decode Commitment: invalid encoding of hiding nonce commitment: "
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signer := makeSigners(t, test)[0]
 		com := signer.Commit()
 		encoded := com.Encode()
-		bad := badElement(t, test.ECGroup())
-		slices.Replace(encoded, 17, 17+test.ECGroup().ElementLength(), bad...)
+		bad := debugec.BadElementOffCurve(test.Group())
+		slices.Replace(encoded, 11, 11+test.Group().ElementLength(), bad...)
 
 		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -990,15 +1042,15 @@ func TestEncoding_Commitment_InvalidHidingNonce(t *testing.T) {
 }
 
 func TestEncoding_Commitment_InvalidBindingNonce(t *testing.T) {
-	expectedErrorPrefix := "invalid encoding of binding nonce commitment: "
+	expectedErrorPrefix := "failed to decode Commitment: invalid encoding of binding nonce commitment: "
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signer := makeSigners(t, test)[0]
 		com := signer.Commit()
 		encoded := com.Encode()
-		g := test.ECGroup()
-		bad := badElement(t, g)
-		slices.Replace(encoded, 17+g.ElementLength(), 17+2*g.ElementLength(), bad...)
+		g := test.Group()
+		bad := debugec.BadElementOffCurve(g)
+		slices.Replace(encoded, 11+g.ElementLength(), 11+2*g.ElementLength(), bad...)
 
 		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -1027,9 +1079,7 @@ func TestEncoding_CommitmentList(t *testing.T) {
 		}
 
 		for i, com := range coms {
-			if err = compareCommitments(com, list[i]); err != nil {
-				t.Fatal(err)
-			}
+			compareCommitments(t, com, list[i], true)
 		}
 	})
 }
@@ -1100,7 +1150,7 @@ func TestEncoding_CommitmentList_InvalidLength2(t *testing.T) {
 }
 
 func TestEncoding_CommitmentList_InvalidCommitment(t *testing.T) {
-	expectedErrorPrefix := "invalid encoding of commitment: " + internal.ErrInvalidCiphersuite.Error()
+	expectedErrorPrefix := "invalid encoding of commitment: failed to decode Commitment: " + internal.ErrInvalidCiphersuite.Error()
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
@@ -1110,7 +1160,7 @@ func TestEncoding_CommitmentList_InvalidCommitment(t *testing.T) {
 		}
 
 		encoded := coms.Encode()
-		encoded[9] = 0
+		encoded[3] = 0
 
 		if _, err := frost.DecodeList(encoded); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -1119,98 +1169,78 @@ func TestEncoding_CommitmentList_InvalidCommitment(t *testing.T) {
 	})
 }
 
-func TestEncoding_KeyShare_Bytes(t *testing.T) {
-	testAll(t, func(t *testing.T, test *tableTest) {
-		s := makeSigners(t, test)[0]
-		keyShare := s.KeyShare
+/*
 
-		encoded := keyShare.Encode()
+ */
 
-		decoded := new(keys.KeyShare)
-		if err := decoded.Decode(encoded); err != nil {
-			t.Fatal(err)
-		}
-
-		if err := compareKeyShares(keyShare, decoded); err != nil {
-			t.Fatal(err)
-		}
-	})
+type serde interface {
+	Encode() []byte
+	Decode([]byte) error
+	Hex() string
+	DecodeHex(string) error
+	json.Unmarshaler
 }
 
-func TestEncoding_KeyShare_JSON(t *testing.T) {
-	testAll(t, func(t *testing.T, test *tableTest) {
-		s := makeSigners(t, test)[0]
-		keyShare := s.KeyShare
+type tester func(t *testing.T, in, out serde) error
 
-		encoded, err := json.Marshal(keyShare)
-		if err != nil {
-			t.Fatal(err)
-		}
+func testByteEncoding(t *testing.T, in, out serde) error {
+	bEnc := in.Encode()
 
-		decoded := new(keys.KeyShare)
-		if err := json.Unmarshal(encoded, decoded); err != nil {
-			t.Fatal(err)
-		}
+	if err := out.Decode(bEnc); err != nil {
+		return err
+	}
 
-		if err := compareKeyShares(keyShare, decoded); err != nil {
-			t.Fatal(err)
-		}
-
-		// expect error
-		decoded = new(keys.KeyShare)
-		expectedError := errors.New("invalid group identifier")
-		encoded = replaceStringInBytes(encoded, fmt.Sprintf("\"group\":%d", test.ECGroup()), "\"group\":70")
-
-		if err := json.Unmarshal(encoded, decoded); err == nil || err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %q, got %q", expectedError, err)
-		}
-	})
+	return nil
 }
 
-func TestEncoding_PublicKeyShare_Bytes(t *testing.T) {
-	testAll(t, func(t *testing.T, test *tableTest) {
-		s := makeSigners(t, test)[0]
-		keyShare := s.KeyShare.Public()
+func testHexEncoding(t *testing.T, in, out serde) error {
+	h := in.Hex()
 
-		encoded := keyShare.Encode()
+	if err := out.DecodeHex(h); err != nil {
+		return err
+	}
 
-		decoded := new(keys.PublicKeyShare)
-		if err := decoded.Decode(encoded); err != nil {
-			t.Fatal(err)
-		}
-
-		if err := comparePublicKeyShare(keyShare, decoded); err != nil {
-			t.Fatal(err)
-		}
-	})
+	return nil
 }
 
-func TestEncoding_PublicKeyShare_JSON(t *testing.T) {
-	testAll(t, func(t *testing.T, test *tableTest) {
-		s := makeSigners(t, test)[0]
-		keyShare := s.KeyShare.Public()
+func testJSONEncoding(t *testing.T, in, out serde) error {
+	jsonEnc, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
 
-		encoded, err := json.Marshal(keyShare)
-		if err != nil {
-			t.Fatal(err)
-		}
+	t.Log(string(jsonEnc))
 
-		decoded := new(keys.PublicKeyShare)
-		if err := json.Unmarshal(encoded, decoded); err != nil {
-			t.Fatal(err)
-		}
+	if err = json.Unmarshal(jsonEnc, out); err != nil {
+		return err
+	}
 
-		if err := comparePublicKeyShare(keyShare, decoded); err != nil {
-			t.Fatal(err)
-		}
+	return nil
+}
 
-		// expect error
-		decoded = new(keys.PublicKeyShare)
-		expectedError := errors.New("invalid group identifier")
-		encoded = replaceStringInBytes(encoded, fmt.Sprintf("\"group\":%d", test.ECGroup()), "\"group\":70")
+func testAndCompareSerdeSimple(
+	t *testing.T,
+	in serde,
+	maker func() serde,
+	expectedMatch bool,
+	tester tester,
+	compare func(t *testing.T, a, b serde, expectedMatch bool),
+) {
+	out := maker()
+	if err := tester(t, in, out); err != nil {
+		t.Fatal(err)
+	}
+	compare(t, in, out, expectedMatch)
+}
 
-		if err := json.Unmarshal(encoded, decoded); err == nil || err.Error() != expectedError.Error() {
-			t.Fatalf("expected error %q, got %q", expectedError, err)
-		}
-	})
+func testAndCompareSerde(
+	t *testing.T,
+	in serde,
+	expectedMatch bool,
+	compare func(t *testing.T, a, b serde, expectedMatch bool),
+	maker func() serde,
+) {
+	testAndCompareSerdeSimple(t, in, maker, expectedMatch, testByteEncoding, compare)
+	testAndCompareSerdeSimple(t, in, maker, expectedMatch, testHexEncoding, compare)
+	testAndCompareSerdeSimple(t, in, maker, expectedMatch, testJSONEncoding, compare)
 }

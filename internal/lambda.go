@@ -10,25 +10,27 @@ package internal
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
+	eccEncoding "github.com/bytemare/ecc/encoding"
 	"github.com/bytemare/hash"
 	secretsharing "github.com/bytemare/secret-sharing"
 )
 
-// Lambda derives the interpolating value for id in the polynomial made by the participant identifiers.
+// ComputeLambda derives the interpolating value for id in the polynomial made by the participant identifiers.
 // This function assumes that:
 // - id is non-nil and != 0.
 // - every scalar in participants is non-nil and != 0.
 // - there are no duplicates in participants.
-func Lambda(g group.Group, id uint64, participants []*group.Scalar) *group.Scalar {
-	sid := g.NewScalar().SetUInt64(id)
+func ComputeLambda(g ecc.Group, id uint16, participants []*ecc.Scalar) *ecc.Scalar {
+	sid := g.NewScalar().SetUInt64(uint64(id))
 	numerator := g.NewScalar().One()
 	denominator := g.NewScalar().One()
 
 	for _, participant := range participants {
-		if participant.Equal(sid) == 1 {
+		if participant.Equal(sid) {
 			continue
 		}
 
@@ -39,41 +41,76 @@ func Lambda(g group.Group, id uint64, participants []*group.Scalar) *group.Scala
 	return numerator.Multiply(denominator.Invert())
 }
 
-// LambdaRegistry holds a signers pre-computed lambda values, indexed by the list of participants they are associated
-// to. A sorted set of participants will yield the same lambda.
-type LambdaRegistry map[string]*group.Scalar
+// A Lambda is the interpolating value for a given id in the polynomial made by the participant identifiers.
+type Lambda struct {
+	Value *ecc.Scalar `json:"value"`
+	Group ecc.Group   `json:"group"`
+}
+
+type lambdaShadow Lambda
+
+// UnmarshalJSON decodes data into l, or returns an error.
+func (l *Lambda) UnmarshalJSON(data []byte) error {
+	shadow := new(lambdaShadow)
+
+	g, err := eccEncoding.JSONReGetGroup(string(data))
+	if err != nil {
+		return fmt.Errorf("failed to decode Lambda: %w", err)
+	}
+
+	shadow.Group = g
+	shadow.Value = g.NewScalar()
+
+	if err = json.Unmarshal(data, shadow); err != nil {
+		return fmt.Errorf("failed to decode Lambda: %w", err)
+	}
+
+	*l = Lambda(*shadow)
+
+	return nil
+}
+
+// LambdaRegistry holds a signers pre-computed Lambda values, indexed by the list of participants they are associated
+// to. A sorted set of participants will yield the same Lambda.
+type LambdaRegistry map[string]*Lambda
 
 const lambdaRegistryKeyDomainSeparator = "FROST-participants"
 
-func lambdaRegistryKey(participants []uint64) string {
+func lambdaRegistryKey(participants []uint16) string {
 	a := fmt.Sprint(lambdaRegistryKeyDomainSeparator, participants)
 	return hex.EncodeToString(hash.SHA256.Hash([]byte(a))) // Length = 32 bytes, 64 in hex string
 }
 
-// New creates a new lambda and for the participant list for the participant id, and registers it.
+// New creates a new Lambda and for the participant list for the participant id, and registers it.
 // This function assumes that:
 // - id is non-nil and != 0.
 // - every participant id is != 0.
 // - there are no duplicates in participants.
-func (l LambdaRegistry) New(g group.Group, id uint64, participants []uint64) *group.Scalar {
-	polynomial := secretsharing.NewPolynomialFromListFunc(g, participants, func(p uint64) *group.Scalar {
-		return g.NewScalar().SetUInt64(p)
+func (l LambdaRegistry) New(g ecc.Group, id uint16, participants []uint16) *ecc.Scalar {
+	polynomial := secretsharing.NewPolynomialFromListFunc(g, participants, func(p uint16) *ecc.Scalar {
+		return g.NewScalar().SetUInt64(uint64(p))
 	})
-	lambda := Lambda(g, id, polynomial)
+	lambda := ComputeLambda(g, id, polynomial)
 	l.Set(participants, lambda)
 
 	return lambda
 }
 
-// Get returns the recorded lambda for the list of participants, or nil if it wasn't found.
-func (l LambdaRegistry) Get(participants []uint64) *group.Scalar {
+// Get returns the recorded Lambda for the list of participants, or nil if it wasn't found.
+func (l LambdaRegistry) Get(participants []uint16) *ecc.Scalar {
 	key := lambdaRegistryKey(participants)
-	return l[key]
+
+	v := l[key]
+	if v == nil {
+		return nil
+	}
+
+	return v.Value
 }
 
-// GetOrNew returns the recorded lambda for the list of participants, or created, records, and returns a new one if
+// GetOrNew returns the recorded Lambda for the list of participants, or created, records, and returns a new one if
 // it wasn't found.
-func (l LambdaRegistry) GetOrNew(g group.Group, id uint64, participants []uint64) *group.Scalar {
+func (l LambdaRegistry) GetOrNew(g ecc.Group, id uint16, participants []uint16) *ecc.Scalar {
 	lambda := l.Get(participants)
 	if lambda == nil {
 		return l.New(g, id, participants)
@@ -82,32 +119,38 @@ func (l LambdaRegistry) GetOrNew(g group.Group, id uint64, participants []uint64
 	return lambda
 }
 
-// Set records lambda for the given set of participants.
-func (l LambdaRegistry) Set(participants []uint64, lambda *group.Scalar) {
+// Set records Lambda for the given set of participants.
+func (l LambdaRegistry) Set(participants []uint16, value *ecc.Scalar) {
 	key := lambdaRegistryKey(participants)
-	l[key] = lambda
+	l[key] = &Lambda{
+		Group: value.Group(),
+		Value: value,
+	}
 }
 
-// Delete deletes the lambda for the given set of participants.
-func (l LambdaRegistry) Delete(participants []uint64) {
+// Delete deletes the Lambda for the given set of participants.
+func (l LambdaRegistry) Delete(participants []uint16) {
 	key := lambdaRegistryKey(participants)
-	l[key].Zero()
+	l[key].Value.Zero()
 	delete(l, key)
 }
 
 // Decode populates the receiver from the byte encoded serialization in data.
-func (l LambdaRegistry) Decode(g group.Group, data []byte) error {
+func (l LambdaRegistry) Decode(g ecc.Group, data []byte) error {
 	offset := 0
 	for offset < len(data) {
 		key := data[offset : offset+32]
 		offset += 32
 
-		lambda := g.NewScalar()
-		if err := lambda.Decode(data[offset : offset+g.ScalarLength()]); err != nil {
-			return fmt.Errorf("failed to decode lambda: %w", err)
+		value := g.NewScalar()
+		if err := value.Decode(data[offset : offset+g.ScalarLength()]); err != nil {
+			return fmt.Errorf("failed to decode Lambda: %w", err)
 		}
 
-		l[hex.EncodeToString(key)] = lambda
+		l[hex.EncodeToString(key)] = &Lambda{
+			Group: g,
+			Value: value,
+		}
 		offset += g.ScalarLength()
 	}
 

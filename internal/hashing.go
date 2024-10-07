@@ -10,7 +10,7 @@ package internal
 
 import (
 	"filippo.io/edwards25519"
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
 	"github.com/bytemare/hash"
 	"github.com/gtank/ristretto255"
 )
@@ -30,7 +30,7 @@ type ciphersuite struct {
 	contextString []byte
 }
 
-var ciphersuites = [group.Secp256k1 + 1]ciphersuite{
+var ciphersuites = [ecc.Secp256k1Sha256 + 1]ciphersuite{
 	{ // Ristretto255
 		hash:          hash.SHA512.New(),
 		contextString: []byte(ristretto255ContextString),
@@ -61,8 +61,8 @@ var ciphersuites = [group.Secp256k1 + 1]ciphersuite{
 	},
 }
 
-func h1Ed25519(input ...[]byte) *group.Scalar {
-	hashed := ciphersuites[group.Edwards25519Sha512-1].hash.Hash(0, input...)
+func h1Ed25519(input ...[]byte) *ecc.Scalar {
+	hashed := ciphersuites[ecc.Edwards25519Sha512-1].hash.Hash(0, input...)
 
 	s := edwards25519.NewScalar()
 	if _, err := s.SetUniformBytes(hashed); err != nil {
@@ -70,7 +70,7 @@ func h1Ed25519(input ...[]byte) *group.Scalar {
 		panic(err)
 	}
 
-	s2 := group.Edwards25519Sha512.NewScalar()
+	s2 := ecc.Edwards25519Sha512.NewScalar()
 	if err := s2.Decode(s.Bytes()); err != nil {
 		// Can't fail because the underlying encoding/decoding is compatible.
 		panic(err)
@@ -79,14 +79,14 @@ func h1Ed25519(input ...[]byte) *group.Scalar {
 	return s2
 }
 
-func hx(g group.Group, input, dst []byte) *group.Scalar {
-	var sc *group.Scalar
+func hx(g ecc.Group, input, dst []byte) *ecc.Scalar {
+	var sc *ecc.Scalar
 	c := ciphersuites[g-1]
 
 	switch g {
-	case group.Edwards25519Sha512:
+	case ecc.Edwards25519Sha512:
 		sc = h1Ed25519(c.contextString, dst, input)
-	case group.Ristretto255Sha512:
+	case ecc.Ristretto255Sha512:
 		h := c.hash.Hash(0, c.contextString, dst, input)
 		s := ristretto255.NewScalar().FromUniformBytes(h)
 
@@ -95,7 +95,7 @@ func hx(g group.Group, input, dst []byte) *group.Scalar {
 			// Can't fail because the underlying encoding/decoding is compatible.
 			panic(err)
 		}
-	case group.P256Sha256, group.P384Sha384, group.P521Sha512, group.Secp256k1:
+	case ecc.P256Sha256, ecc.P384Sha384, ecc.P521Sha512, ecc.Secp256k1Sha256:
 		sc = g.HashToScalar(input, append(c.contextString, dst...))
 	default:
 		// Can't fail because the function is always called with a compatible group previously checked.
@@ -106,13 +106,13 @@ func hx(g group.Group, input, dst []byte) *group.Scalar {
 }
 
 // H1 hashes the input and proves the "rho" DST.
-func H1(g group.Group, input []byte) *group.Scalar {
+func H1(g ecc.Group, input []byte) *ecc.Scalar {
 	return hx(g, input, []byte("rho"))
 }
 
 // H2 hashes the input and proves the "chal" DST.
-func H2(g group.Group, input []byte) *group.Scalar {
-	if g == group.Edwards25519Sha512 {
+func H2(g ecc.Group, input []byte) *ecc.Scalar {
+	if g == ecc.Edwards25519Sha512 {
 		// For compatibility with RFC8032 H2 doesn't use a domain separator for Edwards25519.
 		return h1Ed25519(input)
 	}
@@ -121,18 +121,18 @@ func H2(g group.Group, input []byte) *group.Scalar {
 }
 
 // H3 hashes the input and proves the "nonce" DST.
-func H3(g group.Group, input []byte) *group.Scalar {
+func H3(g ecc.Group, input []byte) *ecc.Scalar {
 	return hx(g, input, []byte("nonce"))
 }
 
 // H4 hashes the input and proves the "msg" DST.
-func H4(g group.Group, msg []byte) []byte {
+func H4(g ecc.Group, msg []byte) []byte {
 	cs := ciphersuites[g-1]
 	return cs.hash.Hash(0, cs.contextString, []byte("msg"), msg)
 }
 
 // H5 hashes the input and proves the "com" DST.
-func H5(g group.Group, msg []byte) []byte {
+func H5(g ecc.Group, msg []byte) []byte {
 	cs := ciphersuites[g-1]
 	return cs.hash.Hash(0, cs.contextString, []byte("com"), msg)
 }

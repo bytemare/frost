@@ -22,4 +22,7 @@ var (
 
 	// ErrIdentifierIs0 is returned when the invalid 0 identifier is encountered.
 	ErrIdentifierIs0 = errors.New("identifier is 0")
+
+	// ErrEncodingInvalidJSONEncoding is returned when invalid JSON is detected.
+	ErrEncodingInvalidJSONEncoding = errors.New("invalid JSON encoding")
 )

@@ -9,17 +9,21 @@
 package frost_test
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
+	"strings"
+
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
-	"github.com/bytemare/frost/keys"
 )
 
 // Example_signer shows the execution steps of a FROST participant.
 func Example_signer() {
-	maxSigners := uint64(5)
-	threshold := uint64(3)
+	maxSigners := uint16(5)
+	threshold := uint16(3)
 	message := []byte("example message")
 	ciphersuite := frost.Default
 
@@ -79,7 +83,7 @@ func Example_signer() {
 	// This is not part of a participant's flow, but we need to collect the commitments of the other participants for
 	// the demo.
 	{
-		for i := uint64(1); i < threshold; i++ {
+		for i := uint16(1); i < threshold; i++ {
 			signer, err := configuration.Signer(secretKeyShares[i])
 			if err != nil {
 				panic(err)
@@ -111,8 +115,8 @@ func Example_signer() {
 // Example_coordinator shows how to aggregate signature shares produced by signers into the final signature
 // and verify a final FROST signature.
 func Example_coordinator() {
-	maxSigners := uint64(5)
-	threshold := uint64(3)
+	maxSigners := uint16(5)
+	threshold := uint16(3)
 	message := []byte("example message")
 	ciphersuite := frost.Default
 
@@ -209,17 +213,241 @@ func Example_coordinator() {
 	// Output: Signature is valid.
 }
 
-func Example_key_generation() {
+// Example_key_generation shows how to create keys in a threshold setup with a centralized trusted dealer.
+// - a decentralised protocol described in the original FROST paper
+func Example_key_generation_centralised_trusted_dealer() {
+	panic(nil)
 }
 
+// Example_key_generation shows how to create keys in a threshold setup with distributed key generation described in
+// the original FROST paper.
+func Example_key_generation_decentralised() {
+	panic(nil)
+}
+
+// Example_existing_keys shows how to import existing keys in their canonical byte encoding.
 func Example_existing_keys() {
+	ciphersuite := frost.Ristretto255
+	id := 5
+	signerSecretKey := "941c0685dc7c567dd206a39bce556008367fdf633b56c010cde5561435f75b0e"
+	signerPublicKey := "d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a"
+	verificationKey := "4400e5808c12c6ef9dc751135acf76edfa73780c08e766537bb6c49bea591872"
+
+	fmt.Println("Decoding to key share:")
+	fmt.Printf("- signer identifier: %d\n", id)
+	fmt.Printf("- signer secret key: %s\n", signerSecretKey)
+	fmt.Printf("- signer public key: %s\n", signerPublicKey)
+	fmt.Printf("- global verification key: %s\n", verificationKey)
+
+	// First, let's rebuilt a public key share.
+	signerPublicKeyBytes, err := hex.DecodeString(signerPublicKey)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	signerPublicKeyShare, err := frost.NewPublicKeyShare(ciphersuite, uint16(id), signerPublicKeyBytes)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	encodedPublicKeyShare := hex.EncodeToString(signerPublicKeyShare.Encode())
+	fmt.Printf(
+		"Decoded individual elements to a public key share, and re-encoded as a whole: %s\n",
+		encodedPublicKeyShare,
+	)
+
+	// Now, we rebuilt a private key share.
+	signerSecretKeyBytes, err := hex.DecodeString(signerSecretKey)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	verificationKeyBytes, err := hex.DecodeString(verificationKey)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	signerKeyShare, err := frost.NewKeyShare(
+		ciphersuite,
+		uint16(id),
+		signerSecretKeyBytes,
+		signerPublicKeyBytes,
+		verificationKeyBytes,
+	)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	encodedKeyShare := hex.EncodeToString(signerKeyShare.Encode())
+	fmt.Printf("Decoded individual elements to a secret key share, and re-encoded as a whole: %s\n", encodedKeyShare)
+
+	if !strings.HasPrefix(encodedKeyShare, encodedPublicKeyShare) {
+		fmt.Println(
+			"Something went wrong when re-encoding: the public key share must be part of the private key share.",
+		)
+	}
+
+	// Output: Decoding to key share:
+	//- signer identifier: 5
+	//- signer secret key: 941c0685dc7c567dd206a39bce556008367fdf633b56c010cde5561435f75b0e
+	//- signer public key: d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a
+	//- global verification key: 4400e5808c12c6ef9dc751135acf76edfa73780c08e766537bb6c49bea591872
+	//Decoded individual elements to a public key share, and re-encoded as a whole: 01050000000000d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a
+	//Decoded individual elements to a secret key share, and re-encoded as a whole: 01050000000000d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a941c0685dc7c567dd206a39bce556008367fdf633b56c010cde5561435f75b0e4400e5808c12c6ef9dc751135acf76edfa73780c08e766537bb6c49bea591872
 }
 
-// Example_serialization shows how to encode and decode data used in FROST.
-func Example_serialization() {
+// Example_key_deserialization shows how to encode and decode scalars (e.g. secret keys) and elements (e.g. public keys).
+// Note you must know the group beforehand.
+func Example_key_deserialization() {
+	ciphersuite := frost.Ristretto255
+	group := ciphersuite.Group()
+
 	// Private keys and scalars.
+	privateKeyHex := "941c0685dc7c567dd206a39bce556008367fdf633b56c010cde5561435f75b0e"
+	privateKey := group.NewScalar()
 
-	// Public keys and elements.
+	// You can directly decode a hex string to a scalar.
+	if err := privateKey.DecodeHex(privateKeyHex); err != nil {
+		fmt.Println(err)
+	}
 
-	// Key shares
+	// Or you can use byte slices.
+	privateKeyBytes, err := hex.DecodeString(privateKeyHex)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	if err = privateKey.Decode(privateKeyBytes); err != nil {
+		fmt.Println(err)
+	}
+
+	if privateKeyHex != privateKey.Hex() {
+		fmt.Println("something went wrong re-encoding the scalar in hex, which should yield the same output")
+	}
+
+	if !bytes.Equal(privateKeyBytes, privateKey.Encode()) {
+		fmt.Println("something went wrong re-encoding the scalar in bytes, which should yield the same output")
+	}
+
+	// Same thing for public keys and group elements.
+	publicKeyHex := "d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a"
+	publicKey := group.NewElement()
+
+	// You can directly decode a hex string to an element.
+	if err = publicKey.DecodeHex(publicKeyHex); err != nil {
+		panic(err)
+	}
+
+	// Or you can use byte slices.
+	publicKeyBytes, err := hex.DecodeString(publicKeyHex)
+	if err != nil {
+		panic(err)
+	}
+
+	if err = publicKey.Decode(publicKeyBytes); err != nil {
+		panic(err)
+	}
+
+	if publicKeyHex != publicKey.Hex() {
+		fmt.Println("something went wrong re-encoding the element in hex, which should yield the same output")
+	}
+
+	if !bytes.Equal(publicKeyBytes, publicKey.Encode()) {
+		fmt.Println("something went wrong re-encoding the element in bytes, which should yield the same output")
+	}
+
+	// Output:
+}
+
+// Example_deserialize shows how to encode and decode a FROST messages.
+func Example_deserialize() {
+	groupPublicKeyHex := "74144431f64b052a173c2505e4224a6cc5f3e81d587d4f23369e1b2b1fd0d427"
+	publicKeySharesHex := []string{
+		"010100000000003c5ff80cd593a3b7e9007fdbc2b8fe6caee380e7d23eb7ba35160a5b7a51cb08",
+		"0102000000000002db540a823f17b975d9eb206ccfbcf3a7667a0365ec1918fa2c3bb69acb105c",
+		"010300000000008cff0ae1ded90e77095b55218d3632cd90b669d05c888bca26093681e5250870",
+	}
+
+	g := frost.Default.Group()
+	groupPublicKey := g.NewElement()
+	if err := groupPublicKey.DecodeHex(groupPublicKeyHex); err != nil {
+		fmt.Println(err)
+	}
+
+	publicKeyShares := make([]*keys.PublicKeyShare, len(publicKeySharesHex))
+	for i, p := range publicKeySharesHex {
+		publicKeyShares[i] = new(keys.PublicKeyShare)
+		if err := publicKeyShares[i].DecodeHex(p); err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	// This is how to set up the Configuration for FROST, the same for every signer and the coordinator.
+	// Note that every configuration setup for a Signer needs the public key shares of all other signers participating
+	// in a signing session (at least for the Sign() step).
+	configuration := &frost.Configuration{
+		Ciphersuite:           frost.Default,
+		Threshold:             2,
+		MaxSigners:            3,
+		GroupPublicKey:        groupPublicKey,
+		SignerPublicKeyShares: publicKeyShares,
+	}
+
+	// Decoding a commitment.
+	commitment1Hex := "01963090de7d665c5101009073f1a30f4fb9a84275206002fc4394aea7a6cbaf944a7b2f0ae" +
+		"9143f39fe62808704f776fccfc0080e90e59fdf9bf0156141732728d41fb15554b46a037a40"
+	commitment2Hex := "017615b41957cca8d70200c2d3d3e8133d18daf95aee5371f397771118be5f3917058502637" +
+		"0fa893828462400bfab522a542010e70b2b6d4eb388f92b47d6e01abbc16ea24aed5b4fb652"
+
+	commitment1 := new(frost.Commitment)
+	if err := commitment1.DecodeHex(commitment1Hex); err != nil {
+		fmt.Println(err)
+	}
+
+	commitment2 := new(frost.Commitment)
+	if err := commitment2.DecodeHex(commitment2Hex); err != nil {
+		fmt.Println(err)
+	}
+
+	// You can individually check a commitment
+	if err := configuration.ValidateCommitment(commitment1); err != nil {
+		fmt.Println(err)
+	}
+
+	// You can then assemble these commitments to build a list.
+	commitmentList := make(frost.CommitmentList, 2)
+	commitmentList[0] = commitment1
+	commitmentList[1] = commitment2
+
+	encodedCommitmentListBytes := commitmentList.Encode()
+	encodedCommitmentListHex := hex.EncodeToString(encodedCommitmentListBytes)
+
+	// Note that the commitments are the same, but serializing using a CommitmentList is slightly different (3 bytes more)
+	// since it has a length prefix header.
+	commitmentListHex := "010200" +
+		"01963090de7d665c5101009073f1a30f4fb9a84275206002fc4394aea7a6cbaf944a7b2f0ae" +
+		"9143f39fe62808704f776fccfc0080e90e59fdf9bf0156141732728d41fb15554b46a037a40" +
+		"017615b41957cca8d70200c2d3d3e8133d18daf95aee5371f397771118be5f3917058502637" +
+		"0fa893828462400bfab522a542010e70b2b6d4eb388f92b47d6e01abbc16ea24aed5b4fb652"
+
+	if commitmentListHex != encodedCommitmentListHex {
+		fmt.Println(
+			"something went wrong when re-encoding the first commitment list, which should yield the same output",
+		)
+	}
+
+	// Decoding a whole commitment list.
+	decodedCommitmentList, err := frost.DecodeList(encodedCommitmentListBytes)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	reEncodedListBytes := decodedCommitmentList.Encode()
+	if !bytes.Equal(reEncodedListBytes, encodedCommitmentListBytes) {
+		fmt.Println(
+			"something went wrong when re-encoding the second commitment list, which should yield the same output",
+		)
+	}
+
+	// Output:
 }

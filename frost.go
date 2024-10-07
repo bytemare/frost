@@ -13,41 +13,15 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 
-	group "github.com/bytemare/crypto"
-	secretsharing "github.com/bytemare/secret-sharing"
+	"github.com/bytemare/ecc"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/keys"
 )
 
-/*
-- check RFC
-- update description
-	- more buzz
-	- show supported ciphersuites
-- Check for
-	- FROST2-CKM: https://eprint.iacr.org/2021/1375 (has duplicate checks)
-	- FROST2-BTZ: https://eprint.iacr.org/2022/833
-	- FROST3 (ROAST): https://eprint.iacr.org/2022/550 (most efficient variant of FROST)
-		- wrapper increasing robustness and apparently reducing some calculations?
-	- Chu: https://eprint.iacr.org/2023/899
-	- re-randomize keys: https://eprint.iacr.org/2024/436.pdf
-
-TODO:
-
-- identifiers, min and max, are uint16
-
-- verify serialize and deserialize functions of messages, scalars, and elements
-- add deserialization examples with hardcoded input
-- add versioning to encodings
-- align on serialization of https://frost.zfnd.org/user/serialization.html (good doc)\
-- make a `go run`-able program to generate trusted dealer keys
-- DKG: can derive an identifier from a byte string (e.g. name or email address)
-
-*/
-
-// Ciphersuite identifies the group and hash to use for FROST.
+// Ciphersuite identifies the group and hash function to use for FROST.
 type Ciphersuite byte
 
 const (
@@ -55,25 +29,25 @@ const (
 	Default = Ristretto255
 
 	// Ristretto255 uses Ristretto255 and SHA-512. This ciphersuite is recommended.
-	Ristretto255 = Ciphersuite(group.Ristretto255Sha512)
+	Ristretto255 = Ciphersuite(ecc.Ristretto255Sha512)
 
 	// Ed448 uses Edwards448 and SHAKE256, producing Ed448-compliant signatures as specified in RFC8032.
 	// ed448 = Ciphersuite(2).
 
 	// P256 uses P-256 and SHA-256.
-	P256 = Ciphersuite(group.P256Sha256)
+	P256 = Ciphersuite(ecc.P256Sha256)
 
 	// P384 uses P-384 and SHA-384.
-	P384 = Ciphersuite(group.P384Sha384)
+	P384 = Ciphersuite(ecc.P384Sha384)
 
 	// P521 uses P-521 and SHA-512.
-	P521 = Ciphersuite(group.P521Sha512)
+	P521 = Ciphersuite(ecc.P521Sha512)
 
 	// Ed25519 uses Edwards25519 and SHA-512, producing Ed25519-compliant signatures as specified in RFC8032.
-	Ed25519 = Ciphersuite(group.Edwards25519Sha512)
+	Ed25519 = Ciphersuite(ecc.Edwards25519Sha512)
 
 	// Secp256k1 uses Secp256k1 and SHA-256.
-	Secp256k1 = Ciphersuite(group.Secp256k1)
+	Secp256k1 = Ciphersuite(ecc.Secp256k1Sha256)
 )
 
 // Available returns whether the selected ciphersuite is available.
@@ -86,23 +60,23 @@ func (c Ciphersuite) Available() bool {
 	}
 }
 
-// ECGroup returns the elliptic curve group used in the ciphersuite.
-func (c Ciphersuite) ECGroup() group.Group {
+// Group returns the elliptic curve group used in the ciphersuite.
+func (c Ciphersuite) Group() ecc.Group {
 	if !c.Available() {
 		return 0
 	}
 
-	return group.Group(c)
+	return ecc.Group(c)
 }
 
 // Configuration holds the Configuration for a signing session.
 type Configuration struct {
-	GroupPublicKey        *group.Element
-	SignerPublicKeyShares []*keys.PublicKeyShare
-	Threshold             uint64
-	MaxSigners            uint64
-	Ciphersuite           Ciphersuite
-	group                 group.Group
+	GroupPublicKey        *ecc.Element           `json:"groupPublicKey"`
+	SignerPublicKeyShares []*keys.PublicKeyShare `json:"signerPublicKeyShares"`
+	Threshold             uint16                 `json:"threshold"`
+	MaxSigners            uint16                 `json:"maxSigners"`
+	Ciphersuite           Ciphersuite            `json:"ciphersuite"`
+	group                 ecc.Group
 	verified              bool
 	keysVerified          bool
 }
@@ -111,6 +85,18 @@ var (
 	errInvalidThresholdParameter = errors.New("threshold is 0 or higher than maxSigners")
 	errInvalidMaxSignersOrder    = errors.New("maxSigners is higher than group order")
 	errInvalidNumberOfPublicKeys = errors.New("invalid number of public keys (lower than threshold or above maximum)")
+	errKeyShareNotMatch          = errors.New(
+		"the key share's group public key does not match the one in the configuration",
+	)
+	errInvalidSecretKey         = errors.New("provided key share has invalid secret key")
+	errKeyShareNil              = errors.New("provided key share is nil")
+	errInvalidKeyShare          = errors.New("provided key share has non-matching secret and public keys")
+	errInvalidKeyShareUnknownID = errors.New(
+		"provided key share has no registered signer identifier in the configuration",
+	)
+	errPublicKeyShareNoMatch = errors.New(
+		"provided key share has a different public key than the one registered for that signer in the configuration",
+	)
 )
 
 // Init verifies whether the configuration's components are valid, in which case it initializes internal values, or
@@ -191,51 +177,46 @@ func (c *Configuration) ValidateKeyShare(keyShare *keys.KeyShare) error {
 	}
 
 	if keyShare == nil {
-		return errors.New("provided key share is nil")
+		return errKeyShareNil
 	}
 
 	if err := c.ValidatePublicKeyShare(keyShare.Public()); err != nil {
 		return err
 	}
 
-	if c.GroupPublicKey.Equal(keyShare.GroupPublicKey) != 1 {
-		return errors.New(
-			"the key share's group public key does not match the one in the configuration",
-		)
+	if !c.GroupPublicKey.Equal(keyShare.GroupPublicKey) {
+		return errKeyShareNotMatch
 	}
 
 	if keyShare.Secret == nil || keyShare.Secret.IsZero() {
-		return errors.New("provided key share has invalid secret key")
+		return errInvalidSecretKey
 	}
 
-	if c.group.Base().Multiply(keyShare.Secret).Equal(keyShare.PublicKey) != 1 {
-		return errors.New("provided key share has non-matching secret and public keys")
+	if !c.group.Base().Multiply(keyShare.Secret).Equal(keyShare.PublicKey) {
+		return errInvalidKeyShare
 	}
 
 	pk := c.getSignerPubKey(keyShare.ID)
 	if pk == nil {
-		return errors.New("provided key share has no registered signer identifier in the configuration")
+		return errInvalidKeyShareUnknownID
 	}
 
-	if pk.Equal(keyShare.PublicKey) != 1 {
-		return errors.New(
-			"provided key share has a different public key than " +
-				"the one registered for that signer in the configuration",
-		)
+	if !pk.Equal(keyShare.PublicKey) {
+		return errPublicKeyShareNoMatch
 	}
 
 	return nil
 }
 
 func (c *Configuration) verifySignerPublicKeyShares() error {
-	length := uint64(len(c.SignerPublicKeyShares))
-	if length < c.Threshold || length > c.MaxSigners {
+	length := len(c.SignerPublicKeyShares)
+	if length < int(c.Threshold) || length > int(c.MaxSigners) {
 		return errInvalidNumberOfPublicKeys
 	}
 
 	// Sets to detect duplicates.
-	pkSet := make(map[string]uint64, len(c.SignerPublicKeyShares))
-	idSet := make(map[uint64]struct{}, len(c.SignerPublicKeyShares))
+	pkSet := make(map[string]uint16, len(c.SignerPublicKeyShares))
+	idSet := make(map[uint16]struct{}, len(c.SignerPublicKeyShares))
 
 	for i, pks := range c.SignerPublicKeyShares {
 		if pks == nil {
@@ -266,26 +247,33 @@ func (c *Configuration) verifySignerPublicKeyShares() error {
 	return nil
 }
 
+func getOrder(g ecc.Group) *big.Int {
+	bytes := g.Order()
+
+	if g == ecc.Ristretto255Sha512 || g == ecc.Edwards25519Sha512 {
+		slices.Reverse(bytes)
+	}
+
+	return big.NewInt(0).SetBytes(bytes)
+}
+
 func (c *Configuration) verifyConfiguration() error {
 	if !c.Ciphersuite.Available() {
 		return internal.ErrInvalidCiphersuite
 	}
 
-	g := group.Group(c.Ciphersuite)
+	g := ecc.Group(c.Ciphersuite)
 
 	if c.Threshold == 0 || c.Threshold > c.MaxSigners {
 		return errInvalidThresholdParameter
 	}
 
-	order, _ := new(big.Int).SetString(g.Order(), 0)
-	if order == nil {
-		panic("can't set group order number")
-	}
+	order := getOrder(g)
+	maxSigners := new(big.Int).SetUint64(uint64(c.MaxSigners))
 
-	bigMax := new(big.Int).SetUint64(c.MaxSigners)
-	if order.Cmp(bigMax) != 1 {
-		// This is unlikely to happen, as the usual group orders cannot be represented in a uint64.
-		// Only a new, unregistered group would make it fail here.
+	// This is unlikely to happen, as the usual Group orders cannot be represented in a uint64.
+	// Only a new, unregistered Group would make it fail here.
+	if order.Cmp(maxSigners) != 1 {
 		return errInvalidMaxSignersOrder
 	}
 
@@ -299,7 +287,7 @@ func (c *Configuration) verifyConfiguration() error {
 	return nil
 }
 
-func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
+func (c *Configuration) getSignerPubKey(id uint16) *ecc.Element {
 	for _, pks := range c.SignerPublicKeyShares {
 		if pks.ID == id {
 			return pks.PublicKey
@@ -309,7 +297,7 @@ func (c *Configuration) getSignerPubKey(id uint64) *group.Element {
 	return nil
 }
 
-func (c *Configuration) validateIdentifier(id uint64) error {
+func (c *Configuration) validateIdentifier(id uint16) error {
 	switch {
 	case id == 0:
 		return internal.ErrIdentifierIs0
@@ -320,32 +308,32 @@ func (c *Configuration) validateIdentifier(id uint64) error {
 	return nil
 }
 
-func (c *Configuration) validateGroupElement(e *group.Element) error {
+func (c *Configuration) validateGroupElement(e *ecc.Element) error {
 	switch {
 	case e == nil:
 		return errors.New("is nil")
 	case e.IsIdentity():
 		return errors.New("is the identity element")
-	case group.Group(c.Ciphersuite).Base().Equal(e) == 1:
+	case ecc.Group(c.Ciphersuite).Base().Equal(e):
 		return errors.New("is the group generator (base element)")
 	}
 
 	return nil
 }
 
-func (c *Configuration) challenge(lambda *group.Scalar, message []byte, groupCommitment *group.Element) *group.Scalar {
+func (c *Configuration) challenge(lambda *ecc.Scalar, message []byte, groupCommitment *ecc.Element) *ecc.Scalar {
 	chall := SchnorrChallenge(c.group, message, groupCommitment, c.GroupPublicKey)
 	return chall.Multiply(lambda)
 }
 
 // SchnorrChallenge computes the per-message SchnorrChallenge.
-func SchnorrChallenge(g group.Group, msg []byte, r, pk *group.Element) *group.Scalar {
+func SchnorrChallenge(g ecc.Group, msg []byte, r, pk *ecc.Element) *ecc.Scalar {
 	return internal.H2(g, internal.Concatenate(r.Encode(), pk.Encode(), msg))
 }
 
 // VerifySignature returns whether the signature of the message is valid under publicKey.
-func VerifySignature(c Ciphersuite, message []byte, signature *Signature, publicKey *group.Element) error {
-	g := c.ECGroup()
+func VerifySignature(c Ciphersuite, message []byte, signature *Signature, publicKey *ecc.Element) error {
+	g := c.Group()
 	if g == 0 {
 		return internal.ErrInvalidCiphersuite
 	}
@@ -355,13 +343,13 @@ func VerifySignature(c Ciphersuite, message []byte, signature *Signature, public
 	l := g.Base().Multiply(signature.Z)
 
 	// Clear the cofactor for Edwards25519.
-	if g == group.Edwards25519Sha512 {
-		cofactor := group.Edwards25519Sha512.NewScalar().SetUInt64(8)
+	if g == ecc.Edwards25519Sha512 {
+		cofactor := ecc.Edwards25519Sha512.NewScalar().SetUInt64(8)
 		l.Multiply(cofactor)
 		r.Multiply(cofactor)
 	}
 
-	if l.Equal(r) != 1 {
+	if !l.Equal(r) {
 		return errInvalidSignature
 	}
 
@@ -370,7 +358,7 @@ func VerifySignature(c Ciphersuite, message []byte, signature *Signature, public
 
 // NewPublicKeyShare returns a PublicKeyShare from separately encoded key material. To deserialize a byte string
 // produced by the PublicKeyShare.Encode() method, use the PublicKeyShare.Decode() method.
-func NewPublicKeyShare(c Ciphersuite, id uint64, signerPublicKey []byte) (*keys.PublicKeyShare, error) {
+func NewPublicKeyShare(c Ciphersuite, id uint16, signerPublicKey []byte) (*keys.PublicKeyShare, error) {
 	if !c.Available() {
 		return nil, internal.ErrInvalidCiphersuite
 	}
@@ -379,7 +367,7 @@ func NewPublicKeyShare(c Ciphersuite, id uint64, signerPublicKey []byte) (*keys.
 		return nil, internal.ErrIdentifierIs0
 	}
 
-	g := c.ECGroup()
+	g := c.Group()
 
 	pk := g.NewElement()
 	if err := pk.Decode(signerPublicKey); err != nil {
@@ -387,10 +375,10 @@ func NewPublicKeyShare(c Ciphersuite, id uint64, signerPublicKey []byte) (*keys.
 	}
 
 	return &keys.PublicKeyShare{
-		PublicKey:  pk,
-		ID:         id,
-		Group:      g,
-		Commitment: nil,
+		PublicKey:     pk,
+		ID:            id,
+		Group:         g,
+		VssCommitment: nil,
 	}, nil
 }
 
@@ -398,7 +386,7 @@ func NewPublicKeyShare(c Ciphersuite, id uint64, signerPublicKey []byte) (*keys.
 // KeyShare.Encode() method, use the KeyShare.Decode() method.
 func NewKeyShare(
 	c Ciphersuite,
-	id uint64,
+	id uint16,
 	secretShare, signerPublicKey, groupPublicKey []byte,
 ) (*keys.KeyShare, error) {
 	pks, err := NewPublicKeyShare(c, id, signerPublicKey)
@@ -406,11 +394,16 @@ func NewKeyShare(
 		return nil, err
 	}
 
-	g := c.ECGroup()
+	g := c.Group()
 
 	s := g.NewScalar()
 	if err = s.Decode(secretShare); err != nil {
 		return nil, fmt.Errorf("could not decode secret share: %w", err)
+	}
+
+	vpk := g.Base().Multiply(s)
+	if !vpk.Equal(pks.PublicKey) {
+		return nil, errInvalidKeyShare
 	}
 
 	gpk := g.NewElement()
@@ -421,6 +414,6 @@ func NewKeyShare(
 	return &keys.KeyShare{
 		Secret:         s,
 		GroupPublicKey: gpk,
-		PublicKeyShare: secretsharing.PublicKeyShare(*pks),
+		PublicKeyShare: *pks,
 	}, nil
 }

@@ -13,43 +13,43 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/keys"
 )
 
 // SignatureShare represents a Signer's signature share and its identifier.
 type SignatureShare struct {
-	SignatureShare   *group.Scalar
-	SignerIdentifier uint64
-	Group            group.Group
+	SignatureShare   *ecc.Scalar `json:"signatureShare"`
+	SignerIdentifier uint16      `json:"signerIdentifier"`
+	Group            ecc.Group   `json:"group"`
 }
 
 // Signer is a participant in a signing group.
 type Signer struct {
 	// The KeyShare holds the signer's secret and public info, such as keys and identifier.
-	KeyShare *keys.KeyShare
+	KeyShare *keys.KeyShare `json:"keyShare"`
 
 	// LambdaRegistry records all interpolating values for the signers for different combinations of participant
 	// groups. Each group makes up a unique polynomial defined by the participants' identifiers. A value will be
 	// computed once for the first time a group is encountered, and kept across encodings and decodings of the signer,
 	// accelerating subsequent signatures within the same group of signers.
-	LambdaRegistry internal.LambdaRegistry
+	LambdaRegistry internal.LambdaRegistry `json:"lambdaRegistry"`
 
 	// NonceCommitments maps Nonce and their NonceCommitments to their Commitment's identifier.
-	NonceCommitments map[uint64]*Nonce
+	NonceCommitments map[uint64]*Nonce `json:"nonceCommitments"`
 
 	// Configuration is the core FROST setup configuration.
-	Configuration *Configuration
+	Configuration *Configuration `json:"configuration"`
 
 	// HidingRandom can be set to force the use its value for HidingNonce generation. This is only encouraged for vector
 	// reproduction, but should be left to nil in any production deployments.
-	HidingRandom []byte
+	HidingRandom []byte `json:"hidingRandom,omitempty"`
 
 	// HidingRandom can be set to force the use its value for HidingNonce generation. This is only encouraged for vector
 	// reproduction, but should be left to nil in any production deployments.
-	BindingRandom []byte
+	BindingRandom []byte `json:"bindingRandom,omitempty"`
 }
 
 // Nonce holds the signing nonces and their commitments. The Signer.Commit() method will generate and record a new nonce
@@ -57,9 +57,9 @@ type Signer struct {
 // create a signature share. Note that nonces and their commitments are agnostic of the upcoming message to sign, and
 // can therefore be pre-computed and the commitments shared before the signing session, saving a round-trip.
 type Nonce struct {
-	HidingNonce  *group.Scalar
-	BindingNonce *group.Scalar
-	*Commitment
+	HidingNonce  *ecc.Scalar `json:"hidingNonce"`
+	BindingNonce *ecc.Scalar `json:"bindingNonce"`
+	*Commitment  `json:"commitment"`
 }
 
 // ClearNonceCommitment zeroes-out the nonces and their commitments, and unregisters the nonce record.
@@ -74,7 +74,7 @@ func (s *Signer) ClearNonceCommitment(commitmentID uint64) {
 }
 
 // Identifier returns the Signer's identifier.
-func (s *Signer) Identifier() uint64 {
+func (s *Signer) Identifier() uint16 {
 	return s.KeyShare.ID
 }
 
@@ -88,7 +88,7 @@ func randomCommitmentID() uint64 {
 	return binary.LittleEndian.Uint64(buf)
 }
 
-func (s *Signer) generateNonce(secret *group.Scalar, random []byte) *group.Scalar {
+func (s *Signer) generateNonce(secret *ecc.Scalar, random []byte) *ecc.Scalar {
 	if random == nil {
 		random = internal.RandomBytes(32)
 	}
@@ -97,16 +97,15 @@ func (s *Signer) generateNonce(secret *group.Scalar, random []byte) *group.Scala
 }
 
 func (s *Signer) genNonceID() uint64 {
-	cid := randomCommitmentID()
+	var cid uint64
 
-	// In the extremely rare and unlikely case the CSPRNG returns an already registered ID, we try again 128 times
-	// before failing.
+	// In the extremely rare and unlikely case the CSPRNG returns an already registered ID, we try again 128 times max
+	// before failing. CSPRNG is a serious issue at which point protocol execution must be stopped.
 	for range 128 {
+		cid = randomCommitmentID()
 		if _, exists := s.NonceCommitments[cid]; !exists {
 			return cid
 		}
-
-		cid = randomCommitmentID()
 	}
 
 	panic("FATAL: CSPRNG could not generate unique commitment identifiers over 128 iterations")
@@ -144,11 +143,11 @@ func (s *Signer) verifyNonces(com *Commitment) error {
 		)
 	}
 
-	if nonces.HidingNonceCommitment.Equal(com.HidingNonceCommitment) != 1 {
+	if !nonces.HidingNonceCommitment.Equal(com.HidingNonceCommitment) {
 		return fmt.Errorf("invalid hiding nonce in commitment list for signer %d", s.KeyShare.ID)
 	}
 
-	if nonces.BindingNonceCommitment.Equal(com.BindingNonceCommitment) != 1 {
+	if !nonces.BindingNonceCommitment.Equal(com.BindingNonceCommitment) {
 		return fmt.Errorf("invalid binding nonce in commitment list for signer %d", s.KeyShare.ID)
 	}
 

@@ -14,12 +14,11 @@ import (
 	"strings"
 	"testing"
 
-	secretsharing "github.com/bytemare/secret-sharing"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
-	"github.com/bytemare/frost/keys"
 )
 
 func TestConfiguration_Verify_InvalidCiphersuite(t *testing.T) {
@@ -132,7 +131,7 @@ func TestConfiguration_Verify_GroupPublicKey_Identity(t *testing.T) {
 			Ciphersuite:           test.Ciphersuite,
 			Threshold:             test.threshold,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        test.ECGroup().NewElement(),
+			GroupPublicKey:        test.Group().NewElement(),
 			SignerPublicKeyShares: publicKeyShares,
 		}
 
@@ -153,7 +152,7 @@ func TestConfiguration_Verify_GroupPublicKey_Generator(t *testing.T) {
 			Ciphersuite:           test.Ciphersuite,
 			Threshold:             test.threshold,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        test.ECGroup().Base(),
+			GroupPublicKey:        test.Group().Base(),
 			SignerPublicKeyShares: publicKeyShares,
 		}
 
@@ -167,8 +166,8 @@ func TestConfiguration_VerifySignerPublicKeys_InvalidNumber(t *testing.T) {
 	expectedErrorPrefix := "invalid number of public keys (lower than threshold or above maximum)"
 
 	ciphersuite := frost.Ristretto255
-	threshold := uint64(2)
-	maxSigners := uint64(3)
+	threshold := uint16(2)
+	maxSigners := uint16(3)
 
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -212,8 +211,8 @@ func TestConfiguration_VerifySignerPublicKeys_Nil(t *testing.T) {
 	expectedErrorPrefix := "empty public key share at index 1"
 
 	ciphersuite := frost.Ristretto255
-	threshold := uint64(2)
-	maxSigners := uint64(3)
+	threshold := uint16(2)
+	maxSigners := uint16(3)
 
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -234,8 +233,8 @@ func TestConfiguration_VerifySignerPublicKeys_Nil(t *testing.T) {
 
 func TestConfiguration_VerifySignerPublicKeys_BadPublicKey(t *testing.T) {
 	ciphersuite := frost.Ristretto255
-	threshold := uint64(2)
-	maxSigners := uint64(3)
+	threshold := uint16(2)
+	maxSigners := uint16(3)
 
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -264,7 +263,7 @@ func TestConfiguration_VerifySignerPublicKeys_BadPublicKey(t *testing.T) {
 		"invalid public key for participant %d, the key is the identity element",
 		configuration.SignerPublicKeyShares[threshold-1].ID,
 	)
-	configuration.SignerPublicKeyShares[threshold-1].PublicKey = ciphersuite.ECGroup().NewElement()
+	configuration.SignerPublicKeyShares[threshold-1].PublicKey = ciphersuite.Group().NewElement()
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
@@ -275,7 +274,7 @@ func TestConfiguration_VerifySignerPublicKeys_BadPublicKey(t *testing.T) {
 		"invalid public key for participant %d, the key is the group generator (base element)",
 		configuration.SignerPublicKeyShares[threshold-1].ID,
 	)
-	configuration.SignerPublicKeyShares[threshold-1].PublicKey = ciphersuite.ECGroup().Base()
+	configuration.SignerPublicKeyShares[threshold-1].PublicKey = ciphersuite.Group().Base()
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
@@ -286,8 +285,8 @@ func TestConfiguration_VerifySignerPublicKeys_Duplicate_Identifiers(t *testing.T
 	expectedErrorPrefix := "found duplicate identifier for signer 1"
 
 	ciphersuite := frost.Ristretto255
-	threshold := uint64(2)
-	maxSigners := uint64(3)
+	threshold := uint16(2)
+	maxSigners := uint16(3)
 
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -313,8 +312,8 @@ func TestConfiguration_VerifySignerPublicKeys_Duplicate_PublicKeys(t *testing.T)
 	expectedErrorPrefix := "found duplicate public keys for signers 2 and 1"
 
 	ciphersuite := frost.Ristretto255
-	threshold := uint64(2)
-	maxSigners := uint64(3)
+	threshold := uint16(2)
+	maxSigners := uint16(3)
 
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -399,7 +398,7 @@ func TestConfiguration_ValidatePublicKeyShare_ID0(t *testing.T) {
 	configuration, _ := makeConfAndShares(t, tt)
 
 	pks := &keys.PublicKeyShare{
-		Group: tt.ECGroup(),
+		Group: tt.Group(),
 		ID:    0,
 	}
 
@@ -418,7 +417,7 @@ func TestConfiguration_ValidatePublicKeyShare_InvalidID(t *testing.T) {
 	configuration, _ := makeConfAndShares(t, tt)
 
 	pks := &keys.PublicKeyShare{
-		Group: tt.ECGroup(),
+		Group: tt.Group(),
 		ID:    tt.maxSigners + 1,
 	}
 
@@ -437,9 +436,9 @@ func TestConfiguration_ValidatePublicKeyShare_InvalidPublicKey(t *testing.T) {
 	configuration, _ := makeConfAndShares(t, tt)
 
 	pks := &keys.PublicKeyShare{
-		Group:     tt.ECGroup(),
+		Group:     tt.Group(),
 		ID:        1,
-		PublicKey: tt.ECGroup().Base(),
+		PublicKey: tt.Group().Base(),
 	}
 
 	if err := configuration.ValidatePublicKeyShare(pks); err == nil || err.Error() != expectedErrorPrefix {
@@ -496,7 +495,7 @@ func TestConfiguration_ValidateKeyShare_InvalidGroupPublicKey(t *testing.T) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
-	keyShare.GroupPublicKey = tt.ECGroup().NewElement()
+	keyShare.GroupPublicKey = tt.Group().NewElement()
 	if err := configuration.ValidateKeyShare(keyShare); err == nil || err.Error() != expectedErrorPrefix {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
@@ -538,7 +537,7 @@ func TestConfiguration_ValidateKeyShare_InvalidSecretKey(t *testing.T) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
-	keyShare.Secret = tt.ECGroup().NewScalar()
+	keyShare.Secret = tt.Group().NewScalar()
 	if err := configuration.ValidateKeyShare(keyShare); err == nil || err.Error() != expectedErrorPrefix {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
@@ -554,8 +553,8 @@ func TestConfiguration_ValidateKeyShare_KeysNotMatching(t *testing.T) {
 	configuration, keyShares := makeConfAndShares(t, tt)
 	keyShare := keyShares[0]
 
-	random := tt.ECGroup().NewScalar().Random()
-	keyShare.PublicKey = tt.ECGroup().Base().Multiply(random)
+	random := tt.Group().NewScalar().Random()
+	keyShare.PublicKey = tt.Group().Base().Multiply(random)
 	if err := configuration.ValidateKeyShare(keyShare); err == nil || err.Error() != expectedErrorPrefix {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
@@ -591,14 +590,14 @@ func TestConfiguration_ValidateKeyShare_WrongPublicKey(t *testing.T) {
 	}
 	configuration, keyShares := makeConfAndShares(t, tt)
 
-	random := tt.ECGroup().NewScalar().Random()
+	random := tt.Group().NewScalar().Random()
 	keyShare := &keys.KeyShare{
 		Secret:         random,
 		GroupPublicKey: keyShares[0].GroupPublicKey,
-		PublicKeyShare: secretsharing.PublicKeyShare{
-			PublicKey: tt.ECGroup().Base().Multiply(random),
+		PublicKeyShare: keys.PublicKeyShare{
+			PublicKey: tt.Group().Base().Multiply(random),
 			ID:        keyShares[0].ID,
-			Group:     keyShares[0].Group,
+			Group:     keyShares[0].Group(),
 		},
 	}
 
@@ -609,8 +608,8 @@ func TestConfiguration_ValidateKeyShare_WrongPublicKey(t *testing.T) {
 
 func TestConfiguration_Signer_NotVerified(t *testing.T) {
 	ciphersuite := frost.Ristretto255
-	threshold := uint64(2)
-	maxSigners := uint64(3)
+	threshold := uint16(2)
+	maxSigners := uint16(3)
 
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -631,8 +630,8 @@ func TestConfiguration_Signer_NotVerified(t *testing.T) {
 func TestConfiguration_Signer_BadConfig(t *testing.T) {
 	expectedErrorPrefix := internal.ErrInvalidCiphersuite
 	ciphersuite := frost.Ristretto255
-	threshold := uint64(2)
-	maxSigners := uint64(3)
+	threshold := uint16(2)
+	maxSigners := uint16(3)
 
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -671,8 +670,8 @@ func TestConfiguration_VerifySignatureShare_BadPrep(t *testing.T) {
 	expectedErrorPrefix := internal.ErrInvalidCiphersuite
 
 	ciphersuite := frost.Ristretto255
-	threshold := uint64(2)
-	maxSigners := uint64(3)
+	threshold := uint16(2)
+	maxSigners := uint16(3)
 
 	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -902,9 +901,9 @@ func TestConfiguration_VerifySignatureShare_InvalidSignatureShare(t *testing.T) 
 	}
 
 	sigShare := &frost.SignatureShare{
-		SignatureShare:   tt.Ciphersuite.ECGroup().NewScalar().Random(),
+		SignatureShare:   tt.Ciphersuite.Group().NewScalar().Random(),
 		SignerIdentifier: 1,
-		Group:            tt.Ciphersuite.ECGroup(),
+		Group:            tt.Ciphersuite.Group(),
 	}
 
 	if err := configuration.VerifySignatureShare(sigShare, message, coms); err == nil ||

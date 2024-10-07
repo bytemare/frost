@@ -12,17 +12,24 @@ import (
 	"errors"
 	"fmt"
 
-	group "github.com/bytemare/crypto"
+	"github.com/bytemare/ecc"
 
 	"github.com/bytemare/frost/internal"
 )
 
 var errInvalidSignature = errors.New("invalid Signature")
 
-// Signature represent a Schnorr signature.
+// Signature represents a Schnorr signature.
 type Signature struct {
-	R *group.Element
-	Z *group.Scalar
+	R     *ecc.Element `json:"r"`
+	Z     *ecc.Scalar  `json:"z"`
+	Group ecc.Group    `json:"group"`
+}
+
+// Clear overwrites the original values with default ones.
+func (s *Signature) Clear() {
+	s.R.Identity()
+	s.Z.Zero()
 }
 
 // AggregateSignatures enables a coordinator to produce the final signature given all signature shares.
@@ -68,7 +75,7 @@ func (c *Configuration) AggregateSignatures(
 		return nil, err
 	}
 
-	// Verify the final signature.
+	// Verify the final signature. Failure is unlikely to happen, as the signature is valid if the signature shares are.
 	if verify {
 		if err = VerifySignature(c.Ciphersuite, message, signature, c.GroupPublicKey); err != nil {
 			// difficult to reach, because if all shares are valid, the final signature is valid.
@@ -79,8 +86,8 @@ func (c *Configuration) AggregateSignatures(
 	return signature, nil
 }
 
-func (c *Configuration) sumShares(shares []*SignatureShare, groupCommitment *group.Element) (*Signature, error) {
-	z := group.Group(c.Ciphersuite).NewScalar()
+func (c *Configuration) sumShares(shares []*SignatureShare, groupCommitment *ecc.Element) (*Signature, error) {
+	z := ecc.Group(c.Ciphersuite).NewScalar()
 
 	for _, sigShare := range shares {
 		if err := c.validateSignatureShareLight(sigShare); err != nil {
@@ -91,8 +98,9 @@ func (c *Configuration) sumShares(shares []*SignatureShare, groupCommitment *gro
 	}
 
 	return &Signature{
-		R: groupCommitment,
-		Z: z,
+		Group: c.group,
+		R:     groupCommitment,
+		Z:     z,
 	}, nil
 }
 
@@ -120,7 +128,7 @@ func (c *Configuration) VerifySignatureShare(
 
 func (c *Configuration) prepareSignatureShareVerification(message []byte,
 	commitments CommitmentList,
-) (*group.Element, BindingFactors, []*group.Scalar, error) {
+) (*ecc.Element, BindingFactors, []*ecc.Scalar, error) {
 	commitments.Sort()
 
 	// Validate general consistency of the commitment list.
@@ -170,8 +178,8 @@ func (c *Configuration) verifySignatureShare(
 	sigShare *SignatureShare,
 	message []byte,
 	commitments CommitmentList,
-	participants []*group.Scalar,
-	groupCommitment *group.Element,
+	participants []*ecc.Scalar,
+	groupCommitment *ecc.Element,
 	bindingFactors BindingFactors,
 ) error {
 	if err := c.validateSignatureShareExtensive(sigShare); err != nil {
@@ -184,7 +192,7 @@ func (c *Configuration) verifySignatureShare(
 	}
 
 	pk := c.getSignerPubKey(sigShare.SignerIdentifier)
-	lambda := internal.Lambda(c.group, sigShare.SignerIdentifier, participants)
+	lambda := internal.ComputeLambda(c.group, sigShare.SignerIdentifier, participants)
 	lambdaChall := c.challenge(lambda, message, groupCommitment)
 
 	// Commitment KeyShare: r = g(h + b*f + l*s)
@@ -193,7 +201,7 @@ func (c *Configuration) verifySignatureShare(
 	r := commShare.Add(pk.Copy().Multiply(lambdaChall))
 	l := c.group.Base().Multiply(sigShare.SignatureShare)
 
-	if l.Equal(r) != 1 {
+	if !l.Equal(r) {
 		return fmt.Errorf("invalid signature share for signer %d", sigShare.SignerIdentifier)
 	}
 

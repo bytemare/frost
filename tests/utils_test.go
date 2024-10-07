@@ -12,12 +12,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"math/big"
 	"slices"
 	"strings"
 	"testing"
-
-	group "github.com/bytemare/crypto"
 
 	"github.com/bytemare/frost/internal"
 )
@@ -27,6 +24,8 @@ var (
 	errNoPanicMessage = errors.New("panic but no message")
 )
 
+// hasPanic runs f and recovers from a panic if any occurred, and returns whether it did and the panic message as an
+// error.
 func hasPanic(f func()) (has bool, err error) {
 	defer func() {
 		var report any
@@ -67,38 +66,6 @@ func testPanic(s string, expectedError error, f func()) error {
 	}
 
 	return nil
-}
-
-func badScalar(t *testing.T, g group.Group) []byte {
-	order, ok := new(big.Int).SetString(g.Order(), 0)
-	if !ok {
-		t.Errorf("setting int in base %d failed: %v", 0, g.Order())
-	}
-
-	encoded := make([]byte, g.ScalarLength())
-	order.FillBytes(encoded)
-
-	if g == group.Ristretto255Sha512 || g == group.Edwards25519Sha512 {
-		slices.Reverse(encoded)
-	}
-
-	return encoded
-}
-
-func badElement(t *testing.T, g group.Group) []byte {
-	order, ok := new(big.Int).SetString(g.Order(), 0)
-	if !ok {
-		t.Errorf("setting int in base %d failed: %v", 0, g.Order())
-	}
-
-	encoded := make([]byte, g.ElementLength())
-	order.FillBytes(encoded)
-
-	if g == group.Ristretto255Sha512 || g == group.Edwards25519Sha512 {
-		slices.Reverse(encoded)
-	}
-
-	return encoded
 }
 
 func expectError(expectedError error, f func() error) error {
