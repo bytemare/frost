@@ -14,10 +14,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"github.com/bytemare/ecc"
 	"github.com/bytemare/ecc/encoding"
-	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/secret-sharing/keys"
+
+	"github.com/bytemare/frost/internal"
 )
 
 const (
@@ -44,6 +46,7 @@ var (
 	errDecodeCommitmentPrefix     = errors.New("failed to decode Commitment")
 	errDecodeSignatureSharePrefix = errors.New("failed to decode SignatureShare")
 	errDecodeSignaturePrefix      = errors.New("failed to decode Signature")
+	errDecodeCommitmentListPrefix = errors.New("failed to decode CommitmentList")
 
 	errDecodeProofR = errors.New("invalid encoding of R proof")
 	errDecodeProofZ = errors.New("invalid encoding of z proof")

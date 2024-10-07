@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -505,7 +506,7 @@ func TestEncoding_Configuration_InvalidPublicKeyShares(t *testing.T) {
 	})
 }
 
-func TestEncoding_Configuration_CantVerify_InvalidPubKey(t *testing.T) {
+func TestEncoding_Configuration_CantVerify_InvalidGroupPublicKey(t *testing.T) {
 	expectedErrorPrefix := "failed to decode Configuration: invalid group public key, the key is the group generator (base element)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -517,6 +518,22 @@ func TestEncoding_Configuration_CantVerify_InvalidPubKey(t *testing.T) {
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
+	})
+}
+
+func TestEncoding_Configuration_BadHex(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		configuration := makeConf(t, test)
+		testDecodingHexFails(t, configuration, new(frost.Configuration), "failed to decode Configuration:")
+	})
+}
+
+func TestEncoding_Configuration_BadJSON(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		configuration := makeConf(t, test)
+		errInvalidJSON := "failed to decode Configuration: failed to decode PublicKeyShare: invalid JSON encoding"
+		testDecodingJSONFails(t, "failed to decode Configuration",
+			errInvalidJSON, configuration, new(frost.Configuration))
 	})
 }
 
@@ -771,6 +788,22 @@ func TestEncoding_Signer_InvalidCommitment(t *testing.T) {
 	})
 }
 
+func TestEncoding_Signer_BadHex(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		s := makeSigners(t, test)[0]
+		testDecodingHexFails(t, s, new(frost.Signer), "failed to decode Signer:")
+	})
+}
+
+func TestEncoding_Signer_BadJSON(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		s := makeSigners(t, test)[0]
+		errInvalidJSON := "failed to decode Signer: failed to decode KeyShare: invalid JSON encoding"
+		testDecodingJSONFails(t, "failed to decode Signer",
+			errInvalidJSON, s, new(frost.Signer))
+	})
+}
+
 func TestEncoding_SignatureShare(t *testing.T) {
 	message := []byte("message")
 
@@ -863,6 +896,46 @@ func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
 	})
 }
 
+func TestEncoding_SignatureShare_BadHex(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signers := makeSigners(t, test)
+		coms := make(frost.CommitmentList, len(signers))
+		for i, s := range signers {
+			coms[i] = s.Commit()
+		}
+
+		s := signers[0]
+
+		sigShare, err := s.Sign([]byte("message"), coms)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		testDecodingHexFails(t, sigShare, new(frost.SignatureShare), "failed to decode SignatureShare:")
+	})
+}
+
+func TestEncoding_SignatureShare_BadJSON(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signers := makeSigners(t, test)
+		coms := make(frost.CommitmentList, len(signers))
+		for i, s := range signers {
+			coms[i] = s.Commit()
+		}
+
+		s := signers[0]
+
+		sigShare, err := s.Sign([]byte("message"), coms)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		errInvalidJSON := "failed to decode SignatureShare: invalid JSON encoding"
+		testDecodingJSONFails(t, "failed to decode SignatureShare",
+			errInvalidJSON, sigShare, new(frost.SignatureShare))
+	})
+}
+
 func TestEncoding_Signature(t *testing.T) {
 	message := []byte("message")
 
@@ -948,6 +1021,32 @@ func TestEncoding_Signature_InvalidZ(t *testing.T) {
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
+	})
+}
+
+func TestEncoding_Signature_BadHex(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		key := test.Group().NewScalar().Random()
+		signature, err := debug.Sign(test.Ciphersuite, []byte("message"), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		testDecodingHexFails(t, signature, new(frost.Signature), "failed to decode Signature:")
+	})
+}
+
+func TestEncoding_Signature_BadJSON(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		key := test.Group().NewScalar().Random()
+		signature, err := debug.Sign(test.Ciphersuite, []byte("message"), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		errInvalidJSON := "failed to decode Signature: invalid JSON encoding"
+		testDecodingJSONFails(t, "failed to decode Signature",
+			errInvalidJSON, signature, new(frost.Signature))
 	})
 }
 
@@ -1059,6 +1158,26 @@ func TestEncoding_Commitment_InvalidBindingNonce(t *testing.T) {
 	})
 }
 
+func TestEncoding_Commitment_BadHex(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+
+		testDecodingHexFails(t, com, new(frost.Commitment), "failed to decode Commitment:")
+	})
+}
+
+func TestEncoding_Commitment_BadJSON(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+
+		errInvalidJSON := "failed to decode Commitment: invalid JSON encoding"
+		testDecodingJSONFails(t, "failed to decode Commitment",
+			errInvalidJSON, com, new(frost.Commitment))
+	})
+}
+
 func TestEncoding_CommitmentList(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		signers := makeSigners(t, test)
@@ -1109,6 +1228,15 @@ func TestEncoding_CommitmentList_InvalidCiphersuite(t *testing.T) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
 	})
+}
+
+func TestEncoding_CommitmentList_InvalidLength_Short(t *testing.T) {
+	expectedErrorPrefix := "failed to decode CommitmentList: " + internal.ErrInvalidLength.Error()
+
+	if _, err := frost.DecodeList([]byte{0, 0}); err == nil ||
+		!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+	}
 }
 
 func TestEncoding_CommitmentList_InvalidLength1(t *testing.T) {
@@ -1243,4 +1371,131 @@ func testAndCompareSerde(
 	testAndCompareSerdeSimple(t, in, maker, expectedMatch, testByteEncoding, compare)
 	testAndCompareSerdeSimple(t, in, maker, expectedMatch, testHexEncoding, compare)
 	testAndCompareSerdeSimple(t, in, maker, expectedMatch, testJSONEncoding, compare)
+}
+
+func testDecodingHexFails(t *testing.T, thing1, thing2 serde, expectedErrorPrefix string) {
+	// empty string
+	if err := thing2.DecodeHex(""); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatal("expected error on empty string")
+	}
+
+	// uneven length
+	e := thing1.Hex()
+	if err := thing2.DecodeHex(e[:len(e)-1]); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+		t.Fatal("expected error on empty string")
+	}
+
+	// malformed string
+	hexed := thing1.Hex()
+	malformed := []rune(hexed)
+	malformed[0] = []rune("_")[0]
+
+	expectedError := expectedErrorPrefix + " encoding/hex: invalid byte: U+005F '_'"
+
+	if err := thing2.DecodeHex(string(malformed)); err == nil {
+		t.Fatal("expected error on malformed string")
+	} else if err.Error() != expectedError {
+		t.Fatalf("unexpected error: want %q, got %q", expectedError, err)
+	}
+}
+
+type jsonTesterBaddie struct {
+	key, value, expectedError string
+}
+
+func testJSONBaddie(in any, decoded json.Unmarshaler, baddie jsonTesterBaddie) error {
+	data, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+
+	data = replaceStringInBytes(data, baddie.key, baddie.value)
+
+	err = json.Unmarshal(data, decoded)
+
+	if len(baddie.expectedError) != 0 { // we're expecting an error
+		if err == nil ||
+			!strings.HasPrefix(err.Error(), baddie.expectedError) {
+			return fmt.Errorf("expected error %q, got %q", baddie.expectedError, err)
+		}
+	} else {
+		if err != nil {
+			return fmt.Errorf("unexpected error %q", err)
+		}
+	}
+
+	return nil
+}
+
+func testDecodingJSONFails(
+	t *testing.T,
+	errPrefix, badJSONErr string,
+	in any,
+	decoded json.Unmarshaler,
+	baddies ...jsonTesterBaddie,
+) {
+	errInvalidCiphersuite := errPrefix + ": invalid group"
+
+	// JSON: bad json
+	baddie := jsonTesterBaddie{
+		key:           "\"group\"",
+		value:         "bad",
+		expectedError: "invalid character 'b' looking for beginning of object key string",
+	}
+
+	if err := testJSONBaddie(in, decoded, baddie); err != nil {
+		t.Fatal(err)
+	}
+
+	// UnmarshallJSON: bad group
+	baddie = jsonTesterBaddie{
+		key:           "\"group\"",
+		value:         "\"group\":2, \"oldGroup\"",
+		expectedError: errInvalidCiphersuite,
+	}
+
+	if err := testJSONBaddie(in, decoded, baddie); err != nil {
+		t.Fatal(err)
+	}
+
+	// UnmarshallJSON: bad ciphersuite
+	baddie = jsonTesterBaddie{
+		key:           "\"group\"",
+		value:         "\"group\":70, \"oldGroup\"",
+		expectedError: errInvalidCiphersuite,
+	}
+
+	if err := testJSONBaddie(in, decoded, baddie); err != nil {
+		t.Fatal(err)
+	}
+
+	// UnmarshallJSON: bad ciphersuite
+	baddie = jsonTesterBaddie{
+		key:           "\"group\"",
+		value:         "\"group\":-1, \"oldGroup\"",
+		expectedError: badJSONErr,
+	}
+
+	if err := testJSONBaddie(in, decoded, baddie); err != nil {
+		t.Fatal(err)
+	}
+
+	// UnmarshallJSON: bad ciphersuite
+	overflow := "9223372036854775808" // MaxInt64 + 1
+	baddie = jsonTesterBaddie{
+		key:           "\"group\"",
+		value:         "\"group\":" + overflow + ", \"oldGroup\"",
+		expectedError: errPrefix + ": failed to read Group: strconv.Atoi: parsing \"9223372036854775808\": value out of range",
+	}
+
+	if err := testJSONBaddie(in, decoded, baddie); err != nil {
+		t.Fatal(err)
+	}
+
+	// Replace keys and values
+	for _, baddie = range baddies {
+		if err := testJSONBaddie(in, decoded, baddie); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

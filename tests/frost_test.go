@@ -130,6 +130,16 @@ func runFrost(
 	if err = frost.VerifySignature(test.Ciphersuite, message, singleSig, groupPublicKey); err != nil {
 		t.Fatal(err)
 	}
+
+	singleSig.Clear()
+
+	if !singleSig.R.IsIdentity() {
+		t.Fatal("expected identity")
+	}
+
+	if !singleSig.Z.IsZero() {
+		t.Fatal("expected 0")
+	}
 }
 
 func TestFrost_WithTrustedDealer(t *testing.T) {

@@ -42,7 +42,7 @@ func (s *Signature) Clear() {
 // This aggregate signature will verify if and only if all signature shares are valid. If an invalid share is identified
 // a reasonable approach is to remove the signer from the set of allowed participants in future runs of FROST. If verify
 // is set to true, AggregateSignatures will automatically verify the signature shares, and will return an error on the
-// first encountered invalid signature share
+// first encountered invalid signature share.
 func (c *Configuration) AggregateSignatures(
 	message []byte,
 	sigShares []*SignatureShare,

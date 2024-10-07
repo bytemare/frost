@@ -140,12 +140,12 @@ func (c CommitmentList) Encode() []byte {
 // DecodeList decodes a byte string produced by the CommitmentList.Encode() method.
 func DecodeList(data []byte) (CommitmentList, error) {
 	if len(data) < 3 {
-		return nil, errInvalidLength
+		return nil, fmt.Errorf(errFmt, errDecodeCommitmentListPrefix, internal.ErrInvalidLength)
 	}
 
 	g := ecc.Group(data[0])
 	if !g.Available() {
-		return nil, errInvalidCiphersuite
+		return nil, fmt.Errorf(errFmt, errDecodeCommitmentListPrefix, internal.ErrInvalidCiphersuite)
 	}
 
 	n := int(binary.LittleEndian.Uint16(data[1:3]))
@@ -153,7 +153,7 @@ func DecodeList(data []byte) (CommitmentList, error) {
 	size := 1 + 2 + n*comLength
 
 	if len(data) != size {
-		return nil, errInvalidLength
+		return nil, fmt.Errorf(errFmt, errDecodeCommitmentListPrefix, internal.ErrInvalidLength)
 	}
 
 	c := make(CommitmentList, 0, n)
@@ -161,7 +161,7 @@ func DecodeList(data []byte) (CommitmentList, error) {
 	for offset := 3; offset < len(data); offset += comLength {
 		com := new(Commitment)
 		if err := com.Decode(data[offset : offset+comLength]); err != nil {
-			return nil, fmt.Errorf("invalid encoding of commitment: %w", err)
+			return nil, fmt.Errorf("%w: invalid encoding of commitment: %w", errDecodeCommitmentListPrefix, err)
 		}
 
 		c = append(c, com)

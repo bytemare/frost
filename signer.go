@@ -78,22 +78,23 @@ func (s *Signer) Identifier() uint16 {
 	return s.KeyShare.ID
 }
 
-func randomCommitmentID() uint64 {
-	buf := make([]byte, 8)
-
-	if _, err := rand.Read(buf); err != nil {
-		panic(fmt.Errorf("FATAL: %w", err))
-	}
-
-	return binary.LittleEndian.Uint64(buf)
-}
-
 func (s *Signer) generateNonce(secret *ecc.Scalar, random []byte) *ecc.Scalar {
 	if random == nil {
 		random = internal.RandomBytes(32)
 	}
 
 	return internal.H3(s.Configuration.group, internal.Concatenate(random, secret.Encode()))
+}
+
+func randomCommitmentID() uint64 {
+	buf := make([]byte, 8)
+
+	// In the extremely rare and unlikely case the CSPRNG returns, panic. It's over.
+	if _, err := rand.Read(buf); err != nil {
+		panic(fmt.Errorf("FATAL: %w", err))
+	}
+
+	return binary.LittleEndian.Uint64(buf)
 }
 
 func (s *Signer) genNonceID() uint64 {
