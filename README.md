@@ -38,7 +38,7 @@ in the [original work](https://eprint.iacr.org/2020/852.pdf).
 | 4  | P-384                      | filippo.io/nistec             |
 | 5  | P-521                      | filippo.io/nistec             |
 | 6  | Edwards25519               | filippo.io/edwards25519       |
-| 7  | Secp256k1                  | github.com/bytemare/crypto    |
+| 7  | Secp256k1                  | github.com/bytemare/secp256k1 |
 
 The groups, scalars (secret keys and nonces), and group elements (public keys and commitments) are opaque objects that
 expose all necessary cryptographic and serialization functions.
@@ -66,7 +66,7 @@ If the [DKG](https://github.com/bytemare/dkg) package was used to generate keys,
 and must communicate their PublicKeyShare to the coordinator and other signers.
 
 It is easy to encode and decode these key shares and public key shares for transmission and storage,
-using the ```Encode()``` and ```Decode()``` methods (or in JSON marshalling).
+using the ```Encode()``` and ```Decode()``` methods (or hexadecimal or JSON marshalling).
 
 #### Import existing identifiers and keys
 
@@ -151,17 +151,20 @@ and providing the signer's ```KeyShare```.
 FROST is a two round signing protocol, in which the first round can be asynchronously pre-computed, so that signing can
 actually be done in one round when necessary.
 
-First Round: Signer commitment
+#### First Round: Signer commitment
 - Signers commit to internal nonces, by calling the ```commitment := signer.Commit()``` method, which returns one commitment
-stores corresponding nonces internally. In this manner, signers can produce many commitments before signing sessions start.
-Signers send these commitments to either a coordinator or all other signers. Note that a commitment is not function of the 
-future message to sign, so a signer can produce them without knowing the message in advance.
-- The coordinator (or all other signers) collect these commitments, into a list.
+and stores corresponding nonces internally. In this manner, signers can produce many commitments before signing sessions start.
+Note that a commitment is not function of the future message to sign, so a signer can produce them without knowing the message in advance.
+- Signers send these commitments to either a coordinator or all other signers.
+- The coordinator (or all other signers) collect these commitments, into a list. The coordinator can prepare such lists
+for each future message to be signed, a list containing a single commitment from each signer. These commitments must
+not be reused.
 
-Second Round: Signing
+#### Second Round: Signing
 - The coordinator broadcasts the message to be signed and a list of commitments, one from each signer, to each signer.
 - The signers sign the message ```sigShare, err := signer.Sign(message, commitmentList)```, each producing their signature share.
-- These signature shares must then be shared and aggregated to produce the final signature, ```signature, err := configuration.AggregateSignatures(message, sigShares, commitmentList, true)```.
+- These signature shares must then be shared and aggregated to produce the final signature,
+```signature, err := configuration.AggregateSignatures(message, sigShares, commitmentList, true)```.
 
 #### Coordinator
 
@@ -170,7 +173,7 @@ The coordinator does not have any secret or private information, and must never 
 Commitments received by signers have an identifier, which allows for triage and registration. Commitments must only be
 used once. The coordinator may further hedge against nonce-reuse by tracking the nonce commitments used for a given group key.
 
-If the ```verify``` argument in the ```AggregateSignatures()``` is set to ```true``` (recommended), signature shares and output signature are thoroughly verified.
+If the ```verify``` argument in the ```AggregateSignatures()``` is set to ```true``` (which is recommended), signature shares are thoroughly verified.
 Upon error or invalid share, the error message indicates the first invalid share it encountered.
 A coordinator should always verify the signature after ```AggregateSignatures()``` if the ```verify``` argument has been set to ```false```.
 
@@ -179,7 +182,7 @@ That signer can then be denied of further contributions.
 
 ### Resumption and storage
 
-Configurations, keys, commitments, commitment lists, and even signers can be backed up to byte strings for transmission and storage,
+Configurations, keys, commitments, commitment lists, and even signers can be serialized for transmission and storage,
 and re-instantiated from them. To decode, just create that object and use its ```Decode()``` method.
 
 For example, to back up a signer with its private keys and commitments, use:
