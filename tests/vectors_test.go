@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (C) 2023 Daniel Bourdrez. All Rights Reserved.
+// Copyright (C) 2024 Daniel Bourdrez. All Rights Reserved.
 //
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree or at
@@ -16,36 +16,72 @@ import (
 	"path/filepath"
 	"testing"
 
-	secretsharing "github.com/bytemare/secret-sharing"
+	"github.com/bytemare/ecc"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
+	"github.com/bytemare/frost/debug"
 )
 
-func (v test) test(t *testing.T) {
-	g := v.Config.Ciphersuite.Group
+func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *ecc.Element) {
+	g := v.Config.Ciphersuite.Group()
 
-	coeffs := v.Inputs.SharePolynomialCoefficients
-
-	privateKeyShares, dealerGroupPubKey, secretsharingCommitment, err := frost.TrustedDealerKeygen(
-		g,
+	keyShares, dealerGroupPubKey, secretsharingCommitment := debug.TrustedDealerKeygen(
+		v.Config.Ciphersuite,
 		v.Inputs.GroupSecretKey,
-		v.Config.MaxParticipants,
-		v.Config.MinParticipants,
-		coeffs...)
+		v.Config.Configuration.Threshold,
+		v.Config.Configuration.MaxSigners,
+		v.Inputs.SharePolynomialCoefficients...)
+
+	if len(secretsharingCommitment) != int(v.Config.Configuration.Threshold) {
+		t.Fatalf(
+			"%d / %d", len(secretsharingCommitment), v.Config.Configuration.Threshold)
+	}
+
+	// Test recovery of the full secret signing key.
+	recoveredKey, err := debug.RecoverGroupSecret(v.Config.Ciphersuite, keyShares)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(secretsharingCommitment) != v.Config.MinParticipants {
-		t.Fatalf(
-			"%d / %d", len(secretsharingCommitment), v.Config.MinParticipants)
+	if !recoveredKey.Equal(v.Inputs.GroupSecretKey) {
+		t.Fatal()
 	}
 
+	verificationKey, participantPublicKey, err := debug.RecoverPublicKeys(
+		v.Config.Ciphersuite,
+		v.Config.Configuration.MaxSigners,
+		secretsharingCommitment,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(participantPublicKey) != int(v.Config.Configuration.MaxSigners) {
+		t.Fatal()
+	}
+
+	if !verificationKey.Equal(dealerGroupPubKey) {
+		t.Fatal()
+	}
+
+	for i, shareI := range keyShares {
+		if !debug.VerifyVSS(g, shareI, secretsharingCommitment) {
+			t.Fatal(i)
+		}
+	}
+
+	return keyShares, dealerGroupPubKey
+}
+
+func (v test) test(t *testing.T) {
+	keyShares, verificationKey := v.testTrustedDealer(t)
+
 	// Check whether key shares are the same
-	cpt := len(privateKeyShares)
-	for _, p := range privateKeyShares {
+	cpt := len(keyShares)
+	for _, p := range keyShares {
 		for _, p2 := range v.Inputs.Participants {
-			if p2.Identifier.Equal(p.Identifier) == 1 {
+			if p2.Identifier() == p.Identifier() && p2.SecretKey().Equal(p.Secret) {
 				cpt--
 			}
 		}
@@ -55,37 +91,16 @@ func (v test) test(t *testing.T) {
 		t.Fatal("Some key shares do not match.")
 	}
 
-	// Test recovery of the full secret signing key.
-	recoveredKey, err := secretsharing.Combine(g, uint(v.Config.MinParticipants), privateKeyShares)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if recoveredKey.Equal(v.Inputs.GroupSecretKey) != 1 {
-		t.Fatal()
-	}
-
-	groupPublicKey, participantPublicKey := frost.DeriveGroupInfo(g, v.Config.MaxParticipants, secretsharingCommitment)
-	if len(participantPublicKey) != v.Config.MaxParticipants {
-		t.Fatal()
-	}
-
-	if groupPublicKey.Equal(dealerGroupPubKey) != 1 {
-		t.Fatal()
-	}
-
-	for i, shareI := range privateKeyShares {
-		if !frost.VerifyVSS(g, shareI, secretsharingCommitment) {
-			t.Fatal(i)
-		}
-	}
-
 	// Create participants
-	participants := make(ParticipantList, len(privateKeyShares))
+	participants := make(ParticipantList, len(keyShares))
 	conf := v.Config
-	conf.GroupPublicKey = groupPublicKey
-	for i, pks := range privateKeyShares {
-		participants[i] = conf.Participant(pks.Identifier, pks.SecretKey)
+	for i, keyShare := range keyShares {
+		signer, err := conf.Configuration.Signer(keyShare)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		participants[i] = signer
 	}
 
 	// Round One: Commitment
@@ -98,7 +113,7 @@ func (v test) test(t *testing.T) {
 
 		var pv *participant
 		for _, pp := range v.RoundOneOutputs.Outputs {
-			if pp.ID.Equal(pid.ID) == 1 {
+			if pp.ID == pid.ID {
 				pv = pp
 			}
 		}
@@ -109,62 +124,60 @@ func (v test) test(t *testing.T) {
 		p.HidingRandom = pv.HidingNonceRandomness
 		p.BindingRandom = pv.BindingNonceRandomness
 
-		commitment := p.Commit()
+		com := p.Commit()
 
-		if p.Nonce[0].Equal(pv.HidingNonce) != 1 {
+		if !p.NonceCommitments[com.CommitmentID].HidingNonce.Equal(pv.HidingNonce) {
 			t.Fatal(i)
 		}
-		if p.Nonce[1].Equal(pv.BindingNonce) != 1 {
+		if !p.NonceCommitments[com.CommitmentID].BindingNonce.Equal(pv.BindingNonce) {
 			t.Fatal(i)
 		}
-		if commitment.HidingNonce.Equal(pv.HidingNonceCommitment) != 1 {
+		if !com.HidingNonceCommitment.Equal(pv.HidingNonceCommitment) {
 			t.Fatal(i)
 		}
-		if commitment.BindingNonce.Equal(pv.BindingNonceCommitment) != 1 {
+		if !com.BindingNonceCommitment.Equal(pv.BindingNonceCommitment) {
 			t.Fatal(i)
 		}
 
-		commitmentList[i] = commitment
+		commitmentList[i] = com
 	}
-
-	//_, rhoInputs := commitmentList.ComputeBindingFactors(
-	//	v.Config.Ciphersuite,
-	//	v.Inputs.Message,
-	//)
-	//for i, rho := range rhoInputs {
-	//	if !bytes.Equal(rho, v.RoundOneOutputs.Outputs[i].BindingFactorInput) {
-	//		t.Fatal()
-	//	}
-	//}
 
 	// Round two: sign
 	sigShares := make([]*frost.SignatureShare, len(v.RoundTwoOutputs.Outputs))
-	for i, pid := range v.RoundTwoOutputs.Outputs {
-		p := participants.Get(pid.Identifier)
+	for i, share := range v.RoundTwoOutputs.Outputs {
+		p := participants.Get(share.SignerIdentifier)
 		if p == nil {
 			t.Fatal(i)
 		}
 
+		var err error
 		sigShares[i], err = p.Sign(v.Inputs.Message, commitmentList)
 		if err != nil {
 			t.Fatal(err)
 		}
-	}
 
-	for i, ks := range v.RoundTwoOutputs.Outputs {
-		if ks.SecretKey.Equal(sigShares[i].SignatureShare) != 1 {
-			t.Fatal(i)
+		// Check against vector
+		if !share.SignatureShare.Equal(sigShares[i].SignatureShare) {
+			t.Fatalf("%s\n%s\n", share.SignatureShare.Hex(), sigShares[i].SignatureShare.Hex())
+		}
+
+		if err = v.Config.VerifySignatureShare(sigShares[i], v.Inputs.Message, commitmentList); err != nil {
+			t.Fatalf("signature share matched but verification failed: %s", err)
 		}
 	}
 
-	// Aggregate
-	sig := participants[1].Aggregate(commitmentList, v.Inputs.Message, sigShares)
-	if !bytes.Equal(sig.Encode(), v.FinalOutput) {
-		t.Fatal()
+	// AggregateSignatures
+	sig, err := v.Config.AggregateSignatures(v.Inputs.Message, sigShares, commitmentList, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(sig.Encode()[1:], v.FinalOutput) {
+		t.Fatal("")
 	}
 
 	// Sanity Check
-	if !frost.Verify(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey) {
+	if err = frost.VerifySignature(conf.Ciphersuite, v.Inputs.Message, sig, verificationKey); err != nil {
 		t.Fatal()
 	}
 }
