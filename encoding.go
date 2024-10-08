@@ -102,7 +102,7 @@ func (c *Configuration) Encode() []byte {
 	binary.LittleEndian.PutUint16(out[3:5], c.MaxSigners)
 	binary.LittleEndian.PutUint16(out[5:7], uint16(len(c.SignerPublicKeyShares)))
 
-	out = append(out, c.GroupPublicKey.Encode()...)
+	out = append(out, c.VerificationKey.Encode()...)
 
 	for _, pk := range c.SignerPublicKeyShares {
 		out = append(out, pk.Encode()...)
@@ -165,7 +165,7 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 		Ciphersuite:           Ciphersuite(header.g),
 		Threshold:             uint16(header.t),
 		MaxSigners:            uint16(header.n),
-		GroupPublicKey:        gpk,
+		VerificationKey:       gpk,
 		SignerPublicKeyShares: pks,
 		group:                 header.g,
 		verified:              false,
@@ -198,7 +198,7 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	c.Ciphersuite = conf.Ciphersuite
 	c.Threshold = conf.Threshold
 	c.MaxSigners = conf.MaxSigners
-	c.GroupPublicKey = gpk
+	c.VerificationKey = gpk
 	c.SignerPublicKeyShares = pks
 	c.group = ecc.Group(conf.Ciphersuite)
 	c.verified = true
@@ -364,9 +364,9 @@ func (s *Signer) Decode(data []byte) error {
 	nLambdas := int(binary.LittleEndian.Uint16(data[header.length+4 : header.length+6]))
 	g := conf.group
 	_, nLen := encodedLength(encNonceCommitment, g)
-	_, lLem := encodedLength(encLambda, g)
+	_, llen := encodedLength(encLambda, g)
 
-	_, length := encodedLength(encSigner, g, header.length, ksLen, nCommitments*nLen, nLambdas*lLem)
+	_, length := encodedLength(encSigner, g, header.length, ksLen, nCommitments*nLen, nLambdas*llen)
 	if len(data) != length {
 		return fmt.Errorf(errFmt, errDecodeSignerPrefix, errInvalidLength)
 	}
@@ -383,9 +383,9 @@ func (s *Signer) Decode(data []byte) error {
 	}
 
 	offset += ksLen
-	stop := offset + nLambdas*lLem
+	stop := offset + nLambdas*llen
 
-	lambdaRegistry := make(internal.LambdaRegistry, lLem)
+	lambdaRegistry := make(internal.LambdaRegistry, llen)
 	if err = lambdaRegistry.Decode(g, data[offset:stop]); err != nil {
 		return fmt.Errorf("%w: failed to decode lambda registry in signer: %w", errDecodeSignerPrefix, err)
 	}
@@ -692,15 +692,15 @@ type shadowInit interface {
 type configurationShadow Configuration
 
 func (c *configurationShadow) init(g ecc.Group) {
-	c.GroupPublicKey = g.NewElement()
+	c.VerificationKey = g.NewElement()
 }
 
 type signerShadow Signer
 
 func (s *signerShadow) init(g ecc.Group) {
 	s.KeyShare = &keys.KeyShare{
-		Secret:         g.NewScalar(),
-		GroupPublicKey: g.NewElement(),
+		Secret:          g.NewScalar(),
+		VerificationKey: g.NewElement(),
 		PublicKeyShare: keys.PublicKeyShare{
 			PublicKey:     g.NewElement(),
 			VssCommitment: nil,
@@ -709,7 +709,7 @@ func (s *signerShadow) init(g ecc.Group) {
 		},
 	}
 	s.Configuration = &Configuration{
-		GroupPublicKey:        g.NewElement(),
+		VerificationKey:       g.NewElement(),
 		SignerPublicKeyShares: nil,
 		Threshold:             0,
 		MaxSigners:            0,

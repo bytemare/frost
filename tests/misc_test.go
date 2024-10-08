@@ -38,7 +38,7 @@ func verifyTrustedDealerKeygen(
 		t.Fatal(err)
 	}
 
-	groupPublicKey, participantPublicKeys, err := debug.RecoverPublicKeys(
+	verificationKey, participantPublicKeys, err := debug.RecoverPublicKeys(
 		test.Ciphersuite,
 		test.maxSigners,
 		coms,
@@ -51,7 +51,7 @@ func verifyTrustedDealerKeygen(
 		t.Fatal()
 	}
 
-	if !groupPublicKey.Equal(pk) {
+	if !verificationKey.Equal(pk) {
 		t.Fatal()
 	}
 
@@ -68,7 +68,7 @@ func verifyTrustedDealerKeygen(
 		t.Fatal(err)
 	}
 
-	if err = frost.VerifySignature(test.Ciphersuite, []byte("message"), sig, groupPublicKey); err != nil {
+	if err = frost.VerifySignature(test.Ciphersuite, []byte("message"), sig, verificationKey); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -257,7 +257,7 @@ func TestRecoverPublicKeys(t *testing.T) {
 			test.maxSigners,
 		)
 
-		groupPublicKey, participantPublicKeys, err := debug.RecoverPublicKeys(
+		verificationKey, participantPublicKeys, err := debug.RecoverPublicKeys(
 			test.Ciphersuite,
 			test.maxSigners,
 			secretsharingCommitment,
@@ -266,7 +266,7 @@ func TestRecoverPublicKeys(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if !dealerGroupPubKey.Equal(groupPublicKey) {
+		if !dealerGroupPubKey.Equal(verificationKey) {
 			t.Fatal("expected equality")
 		}
 
@@ -374,15 +374,44 @@ func TestPublicKeyShareVerificationFail(t *testing.T) {
 	})
 }
 
-func TestLambda_BadID(t *testing.T) {
-	// expectedErrorPrefix := "anomaly in participant identifiers: one of the polynomial's coefficients is zero"
-	g := ecc.Ristretto255Sha512
-	polynomial := []*ecc.Scalar{
-		g.NewScalar().SetUInt64(1),
-		g.NewScalar().SetUInt64(2),
-		g.NewScalar().SetUInt64(3),
+func runComputeLambda(g ecc.Group, id uint16, expectedValue *ecc.Scalar, participants ...int) *ecc.Scalar {
+	ps := make([]*ecc.Scalar, len(participants))
+	for i, p := range participants {
+		ps[i] = g.NewScalar().SetUInt64(uint64(p))
 	}
 
-	// todo : what happens if the participant list is not vetted?
-	t.Log(internal.ComputeLambda(g, 4, polynomial).Hex())
+	if s := internal.ComputeLambda(g, id, ps); !s.Equal(expectedValue) {
+		return s
+	}
+
+	return nil
+}
+
+func TestComputeLambda_BadID(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		g := test.Group()
+
+		// id is 0
+		expected := g.NewScalar().SetUInt64(1)
+		if s := runComputeLambda(g, 0, expected, 1, 2, 3); s != nil {
+			t.Fatalf("expected %v, got %v", expected.Hex(), s.Hex())
+		}
+
+		// no participants
+		if s := runComputeLambda(g, 1, expected); s != nil {
+			t.Fatalf("expected %v, got %v", expected.Hex(), s.Hex())
+		}
+
+		// participants has 0 id
+		expected = g.NewScalar()
+		if s := runComputeLambda(g, 1, expected, 2, 0, 3); s != nil {
+			t.Fatalf("expected %v, got %v", expected.Hex(), s.Hex())
+		}
+
+		// participants has only 0 ids
+		expected = g.NewScalar()
+		if s := runComputeLambda(g, 1, expected, 0, 0, 0); s != nil {
+			t.Fatalf("expected %v, got %v", expected.Hex(), s.Hex())
+		}
+	})
 }

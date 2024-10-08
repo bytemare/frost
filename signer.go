@@ -184,7 +184,7 @@ func (s *Signer) Sign(message []byte, commitments CommitmentList) (*SignatureSha
 	}
 
 	groupCommitment, bindingFactors := commitments.groupCommitmentAndBindingFactors(
-		s.Configuration.GroupPublicKey,
+		s.Configuration.VerificationKey,
 		message,
 	)
 

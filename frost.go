@@ -71,7 +71,7 @@ func (c Ciphersuite) Group() ecc.Group {
 
 // Configuration holds the Configuration for a signing session.
 type Configuration struct {
-	GroupPublicKey        *ecc.Element           `json:"groupPublicKey"`
+	VerificationKey       *ecc.Element           `json:"verificationKey"`
 	SignerPublicKeyShares []*keys.PublicKeyShare `json:"signerPublicKeyShares"`
 	Threshold             uint16                 `json:"threshold"`
 	MaxSigners            uint16                 `json:"maxSigners"`
@@ -184,7 +184,7 @@ func (c *Configuration) ValidateKeyShare(keyShare *keys.KeyShare) error {
 		return err
 	}
 
-	if !c.GroupPublicKey.Equal(keyShare.GroupPublicKey) {
+	if !c.VerificationKey.Equal(keyShare.VerificationKey) {
 		return errKeyShareNotMatch
 	}
 
@@ -277,7 +277,7 @@ func (c *Configuration) verifyConfiguration() error {
 		return errInvalidMaxSignersOrder
 	}
 
-	if err := c.validateGroupElement(c.GroupPublicKey); err != nil {
+	if err := c.validateGroupElement(c.VerificationKey); err != nil {
 		return fmt.Errorf("invalid group public key, the key %w", err)
 	}
 
@@ -322,7 +322,7 @@ func (c *Configuration) validateGroupElement(e *ecc.Element) error {
 }
 
 func (c *Configuration) challenge(lambda *ecc.Scalar, message []byte, groupCommitment *ecc.Element) *ecc.Scalar {
-	chall := SchnorrChallenge(c.group, message, groupCommitment, c.GroupPublicKey)
+	chall := SchnorrChallenge(c.group, message, groupCommitment, c.VerificationKey)
 	return chall.Multiply(lambda)
 }
 
@@ -387,7 +387,7 @@ func NewPublicKeyShare(c Ciphersuite, id uint16, signerPublicKey []byte) (*keys.
 func NewKeyShare(
 	c Ciphersuite,
 	id uint16,
-	secretShare, signerPublicKey, groupPublicKey []byte,
+	secretShare, signerPublicKey, verificationKey []byte,
 ) (*keys.KeyShare, error) {
 	pks, err := NewPublicKeyShare(c, id, signerPublicKey)
 	if err != nil {
@@ -407,13 +407,13 @@ func NewKeyShare(
 	}
 
 	gpk := g.NewElement()
-	if err = gpk.Decode(groupPublicKey); err != nil {
+	if err = gpk.Decode(verificationKey); err != nil {
 		return nil, fmt.Errorf("could not decode the group public key: %w", err)
 	}
 
 	return &keys.KeyShare{
-		Secret:         s,
-		GroupPublicKey: gpk,
-		PublicKeyShare: *pks,
+		Secret:          s,
+		VerificationKey: gpk,
+		PublicKeyShare:  *pks,
 	}, nil
 }

@@ -48,7 +48,7 @@ func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *ecc.Element) {
 		t.Fatal()
 	}
 
-	groupPublicKey, participantPublicKey, err := debug.RecoverPublicKeys(
+	verificationKey, participantPublicKey, err := debug.RecoverPublicKeys(
 		v.Config.Ciphersuite,
 		v.Config.Configuration.MaxSigners,
 		secretsharingCommitment,
@@ -61,7 +61,7 @@ func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *ecc.Element) {
 		t.Fatal()
 	}
 
-	if !groupPublicKey.Equal(dealerGroupPubKey) {
+	if !verificationKey.Equal(dealerGroupPubKey) {
 		t.Fatal()
 	}
 
@@ -75,7 +75,7 @@ func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *ecc.Element) {
 }
 
 func (v test) test(t *testing.T) {
-	keyShares, groupPublicKey := v.testTrustedDealer(t)
+	keyShares, verificationKey := v.testTrustedDealer(t)
 
 	// Check whether key shares are the same
 	cpt := len(keyShares)
@@ -177,7 +177,7 @@ func (v test) test(t *testing.T) {
 	}
 
 	// Sanity Check
-	if err = frost.VerifySignature(conf.Ciphersuite, v.Inputs.Message, sig, groupPublicKey); err != nil {
+	if err = frost.VerifySignature(conf.Ciphersuite, v.Inputs.Message, sig, verificationKey); err != nil {
 		t.Fatal()
 	}
 }

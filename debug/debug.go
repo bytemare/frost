@@ -55,8 +55,8 @@ func TrustedDealerKeygen(
 	shares := make([]*keys.KeyShare, maxSigners)
 	for i, k := range privateKeyShares {
 		shares[i] = &keys.KeyShare{
-			Secret:         k.Secret,
-			GroupPublicKey: coms[0],
+			Secret:          k.Secret,
+			VerificationKey: coms[0],
 			PublicKeyShare: keys.PublicKeyShare{
 				PublicKey:     g.Base().Multiply(k.Secret),
 				VssCommitment: coms,

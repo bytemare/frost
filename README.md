@@ -129,7 +129,7 @@ configuration := &frost.Configuration{
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+        VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 

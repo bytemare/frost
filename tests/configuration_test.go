@@ -25,7 +25,7 @@ func TestConfiguration_Verify_InvalidCiphersuite(t *testing.T) {
 	expectedErrorPrefix := internal.ErrInvalidCiphersuite
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(
+		keyShares, verificationKey, _ := debug.TrustedDealerKeygen(
 			test.Ciphersuite,
 			nil,
 			test.threshold,
@@ -37,7 +37,7 @@ func TestConfiguration_Verify_InvalidCiphersuite(t *testing.T) {
 			Ciphersuite:           2,
 			Threshold:             test.threshold,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        groupPublicKey,
+			VerificationKey:       verificationKey,
 			SignerPublicKeyShares: publicKeyShares,
 		}
 
@@ -51,7 +51,7 @@ func TestConfiguration_Verify_Threshold_0(t *testing.T) {
 	expectedErrorPrefix := "threshold is 0 or higher than maxSigners"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(
+		keyShares, verificationKey, _ := debug.TrustedDealerKeygen(
 			test.Ciphersuite,
 			nil,
 			test.threshold,
@@ -63,7 +63,7 @@ func TestConfiguration_Verify_Threshold_0(t *testing.T) {
 			Ciphersuite:           test.Ciphersuite,
 			Threshold:             0,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        groupPublicKey,
+			VerificationKey:       verificationKey,
 			SignerPublicKeyShares: publicKeyShares,
 		}
 
@@ -77,7 +77,7 @@ func TestConfiguration_Verify_Threshold_Max(t *testing.T) {
 	expectedErrorPrefix := "threshold is 0 or higher than maxSigners"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(
+		keyShares, verificationKey, _ := debug.TrustedDealerKeygen(
 			test.Ciphersuite,
 			nil,
 			test.threshold,
@@ -89,7 +89,7 @@ func TestConfiguration_Verify_Threshold_Max(t *testing.T) {
 			Ciphersuite:           test.Ciphersuite,
 			Threshold:             test.maxSigners + 1,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        groupPublicKey,
+			VerificationKey:       verificationKey,
 			SignerPublicKeyShares: publicKeyShares,
 		}
 
@@ -99,7 +99,7 @@ func TestConfiguration_Verify_Threshold_Max(t *testing.T) {
 	})
 }
 
-func TestConfiguration_Verify_GroupPublicKey_Nil(t *testing.T) {
+func TestConfiguration_Verify_verificationKey_Nil(t *testing.T) {
 	expectedErrorPrefix := "invalid group public key, the key is nil"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -110,7 +110,7 @@ func TestConfiguration_Verify_GroupPublicKey_Nil(t *testing.T) {
 			Ciphersuite:           test.Ciphersuite,
 			Threshold:             test.threshold,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        nil,
+			VerificationKey:       nil,
 			SignerPublicKeyShares: publicKeyShares,
 		}
 
@@ -120,7 +120,7 @@ func TestConfiguration_Verify_GroupPublicKey_Nil(t *testing.T) {
 	})
 }
 
-func TestConfiguration_Verify_GroupPublicKey_Identity(t *testing.T) {
+func TestConfiguration_Verify_verificationKey_Identity(t *testing.T) {
 	expectedErrorPrefix := "invalid group public key, the key is the identity element"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -131,7 +131,7 @@ func TestConfiguration_Verify_GroupPublicKey_Identity(t *testing.T) {
 			Ciphersuite:           test.Ciphersuite,
 			Threshold:             test.threshold,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        test.Group().NewElement(),
+			VerificationKey:       test.Group().NewElement(),
 			SignerPublicKeyShares: publicKeyShares,
 		}
 
@@ -141,7 +141,7 @@ func TestConfiguration_Verify_GroupPublicKey_Identity(t *testing.T) {
 	})
 }
 
-func TestConfiguration_Verify_GroupPublicKey_Generator(t *testing.T) {
+func TestConfiguration_Verify_verificationKey_Generator(t *testing.T) {
 	expectedErrorPrefix := "invalid group public key, the key is the group generator (base element)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -152,7 +152,7 @@ func TestConfiguration_Verify_GroupPublicKey_Generator(t *testing.T) {
 			Ciphersuite:           test.Ciphersuite,
 			Threshold:             test.threshold,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        test.Group().Base(),
+			VerificationKey:       test.Group().Base(),
 			SignerPublicKeyShares: publicKeyShares,
 		}
 
@@ -169,7 +169,7 @@ func TestConfiguration_VerifySignerPublicKeys_InvalidNumber(t *testing.T) {
 	threshold := uint16(2)
 	maxSigners := uint16(3)
 
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
 	// nil
@@ -177,7 +177,7 @@ func TestConfiguration_VerifySignerPublicKeys_InvalidNumber(t *testing.T) {
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: nil,
 	}
 
@@ -214,7 +214,7 @@ func TestConfiguration_VerifySignerPublicKeys_Nil(t *testing.T) {
 	threshold := uint16(2)
 	maxSigners := uint16(3)
 
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 	publicKeyShares[threshold-1] = nil
 
@@ -222,7 +222,7 @@ func TestConfiguration_VerifySignerPublicKeys_Nil(t *testing.T) {
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -236,14 +236,14 @@ func TestConfiguration_VerifySignerPublicKeys_BadPublicKey(t *testing.T) {
 	threshold := uint16(2)
 	maxSigners := uint16(3)
 
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
 	configuration := &frost.Configuration{
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -288,14 +288,14 @@ func TestConfiguration_VerifySignerPublicKeys_Duplicate_Identifiers(t *testing.T
 	threshold := uint16(2)
 	maxSigners := uint16(3)
 
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
 	configuration := &frost.Configuration{
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -315,14 +315,14 @@ func TestConfiguration_VerifySignerPublicKeys_Duplicate_PublicKeys(t *testing.T)
 	threshold := uint16(2)
 	maxSigners := uint16(3)
 
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
 	configuration := &frost.Configuration{
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -346,7 +346,7 @@ func TestConfiguration_ValidatePublicKeyShare_InvalidConfiguration(t *testing.T)
 		Ciphersuite:           tt.Ciphersuite,
 		Threshold:             tt.threshold,
 		MaxSigners:            tt.maxSigners,
-		GroupPublicKey:        nil,
+		VerificationKey:       nil,
 		SignerPublicKeyShares: nil,
 	}
 
@@ -457,7 +457,7 @@ func TestConfiguration_ValidateKeyShare_InvalidConfiguration(t *testing.T) {
 		Ciphersuite:           tt.Ciphersuite,
 		Threshold:             tt.threshold,
 		MaxSigners:            tt.maxSigners,
-		GroupPublicKey:        nil,
+		VerificationKey:       nil,
 		SignerPublicKeyShares: nil,
 	}
 
@@ -480,7 +480,7 @@ func TestConfiguration_ValidateKeyShare_Nil(t *testing.T) {
 	}
 }
 
-func TestConfiguration_ValidateKeyShare_InvalidGroupPublicKey(t *testing.T) {
+func TestConfiguration_ValidateKeyShare_InvalidverificationKey(t *testing.T) {
 	expectedErrorPrefix := "the key share's group public key does not match the one in the configuration"
 	tt := &tableTest{
 		Ciphersuite: frost.Ristretto255,
@@ -490,17 +490,17 @@ func TestConfiguration_ValidateKeyShare_InvalidGroupPublicKey(t *testing.T) {
 	configuration, keyShares := makeConfAndShares(t, tt)
 	keyShare := keyShares[0]
 
-	keyShare.GroupPublicKey = nil
+	keyShare.VerificationKey = nil
 	if err := configuration.ValidateKeyShare(keyShare); err == nil || err.Error() != expectedErrorPrefix {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
-	keyShare.GroupPublicKey = tt.Group().NewElement()
+	keyShare.VerificationKey = tt.Group().NewElement()
 	if err := configuration.ValidateKeyShare(keyShare); err == nil || err.Error() != expectedErrorPrefix {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
 
-	keyShare.GroupPublicKey.Base()
+	keyShare.VerificationKey.Base()
 	if err := configuration.ValidateKeyShare(keyShare); err == nil || err.Error() != expectedErrorPrefix {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}
@@ -592,8 +592,8 @@ func TestConfiguration_ValidateKeyShare_WrongPublicKey(t *testing.T) {
 
 	random := tt.Group().NewScalar().Random()
 	keyShare := &keys.KeyShare{
-		Secret:         random,
-		GroupPublicKey: keyShares[0].GroupPublicKey,
+		Secret:          random,
+		VerificationKey: keyShares[0].VerificationKey,
 		PublicKeyShare: keys.PublicKeyShare{
 			PublicKey: tt.Group().Base().Multiply(random),
 			ID:        keyShares[0].ID,
@@ -611,14 +611,14 @@ func TestConfiguration_Signer_NotVerified(t *testing.T) {
 	threshold := uint16(2)
 	maxSigners := uint16(3)
 
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
 	configuration := &frost.Configuration{
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -633,14 +633,14 @@ func TestConfiguration_Signer_BadConfig(t *testing.T) {
 	threshold := uint16(2)
 	maxSigners := uint16(3)
 
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
 	configuration := &frost.Configuration{
 		Ciphersuite:           2,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -673,14 +673,14 @@ func TestConfiguration_VerifySignatureShare_BadPrep(t *testing.T) {
 	threshold := uint16(2)
 	maxSigners := uint16(3)
 
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
 	configuration := &frost.Configuration{
 		Ciphersuite:           2,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -923,7 +923,7 @@ func TestConfiguration_AggregateSignatures_InvalidConfiguration(t *testing.T) {
 		Ciphersuite:           tt.Ciphersuite,
 		Threshold:             tt.threshold,
 		MaxSigners:            tt.maxSigners,
-		GroupPublicKey:        nil,
+		VerificationKey:       nil,
 		SignerPublicKeyShares: nil,
 	}
 

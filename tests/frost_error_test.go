@@ -43,7 +43,7 @@ func TestVerifySignature_InvalidSignature(t *testing.T) {
 			Z: test.Group().NewScalar().Random(),
 		}
 
-		if err := frost.VerifySignature(test.Ciphersuite, message, signature, configuration.GroupPublicKey); err == nil ||
+		if err := frost.VerifySignature(test.Ciphersuite, message, signature, configuration.VerificationKey); err == nil ||
 			!strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 		}
@@ -133,7 +133,7 @@ func TestFrost_NewKeyShare(t *testing.T) {
 		keyShare := keyShares[0]
 
 		newKeyShare, err := frost.NewKeyShare(configuration.Ciphersuite, keyShare.ID, keyShare.SecretKey().Encode(),
-			keyShare.PublicKey.Encode(), configuration.GroupPublicKey.Encode())
+			keyShare.PublicKey.Encode(), configuration.VerificationKey.Encode())
 		if err != nil {
 			t.Fatal(err)
 		}

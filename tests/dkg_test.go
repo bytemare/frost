@@ -48,7 +48,7 @@ func runDKG(
 		commitments[i] = r1[i].Commitment
 	}
 
-	pubKey, err := dkg.GroupPublicKeyFromRound1(c, r1)
+	pubKey, err := dkg.VerificationKeyFromRound1(c, r1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func runDKG(
 		//	t.Fatal("expected validity")
 		//}
 
-		if !keyShare.GroupPublicKey.Equal(pubKey) {
+		if !keyShare.VerificationKey.Equal(pubKey) {
 			t.Fatal("expected same public key")
 		}
 

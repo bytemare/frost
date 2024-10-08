@@ -85,7 +85,7 @@ func (j *ByteToHex) UnmarshalJSON(b []byte) error {
 type testVectorInput struct {
 	ParticipantList             []uint16                     `json:"participant_list"`
 	GroupSecretKey              ByteToHex                    `json:"group_secret_key"`
-	GroupPublicKey              ByteToHex                    `json:"group_public_key"`
+	VerificationKey             ByteToHex                    `json:"group_public_key"`
 	Message                     ByteToHex                    `json:"message"`
 	SharePolynomialCoefficients []ByteToHex                  `json:"share_polynomial_coefficients"`
 	ParticipantShares           []testVectorParticipantShare `json:"participant_shares"`
@@ -165,7 +165,7 @@ type testConfig struct {
 type testInput struct {
 	ParticipantList             []uint16
 	GroupSecretKey              *ecc.Scalar
-	GroupPublicKey              *ecc.Element
+	VerificationKey             *ecc.Element
 	Message                     []byte
 	SharePolynomialCoefficients []*ecc.Scalar
 	Participants                []*keys.KeyShare
@@ -208,7 +208,7 @@ func makeFrostConfig(c frost.Ciphersuite, threshold, maxSigners uint) *frost.Con
 		Ciphersuite:           c,
 		Threshold:             uint16(threshold),
 		MaxSigners:            uint16(maxSigners),
-		GroupPublicKey:        nil,
+		VerificationKey:       nil,
 		SignerPublicKeyShares: nil,
 	}
 }
@@ -247,7 +247,7 @@ func decodeParticipant(t *testing.T, g ecc.Group, tp *testParticipant) *particip
 func (i testVectorInput) decode(t *testing.T, g ecc.Group) *testInput {
 	input := &testInput{
 		GroupSecretKey:              decodeScalar(t, g, i.GroupSecretKey),
-		GroupPublicKey:              decodeElement(t, g, i.GroupPublicKey),
+		VerificationKey:             decodeElement(t, g, i.VerificationKey),
 		Message:                     i.Message,
 		SharePolynomialCoefficients: make([]*ecc.Scalar, len(i.SharePolynomialCoefficients)+1),
 		Participants:                make([]*keys.KeyShare, len(i.ParticipantShares)),
@@ -267,8 +267,8 @@ func (i testVectorInput) decode(t *testing.T, g ecc.Group) *testInput {
 		secret := decodeScalar(t, g, p.ParticipantShare)
 		public := g.Base().Multiply(secret)
 		input.Participants[j] = &keys.KeyShare{
-			Secret:         secret,
-			GroupPublicKey: input.GroupPublicKey,
+			Secret:          secret,
+			VerificationKey: input.VerificationKey,
 			PublicKeyShare: keys.PublicKeyShare{
 				PublicKey:     public,
 				VssCommitment: nil,
@@ -312,7 +312,7 @@ func (v testVector) decode(t *testing.T) *test {
 	conf := v.Config.decode(t)
 	inputs := v.Inputs.decode(t, conf.Ciphersuite.Group())
 
-	conf.GroupPublicKey = inputs.GroupPublicKey
+	conf.VerificationKey = inputs.VerificationKey
 	conf.SignerPublicKeyShares = make([]*keys.PublicKeyShare, len(inputs.Participants))
 
 	for i, ks := range inputs.Participants {

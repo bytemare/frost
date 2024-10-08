@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bytemare/ecc"
 	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
@@ -31,7 +32,7 @@ func Example_signer() {
 	// and their signing share.
 	// This example uses a centralised trusted dealer, but it is strongly recommended to use distributed key generation,
 	// e.g. from github.com/bytemare/dkg, which is compatible with FROST.
-	secretKeyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	secretKeyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 
 	// Since we used a centralised key generation, we only take the first key share for our participant.
 	participantSecretKeyShare := secretKeyShares[0]
@@ -50,7 +51,7 @@ func Example_signer() {
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -123,7 +124,7 @@ func Example_coordinator() {
 	// We assume you already have a pool of participants with distinct non-zero identifiers and their signing share.
 	// The following block uses a centralised trusted dealer to do this, but it is strongly recommended to use
 	// distributed key generation, e.g. from github.com/bytemare/dkg, which is compatible with FROST.
-	secretKeyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
+	secretKeyShares, verificationKey, _ := debug.TrustedDealerKeygen(ciphersuite, nil, threshold, maxSigners)
 	participantSecretKeyShares := secretKeyShares[:threshold]
 	participants := make([]*frost.Signer, threshold)
 
@@ -139,7 +140,7 @@ func Example_coordinator() {
 		Ciphersuite:           ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -189,7 +190,7 @@ func Example_coordinator() {
 	// Verify the signature and identify potential foul players. Note that since we set verify to true when calling
 	// AggregateSignatures, the following is redundant.
 	// Anyone can verify the signature given the ciphersuite parameter, message, and the group public key.
-	if err = frost.VerifySignature(ciphersuite, message, signature, groupPublicKey); err != nil {
+	if err = frost.VerifySignature(ciphersuite, message, signature, verificationKey); err != nil {
 		// At this point one should try to identify which participant's signature share is invalid and act on it.
 		// This verification is done as follows:
 		for _, signatureShare := range signatureShares {
@@ -216,13 +217,32 @@ func Example_coordinator() {
 // Example_key_generation shows how to create keys in a threshold setup with a centralized trusted dealer.
 // - a decentralised protocol described in the original FROST paper
 func Example_key_generation_centralised_trusted_dealer() {
-	panic(nil)
+	maxSigners := uint16(5)
+	threshold := uint16(3)
+	ciphersuite := frost.Default
+
+	optionnalSecretKey := ciphersuite.Group().NewScalar().Random()
+	keyShares, verificationKey, vssCommitment := debug.TrustedDealerKeygen(
+		ciphersuite,
+		optionnalSecretKey,
+		threshold,
+		maxSigners,
+	)
+
+	fmt.Printf("Created %d key shares with %d vss commitments and %d verification key.",
+		len(keyShares),
+		len(vssCommitment),
+		len([]*ecc.Element{verificationKey}), // yes that line is ugly but it's pretext to use the variable produced.
+	)
+
+	// Output: Created 5 key shares with 3 vss commitments and 1 verification key.
 }
 
 // Example_key_generation shows how to create keys in a threshold setup with distributed key generation described in
 // the original FROST paper.
 func Example_key_generation_decentralised() {
-	panic(nil)
+	fmt.Println("Visit github.com/bytemare/dkg for an example and documentation.")
+	// Output: Visit github.com/bytemare/dkg for an example and documentation.
 }
 
 // Example_existing_keys shows how to import existing keys in their canonical byte encoding.
@@ -361,7 +381,7 @@ func Example_key_deserialization() {
 
 // Example_deserialize shows how to encode and decode a FROST messages.
 func Example_deserialize() {
-	groupPublicKeyHex := "74144431f64b052a173c2505e4224a6cc5f3e81d587d4f23369e1b2b1fd0d427"
+	verificationKeyHex := "74144431f64b052a173c2505e4224a6cc5f3e81d587d4f23369e1b2b1fd0d427"
 	publicKeySharesHex := []string{
 		"010100000000003c5ff80cd593a3b7e9007fdbc2b8fe6caee380e7d23eb7ba35160a5b7a51cb08",
 		"0102000000000002db540a823f17b975d9eb206ccfbcf3a7667a0365ec1918fa2c3bb69acb105c",
@@ -369,8 +389,8 @@ func Example_deserialize() {
 	}
 
 	g := frost.Default.Group()
-	groupPublicKey := g.NewElement()
-	if err := groupPublicKey.DecodeHex(groupPublicKeyHex); err != nil {
+	verificationKey := g.NewElement()
+	if err := verificationKey.DecodeHex(verificationKeyHex); err != nil {
 		fmt.Println(err)
 	}
 
@@ -389,7 +409,7 @@ func Example_deserialize() {
 		Ciphersuite:           frost.Default,
 		Threshold:             2,
 		MaxSigners:            3,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 

@@ -128,7 +128,7 @@ func (c *Configuration) prepareSignatureShareVerification(message []byte,
 		return nil, nil, nil, fmt.Errorf("invalid list of commitments: %w", err)
 	}
 
-	groupCommitment, bindingFactors := commitments.groupCommitmentAndBindingFactors(c.GroupPublicKey, message)
+	groupCommitment, bindingFactors := commitments.groupCommitmentAndBindingFactors(c.VerificationKey, message)
 	participants := commitments.ParticipantsScalar()
 
 	return groupCommitment, bindingFactors, participants, nil

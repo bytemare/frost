@@ -20,7 +20,7 @@ import (
 )
 
 // ComputeLambda derives the interpolating value for id in the polynomial made by the participant identifiers.
-// This function assumes that:
+// This function is not public to protect its usage, as the following conditions MUST be met.
 // - id is non-nil and != 0.
 // - every scalar in participants is non-nil and != 0.
 // - there are no duplicates in participants.
@@ -43,8 +43,11 @@ func ComputeLambda(g ecc.Group, id uint16, participants []*ecc.Scalar) *ecc.Scal
 
 // A Lambda is the interpolating value for a given id in the polynomial made by the participant identifiers.
 type Lambda struct {
+	// Value is the actual Lambda value.
 	Value *ecc.Scalar `json:"value"`
-	Group ecc.Group   `json:"group"`
+
+	// Group is necessary so the Value scalar can reliably be decoded in the right group.
+	Group ecc.Group `json:"group"`
 }
 
 type lambdaShadow Lambda
@@ -110,6 +113,10 @@ func (l LambdaRegistry) Get(participants []uint16) *ecc.Scalar {
 
 // GetOrNew returns the recorded Lambda for the list of participants, or created, records, and returns a new one if
 // it wasn't found.
+// This function assumes that:
+// - id is non-nil and != 0.
+// - every scalar in participants is non-nil and != 0.
+// - there are no duplicates in participants.
 func (l LambdaRegistry) GetOrNew(g ecc.Group, id uint16, participants []uint16) *ecc.Scalar {
 	lambda := l.Get(participants)
 	if lambda == nil {

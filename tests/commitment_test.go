@@ -28,7 +28,7 @@ func TestCommitment_Validate_InvalidConfiguration(t *testing.T) {
 		Ciphersuite:           tt.Ciphersuite,
 		Threshold:             tt.threshold,
 		MaxSigners:            tt.maxSigners,
-		GroupPublicKey:        nil,
+		VerificationKey:       nil,
 		SignerPublicKeyShares: nil,
 	}
 
@@ -269,7 +269,7 @@ func TestCommitmentList_Validate_InvalidConfiguration(t *testing.T) {
 		Ciphersuite:           tt.Ciphersuite,
 		Threshold:             tt.threshold,
 		MaxSigners:            tt.maxSigners,
-		GroupPublicKey:        nil,
+		VerificationKey:       nil,
 		SignerPublicKeyShares: nil,
 	}
 

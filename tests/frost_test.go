@@ -63,7 +63,7 @@ func runFrost(
 	threshold, maxSigners uint16,
 	message []byte,
 	keyShares []*keys.KeyShare,
-	groupPublicKey *ecc.Element,
+	verificationKey *ecc.Element,
 ) {
 	// Collect public keys.
 	publicKeyShares := getPublicKeyShares(keyShares)
@@ -73,7 +73,7 @@ func runFrost(
 		Ciphersuite:           test.Ciphersuite,
 		Threshold:             threshold,
 		MaxSigners:            maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -127,7 +127,7 @@ func runFrost(
 		t.Fatal(err)
 	}
 
-	if err = frost.VerifySignature(test.Ciphersuite, message, singleSig, groupPublicKey); err != nil {
+	if err = frost.VerifySignature(test.Ciphersuite, message, singleSig, verificationKey); err != nil {
 		t.Fatal(err)
 	}
 
@@ -148,8 +148,13 @@ func TestFrost_WithTrustedDealer(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		g := test.Ciphersuite.Group()
 		sk := g.NewScalar().Random()
-		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, sk, test.threshold, test.maxSigners)
-		runFrost(t, test, test.threshold, test.maxSigners, message, keyShares, groupPublicKey)
+		keyShares, verificationKey, _ := debug.TrustedDealerKeygen(
+			test.Ciphersuite,
+			sk,
+			test.threshold,
+			test.maxSigners,
+		)
+		runFrost(t, test, test.threshold, test.maxSigners, message, keyShares, verificationKey)
 	})
 }
 
@@ -158,8 +163,8 @@ func TestFrost_WithDKG(t *testing.T) {
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		g := test.Ciphersuite.Group()
-		keyShares, groupPublicKey, _ := runDKG(t, g, test.threshold, test.maxSigners)
-		runFrost(t, test, test.threshold, test.maxSigners, message, keyShares, groupPublicKey)
+		keyShares, verificationKey, _ := runDKG(t, g, test.threshold, test.maxSigners)
+		runFrost(t, test, test.threshold, test.maxSigners, message, keyShares, verificationKey)
 	})
 }
 

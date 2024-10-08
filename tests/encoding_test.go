@@ -27,14 +27,14 @@ import (
 )
 
 func makeConfAndShares(t *testing.T, test *tableTest) (*frost.Configuration, []*keys.KeyShare) {
-	keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(test.Ciphersuite, nil, test.threshold, test.maxSigners)
 	publicKeyShares := getPublicKeyShares(keyShares)
 
 	configuration := &frost.Configuration{
 		Ciphersuite:           test.Ciphersuite,
 		Threshold:             test.threshold,
 		MaxSigners:            test.maxSigners,
-		GroupPublicKey:        groupPublicKey,
+		VerificationKey:       verificationKey,
 		SignerPublicKeyShares: publicKeyShares,
 	}
 
@@ -107,9 +107,9 @@ func compareConfigurations(t *testing.T, a, b serde, expectedMatch bool) {
 		t.Fatalf("expected matching max signers: %q / %q", c1.MaxSigners, c2.MaxSigners)
 	}
 
-	if ((c1.GroupPublicKey == nil || c2.GroupPublicKey == nil) || !c1.GroupPublicKey.Equal(c2.GroupPublicKey)) &&
+	if ((c1.VerificationKey == nil || c2.VerificationKey == nil) || !c1.VerificationKey.Equal(c2.VerificationKey)) &&
 		expectedMatch {
-		t.Fatalf("expected matching GroupPublicKey: %q / %q", c1.Ciphersuite, c2.Ciphersuite)
+		t.Fatalf("expected matching VerificationKey: %q / %q", c1.Ciphersuite, c2.Ciphersuite)
 	}
 
 	if len(c1.SignerPublicKeyShares) != len(c2.SignerPublicKeyShares) && expectedMatch {
@@ -189,11 +189,11 @@ func compareKeyShares(t *testing.T, a, b serde, expectedMatch bool) {
 		t.Fatalf("Expected equality on Secret:\n\t%s\n\t%s\n", s1.Secret.Hex(), s2.Secret.Hex())
 	}
 
-	if !s1.GroupPublicKey.Equal(s2.GroupPublicKey) && expectedMatch {
+	if !s1.VerificationKey.Equal(s2.VerificationKey) && expectedMatch {
 		t.Fatalf(
-			"Expected equality on GroupPublicKey:\n\t%s\n\t%s\n",
-			s1.GroupPublicKey.Hex(),
-			s2.GroupPublicKey.Hex(),
+			"Expected equality on VerificationKey:\n\t%s\n\t%s\n",
+			s1.VerificationKey.Hex(),
+			s2.VerificationKey.Hex(),
 		)
 	}
 
@@ -427,7 +427,7 @@ func TestEncoding_Configuration_InvalidConfigEncoding(t *testing.T) {
 	}
 }
 
-func TestEncoding_Configuration_InvalidGroupPublicKey(t *testing.T) {
+func TestEncoding_Configuration_InvalidVerificationKey(t *testing.T) {
 	expectedErrorPrefix := "failed to decode Configuration: could not decode group public key: element Decode: "
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -448,7 +448,7 @@ func TestEncoding_Configuration_BadPublicKeyShare(t *testing.T) {
 	expectedErrorPrefix := "failed to decode Configuration: could not decode signer public key share for signer 1: "
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(
+		keyShares, verificationKey, _ := debug.TrustedDealerKeygen(
 			test.Ciphersuite,
 			nil,
 			test.threshold,
@@ -460,7 +460,7 @@ func TestEncoding_Configuration_BadPublicKeyShare(t *testing.T) {
 			Ciphersuite:           test.Ciphersuite,
 			Threshold:             test.threshold,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        groupPublicKey,
+			VerificationKey:       verificationKey,
 			SignerPublicKeyShares: publicKeyShares,
 		}
 		g := ecc.Group(test.Ciphersuite)
@@ -481,7 +481,7 @@ func TestEncoding_Configuration_InvalidPublicKeyShares(t *testing.T) {
 	expectedErrorPrefix := "failed to decode Configuration: invalid number of public keys (lower than threshold or above maximum)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
-		keyShares, groupPublicKey, _ := debug.TrustedDealerKeygen(
+		keyShares, verificationKey, _ := debug.TrustedDealerKeygen(
 			test.Ciphersuite,
 			nil,
 			test.threshold,
@@ -493,7 +493,7 @@ func TestEncoding_Configuration_InvalidPublicKeyShares(t *testing.T) {
 			Ciphersuite:           test.Ciphersuite,
 			Threshold:             test.threshold,
 			MaxSigners:            test.maxSigners,
-			GroupPublicKey:        groupPublicKey,
+			VerificationKey:       verificationKey,
 			SignerPublicKeyShares: publicKeyShares,
 		}
 		configuration.SignerPublicKeyShares = configuration.SignerPublicKeyShares[:test.threshold-1]
@@ -506,12 +506,12 @@ func TestEncoding_Configuration_InvalidPublicKeyShares(t *testing.T) {
 	})
 }
 
-func TestEncoding_Configuration_CantVerify_InvalidGroupPublicKey(t *testing.T) {
+func TestEncoding_Configuration_CantVerify_InvalidVerificationKey(t *testing.T) {
 	expectedErrorPrefix := "failed to decode Configuration: invalid group public key, the key is the group generator (base element)"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		configuration := makeConf(t, test)
-		configuration.GroupPublicKey.Base()
+		configuration.VerificationKey.Base()
 		encoded := configuration.Encode()
 
 		decoded := new(frost.Configuration)
@@ -524,7 +524,7 @@ func TestEncoding_Configuration_CantVerify_InvalidGroupPublicKey(t *testing.T) {
 func TestEncoding_Configuration_BadHex(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		configuration := makeConf(t, test)
-		testDecodingHexFails(t, configuration, new(frost.Configuration), "failed to decode Configuration:")
+		testDecodeHexFails(t, configuration, new(frost.Configuration), "failed to decode Configuration:")
 	})
 }
 
@@ -534,6 +534,17 @@ func TestEncoding_Configuration_BadJSON(t *testing.T) {
 		errInvalidJSON := "failed to decode Configuration: failed to decode PublicKeyShare: invalid JSON encoding"
 		testDecodingJSONFails(t, "failed to decode Configuration",
 			errInvalidJSON, configuration, new(frost.Configuration))
+
+		configuration.SignerPublicKeyShares[1].PublicKey.Base()
+		j, err := json.Marshal(configuration)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expectedError := "failed to decode Configuration: invalid public key for participant 2, the key is the group generator (base element)"
+		if err = json.Unmarshal(j, new(frost.Configuration)); err == nil || err.Error() != expectedError {
+			t.Fatalf("expected %q, got %q", errInvalidJSON, err)
+		}
 	})
 }
 
@@ -791,7 +802,7 @@ func TestEncoding_Signer_InvalidCommitment(t *testing.T) {
 func TestEncoding_Signer_BadHex(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
-		testDecodingHexFails(t, s, new(frost.Signer), "failed to decode Signer:")
+		testDecodeHexFails(t, s, new(frost.Signer), "failed to decode Signer:")
 	})
 }
 
@@ -801,6 +812,18 @@ func TestEncoding_Signer_BadJSON(t *testing.T) {
 		errInvalidJSON := "failed to decode Signer: failed to decode KeyShare: invalid JSON encoding"
 		testDecodingJSONFails(t, "failed to decode Signer",
 			errInvalidJSON, s, new(frost.Signer))
+	})
+}
+
+func TestEncoding_Nonce_BadJSON(t *testing.T) {
+	testAll(t, func(t *testing.T, test *tableTest) {
+		signer := makeSigners(t, test)[0]
+		com := signer.Commit()
+		nonce := signer.NonceCommitments[com.CommitmentID]
+
+		errInvalidJSON := "failed to decode Commitment: invalid JSON encoding"
+		testDecodingJSONFails(t, "failed to decode Commitment",
+			errInvalidJSON, nonce, new(frost.Nonce))
 	})
 }
 
@@ -857,7 +880,6 @@ func TestEncoding_SignatureShare_InvalidLength2(t *testing.T) {
 }
 
 func TestEncoding_SignatureShare_InvalidIdentifier(t *testing.T) {
-	// todo: check for zero id in all decodings
 	expectedError := errors.New("failed to decode SignatureShare: identifier cannot be 0")
 	encoded := make([]byte, 35)
 	encoded[0] = 1
@@ -911,7 +933,7 @@ func TestEncoding_SignatureShare_BadHex(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testDecodingHexFails(t, sigShare, new(frost.SignatureShare), "failed to decode SignatureShare:")
+		testDecodeHexFails(t, sigShare, new(frost.SignatureShare), "failed to decode SignatureShare:")
 	})
 }
 
@@ -1032,7 +1054,7 @@ func TestEncoding_Signature_BadHex(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		testDecodingHexFails(t, signature, new(frost.Signature), "failed to decode Signature:")
+		testDecodeHexFails(t, signature, new(frost.Signature), "failed to decode Signature:")
 	})
 }
 
@@ -1163,7 +1185,7 @@ func TestEncoding_Commitment_BadHex(t *testing.T) {
 		signer := makeSigners(t, test)[0]
 		com := signer.Commit()
 
-		testDecodingHexFails(t, com, new(frost.Commitment), "failed to decode Commitment:")
+		testDecodeHexFails(t, com, new(frost.Commitment), "failed to decode Commitment:")
 	})
 }
 
@@ -1337,8 +1359,6 @@ func testJSONEncoding(t *testing.T, in, out serde) error {
 		return err
 	}
 
-	t.Log(string(jsonEnc))
-
 	if err = json.Unmarshal(jsonEnc, out); err != nil {
 		return err
 	}
@@ -1373,24 +1393,25 @@ func testAndCompareSerde(
 	testAndCompareSerdeSimple(t, in, maker, expectedMatch, testJSONEncoding, compare)
 }
 
-func testDecodingHexFails(t *testing.T, thing1, thing2 serde, expectedErrorPrefix string) {
+func testDecodeHexFails(t *testing.T, thing1, thing2 serde, expectedErrorPrefix string) {
 	// empty string
 	if err := thing2.DecodeHex(""); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatal("expected error on empty string")
 	}
 
 	// uneven length
+	expectedError := expectedErrorPrefix + " encoding/hex: odd length hex string"
 	e := thing1.Hex()
+
 	if err := thing2.DecodeHex(e[:len(e)-1]); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatal("expected error on empty string")
 	}
 
 	// malformed string
+	expectedError = expectedErrorPrefix + " encoding/hex: invalid byte: U+005F '_'"
 	hexed := thing1.Hex()
 	malformed := []rune(hexed)
 	malformed[0] = []rune("_")[0]
-
-	expectedError := expectedErrorPrefix + " encoding/hex: invalid byte: U+005F '_'"
 
 	if err := thing2.DecodeHex(string(malformed)); err == nil {
 		t.Fatal("expected error on malformed string")
@@ -1432,7 +1453,6 @@ func testDecodingJSONFails(
 	errPrefix, badJSONErr string,
 	in any,
 	decoded json.Unmarshaler,
-	baddies ...jsonTesterBaddie,
 ) {
 	errInvalidCiphersuite := errPrefix + ": invalid group"
 
@@ -1490,12 +1510,5 @@ func testDecodingJSONFails(
 
 	if err := testJSONBaddie(in, decoded, baddie); err != nil {
 		t.Fatal(err)
-	}
-
-	// Replace keys and values
-	for _, baddie = range baddies {
-		if err := testJSONBaddie(in, decoded, baddie); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
