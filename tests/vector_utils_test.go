@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (C) 2023 Daniel Bourdrez. All Rights Reserved.
+// Copyright (C) 2024 Daniel Bourdrez. All Rights Reserved.
 //
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree or at
@@ -15,18 +15,17 @@ import (
 	"strings"
 	"testing"
 
-	group "github.com/bytemare/crypto"
-	secretsharing "github.com/bytemare/secret-sharing"
+	"github.com/bytemare/ecc"
+	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
-	"github.com/bytemare/frost/internal"
 )
 
-type ParticipantList []*frost.Participant
+type ParticipantList []*frost.Signer
 
-func (p ParticipantList) Get(id *group.Scalar) *frost.Participant {
+func (p ParticipantList) Get(id uint16) *frost.Signer {
 	for _, i := range p {
-		if i.ParticipantInfo.KeyShare.Identifier.Equal(id) == 1 {
+		if i.KeyShare.ID == id {
 			return i
 		}
 	}
@@ -34,16 +33,16 @@ func (p ParticipantList) Get(id *group.Scalar) *frost.Participant {
 	return nil
 }
 
-func stringToInt(t *testing.T, s string) int {
-	i, err := strconv.ParseInt(s, 10, 32)
+func stringToUint(t *testing.T, s string) uint {
+	i, err := strconv.ParseUint(s, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return int(i)
+	return uint(i)
 }
 
-func decodeScalar(t *testing.T, g group.Group, enc []byte) *group.Scalar {
+func decodeScalar(t *testing.T, g ecc.Group, enc []byte) *ecc.Scalar {
 	scalar := g.NewScalar()
 	if err := scalar.Decode(enc); err != nil {
 		t.Fatal(err)
@@ -52,7 +51,7 @@ func decodeScalar(t *testing.T, g group.Group, enc []byte) *group.Scalar {
 	return scalar
 }
 
-func decodeElement(t *testing.T, g group.Group, enc []byte) *group.Element {
+func decodeElement(t *testing.T, g ecc.Group, enc []byte) *ecc.Element {
 	element := g.NewElement()
 	if err := element.Decode(enc); err != nil {
 		t.Fatal(err)
@@ -84,9 +83,9 @@ func (j *ByteToHex) UnmarshalJSON(b []byte) error {
 */
 
 type testVectorInput struct {
-	ParticipantList             []int                        `json:"participant_list"`
+	ParticipantList             []uint16                     `json:"participant_list"`
 	GroupSecretKey              ByteToHex                    `json:"group_secret_key"`
-	GroupPublicKey              ByteToHex                    `json:"group_public_key"`
+	VerificationKey             ByteToHex                    `json:"group_public_key"`
 	Message                     ByteToHex                    `json:"message"`
 	SharePolynomialCoefficients []ByteToHex                  `json:"share_polynomial_coefficients"`
 	ParticipantShares           []testVectorParticipantShare `json:"participant_shares"`
@@ -112,18 +111,19 @@ type testVectorConfig struct {
 }
 
 func (c testVectorConfig) decode(t *testing.T) *testConfig {
+	threshold := stringToUint(t, c.MinParticipants)
+	maxSigners := stringToUint(t, c.MaxParticipants)
+
 	return &testConfig{
-		MaxParticipants: stringToInt(t, c.MaxParticipants),
-		NumParticipants: stringToInt(t, c.NumParticipants),
-		MinParticipants: stringToInt(t, c.MinParticipants),
 		Name:            c.Name,
-		Configuration:   configToConfiguration(t, &c),
+		NumParticipants: stringToUint(t, c.NumParticipants),
+		Configuration:   configToConfiguration(t, &c, threshold, maxSigners),
 	}
 }
 
 type testVectorParticipantShare struct {
 	ParticipantShare ByteToHex `json:"participant_share"`
-	Identifier       int       `json:"identifier"`
+	Identifier       uint16    `json:"identifier"`
 }
 
 type testParticipant struct {
@@ -135,7 +135,7 @@ type testParticipant struct {
 	BindingNonceCommitment ByteToHex `json:"binding_nonce_commitment"`
 	BindingFactorInput     ByteToHex `json:"binding_factor_input"`
 	BindingFactor          ByteToHex `json:"binding_factor"`
-	Identifier             int       `json:"identifier"`
+	Identifier             uint16    `json:"identifier"`
 }
 
 type testVectorRoundOneOutputs struct {
@@ -144,7 +144,7 @@ type testVectorRoundOneOutputs struct {
 
 type testVectorSigShares struct {
 	SigShare   ByteToHex `json:"sig_share"`
-	Identifier int       `json:"identifier"`
+	Identifier uint16    `json:"identifier"`
 }
 
 type testVectorRoundTwoOutputs struct {
@@ -159,18 +159,16 @@ type testConfig struct {
 	*frost.Configuration
 	Name            string
 	ContextString   []byte
-	MaxParticipants int
-	NumParticipants int
-	MinParticipants int
+	NumParticipants uint
 }
 
 type testInput struct {
-	ParticipantList             []*group.Scalar
-	GroupSecretKey              *group.Scalar
-	GroupPublicKey              *group.Element
+	ParticipantList             []uint16
+	GroupSecretKey              *ecc.Scalar
+	VerificationKey             *ecc.Element
 	Message                     []byte
-	SharePolynomialCoefficients []*group.Scalar
-	Participants                []*secretsharing.KeyShare
+	SharePolynomialCoefficients []*ecc.Scalar
+	Participants                []*keys.KeyShare
 }
 
 type test struct {
@@ -182,15 +180,15 @@ type test struct {
 }
 
 type participant struct {
-	ID                     *group.Scalar
-	HidingNonce            *group.Scalar
-	BindingNonce           *group.Scalar
-	HidingNonceCommitment  *group.Element
-	BindingNonceCommitment *group.Element
-	BindingFactor          *group.Scalar
+	HidingNonce            *ecc.Scalar
+	BindingNonce           *ecc.Scalar
+	HidingNonceCommitment  *ecc.Element
+	BindingNonceCommitment *ecc.Element
+	BindingFactor          *ecc.Scalar
 	HidingNonceRandomness  []byte
 	BindingNonceRandomness []byte
 	BindingFactorInput     []byte
+	ID                     uint16
 }
 
 type testRoundOneOutputs struct {
@@ -198,23 +196,33 @@ type testRoundOneOutputs struct {
 }
 
 type testRoundTwoOutputs struct {
-	Outputs []*secretsharing.KeyShare
+	Outputs []*frost.SignatureShare
 }
 
 /*
 	Parsing and decoding functions.
 */
 
-func configToConfiguration(t *testing.T, c *testVectorConfig) *frost.Configuration {
+func makeFrostConfig(c frost.Ciphersuite, threshold, maxSigners uint) *frost.Configuration {
+	return &frost.Configuration{
+		Ciphersuite:           c,
+		Threshold:             uint16(threshold),
+		MaxSigners:            uint16(maxSigners),
+		VerificationKey:       nil,
+		SignerPublicKeyShares: nil,
+	}
+}
+
+func configToConfiguration(t *testing.T, c *testVectorConfig, threshold, maxSigners uint) *frost.Configuration {
 	switch c.Group {
 	case "ed25519":
-		return frost.Ed25519.Configuration()
+		return makeFrostConfig(frost.Ed25519, threshold, maxSigners)
 	case "ristretto255":
-		return frost.Ristretto255.Configuration()
+		return makeFrostConfig(frost.Ristretto255, threshold, maxSigners)
 	case "P-256":
-		return frost.P256.Configuration()
+		return makeFrostConfig(frost.P256, threshold, maxSigners)
 	case "secp256k1":
-		return frost.Secp256k1.Configuration()
+		return makeFrostConfig(frost.Secp256k1, threshold, maxSigners)
 	default:
 		t.Fatalf("group not supported: %s", c.Group)
 	}
@@ -222,9 +230,9 @@ func configToConfiguration(t *testing.T, c *testVectorConfig) *frost.Configurati
 	return nil
 }
 
-func decodeParticipant(t *testing.T, g group.Group, tp *testParticipant) *participant {
+func decodeParticipant(t *testing.T, g ecc.Group, tp *testParticipant) *participant {
 	return &participant{
-		ID:                     internal.IntegerToScalar(g, tp.Identifier),
+		ID:                     tp.Identifier,
 		HidingNonceRandomness:  tp.HidingNonceRandomness,
 		BindingNonceRandomness: tp.BindingNonceRandomness,
 		HidingNonce:            decodeScalar(t, g, tp.HidingNonce),
@@ -236,35 +244,44 @@ func decodeParticipant(t *testing.T, g group.Group, tp *testParticipant) *partic
 	}
 }
 
-func (i testVectorInput) decode(t *testing.T, g group.Group) *testInput {
+func (i testVectorInput) decode(t *testing.T, g ecc.Group) *testInput {
 	input := &testInput{
 		GroupSecretKey:              decodeScalar(t, g, i.GroupSecretKey),
-		GroupPublicKey:              decodeElement(t, g, i.GroupPublicKey),
+		VerificationKey:             decodeElement(t, g, i.VerificationKey),
 		Message:                     i.Message,
-		SharePolynomialCoefficients: make([]*group.Scalar, len(i.SharePolynomialCoefficients)),
-		Participants:                make([]*secretsharing.KeyShare, len(i.ParticipantShares)),
-		ParticipantList:             make([]*group.Scalar, len(i.ParticipantList)),
+		SharePolynomialCoefficients: make([]*ecc.Scalar, len(i.SharePolynomialCoefficients)+1),
+		Participants:                make([]*keys.KeyShare, len(i.ParticipantShares)),
+		ParticipantList:             make([]uint16, len(i.ParticipantList)),
 	}
 
 	for j, id := range i.ParticipantList {
-		input.ParticipantList[j] = internal.IntegerToScalar(g, id)
+		input.ParticipantList[j] = id
 	}
 
+	input.SharePolynomialCoefficients[0] = input.GroupSecretKey
 	for j, coeff := range i.SharePolynomialCoefficients {
-		input.SharePolynomialCoefficients[j] = decodeScalar(t, g, coeff)
+		input.SharePolynomialCoefficients[j+1] = decodeScalar(t, g, coeff)
 	}
 
 	for j, p := range i.ParticipantShares {
-		input.Participants[j] = &secretsharing.KeyShare{
-			Identifier: internal.IntegerToScalar(g, p.Identifier),
-			SecretKey:  decodeScalar(t, g, p.ParticipantShare),
+		secret := decodeScalar(t, g, p.ParticipantShare)
+		public := g.Base().Multiply(secret)
+		input.Participants[j] = &keys.KeyShare{
+			Secret:          secret,
+			VerificationKey: input.VerificationKey,
+			PublicKeyShare: keys.PublicKeyShare{
+				PublicKey:     public,
+				VssCommitment: nil,
+				ID:            p.Identifier,
+				Group:         g,
+			},
 		}
 	}
 
 	return input
 }
 
-func (o testVectorRoundOneOutputs) decode(t *testing.T, g group.Group) *testRoundOneOutputs {
+func (o testVectorRoundOneOutputs) decode(t *testing.T, g ecc.Group) *testRoundOneOutputs {
 	r := &testRoundOneOutputs{
 		Outputs: make([]*participant, len(o.Outputs)),
 	}
@@ -276,15 +293,15 @@ func (o testVectorRoundOneOutputs) decode(t *testing.T, g group.Group) *testRoun
 	return r
 }
 
-func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoundTwoOutputs {
+func (o testVectorRoundTwoOutputs) decode(t *testing.T, g ecc.Group) *testRoundTwoOutputs {
 	r := &testRoundTwoOutputs{
-		Outputs: make([]*secretsharing.KeyShare, len(o.Outputs)),
+		Outputs: make([]*frost.SignatureShare, len(o.Outputs)),
 	}
 
 	for i, p := range o.Outputs {
-		r.Outputs[i] = &secretsharing.KeyShare{
-			Identifier: internal.IntegerToScalar(g, p.Identifier),
-			SecretKey:  decodeScalar(t, g, p.SigShare),
+		r.Outputs[i] = &frost.SignatureShare{
+			SignerIdentifier: p.Identifier,
+			SignatureShare:   decodeScalar(t, g, p.SigShare),
 		}
 	}
 
@@ -293,11 +310,24 @@ func (o testVectorRoundTwoOutputs) decode(t *testing.T, g group.Group) *testRoun
 
 func (v testVector) decode(t *testing.T) *test {
 	conf := v.Config.decode(t)
+	inputs := v.Inputs.decode(t, conf.Ciphersuite.Group())
+
+	conf.VerificationKey = inputs.VerificationKey
+	conf.SignerPublicKeyShares = make([]*keys.PublicKeyShare, len(inputs.Participants))
+
+	for i, ks := range inputs.Participants {
+		conf.SignerPublicKeyShares[i] = ks.Public()
+	}
+
+	if err := conf.Configuration.Init(); err != nil {
+		t.Fatal(err)
+	}
+
 	return &test{
 		Config:          conf,
-		Inputs:          v.Inputs.decode(t, conf.Ciphersuite.Group),
-		RoundOneOutputs: v.RoundOneOutputs.decode(t, conf.Ciphersuite.Group),
-		RoundTwoOutputs: v.RoundTwoOutputs.decode(t, conf.Ciphersuite.Group),
+		Inputs:          inputs,
+		RoundOneOutputs: v.RoundOneOutputs.decode(t, conf.Ciphersuite.Group()),
+		RoundTwoOutputs: v.RoundTwoOutputs.decode(t, conf.Ciphersuite.Group()),
 		FinalOutput:     v.FinalOutput.Sig,
 	}
 }

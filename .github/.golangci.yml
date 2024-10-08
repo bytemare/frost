@@ -1,66 +1,99 @@
 linters:
   disable-all: true
   enable:
+    - asasalint
     - asciicheck
     - bidichk
     - bodyclose
+    - canonicalheader
     - containedctx
     - contextcheck
+    - copyloopvar
     - cyclop
-    - deadcode
+    - decorder
     #- depguard
     - dogsled
     - dupl
+    - dupword
     - durationcheck
+    #- err113
     - errcheck
+    - errchkjson
     - errname
     - errorlint
+    - exhaustive
+    - exhaustruct
     - exportloopref
+    - fatcontext
     - forbidigo
     - forcetypeassert
     - funlen
+    - gci
+    - ginkgolinter
+    - gocheckcompilerdirectives
+    #- gochecknoglobals
+    - gochecknoinits
+    - gochecksumtype
     - gocognit
     - goconst
     - gocritic
     - gocyclo
     - godot
     - godox
-    - goerr113
     - gofmt
     - gofumpt
     - goheader
     - goimports
-    - gomodguard
     - gomoddirectives
+    - gomodguard
     - goprintffuncname
     - gosec
     - gosimple
+    - gosmopolitan
     - govet
-    - ifshort
+    - grouper
     - importas
+    - inamedparam
     - ineffassign
+    - interfacebloat
+    - intrange
+    - ireturn
     - lll
+    - loggercheck
+    - maintidx
     - makezero
-    #- maligned
-    - megacheck
+    - mirror
     - misspell
+    #- mnd
+    - musttag
     - nakedret
     - nestif
     - nilerr
     - nilnil
+    - nlreturn
     - noctx
     - nolintlint
+    #- nonamedreturns
+    - nosprintfhostport
     - paralleltest
+    - perfsprint
     - prealloc
     - predeclared
+    - promlinter
+    - protogetter
+    - reassign
     - revive
     - rowserrcheck
+    - sloglint
+    - spancheck
     - sqlclosecheck
     - staticcheck
-    - structcheck
     - stylecheck
-    #- tagliatelle
+    - tagalign
+    - tagliatelle
     - tenv
+    - testableexamples
+    - testifylint
     - testpackage
     - thelper
     - tparallel
@@ -68,35 +101,42 @@ linters:
     - unconvert
     - unparam
     - unused
-    - varcheck
+    - usestdlibvars
     #- varnamelen
     - wastedassign
     - whitespace
-    #- wrapcheck
+    - wrapcheck
     - wsl
-    #- exhaustive
-    #- exhaustivestruct
-    #- gci
-    #- gochecknoglobals
-    #- gochecknoinits
-    #- gomnd
-    #- nlreturn
-  presets:
-    - bugs
-    - unused
-  fast: false
+    - zerologlint
 
 linters-settings:
+  cyclop:
+    max-complexity: 15
+    skip-tests: true
   dupl:
     threshold: 100
   errcheck:
     check-type-assertions: true
     check-blank: true
+    #exclude-functions:
+    #  - io/ioutil.ReadFile
+    #  - io.Copy(*bytes.Buffer)
+    #  - io.Copy(os.Stdout)
   funlen:
     lines: 100
     statements: 50
+  gci:
+    sections:
+      - standard # Standard section: captures all standard packages.
+      - default # Default section: contains all imports that could not be matched to another section type.
+      - prefix(github.com/bytemare/frost) # Custom section: groups all imports with the specified Prefix.
+    skip-generated: true
+    # Enable custom order of sections.
+    # If `true`, make the section order the same as the order of `sections`.
+    # Default: false
+    custom-order: true
   gocognit:
-    min-complexity: 15
+    min-complexity: 16
   goconst:
     min-len: 2
     min-occurrences: 2
@@ -107,6 +147,9 @@ linters-settings:
       - opinionated
       - performance
       - style
+    disabled-checks:
+      - unnamedResult
+      - sloppyReassign
   gocyclo:
     min-complexity: 15
   godox:
@@ -120,45 +163,80 @@ linters-settings:
     simplify: true
   goimports:
     local-prefixes: github.com/bytemare/frost
-  gomnd:
-    settings:
-      mnd:
-        checks:
-          - argument
-          - case
-          - condition
-          - operation
-          - return
-          - assign
+  gosec:
+    excludes:
+      - G115
+    config:
+      G602:
+        frost:
+          - encodedLength
+  gosimple:
+    checks: [ "all" ]
   govet:
-    check-shadowing: true
-
-    # settings per analyzer
     settings:
-      printf: # analyzer name, run `go tool vet help` to see all analyzers
-        funcs: # run `go tool vet help printf` to see available settings for `printf` analyzer
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
-
-    # enable or disable analyzers by name
+      shadow:
+        strict: true
+    disable-all: true
     enable:
+      - asmdecl
+      - assign
+      - atomic
       - atomicalign
-    disable-all: false
+      - bools
+      - buildtag
+      - cgocall
+      - composites
+      - copylocks
+      - deepequalerrors
+      - errorsas
+      - fieldalignment
+      - findcall
+      - framepointer
+      - httpresponse
+      - ifaceassert
+      - loopclosure
+      - lostcancel
+      - nilfunc
+      - nilness
+      - printf
+      - reflectvaluecompare
+      - shadow
+      - shift
+      - sigchanyzer
+      - sortslice
+      - stdmethods
+      - stringintconv
+      - structtag
+      - testinggoroutine
+      - tests
+      - unmarshal
+      - unreachable
+      - unsafeptr
+      - unusedresult
+      - unusedwrite
   lll:
     line-length: 120
     # tab width ('\t') in spaces. Default to 1.
     tab-width: 4
-  maligned:
-    suggest-new: true
   misspell:
     locale: US
+  mnd:
+    checks:
+      - argument
+      - case
+      - condition
+      - operation
+      - return
+      - assign
+    #ignored-functions:
+    #  - 'nist.setMapping'
+    #  - 'big.NewInt'
+    #  - 'hash2curve.HashToFieldXMD'
+  nlreturn:
+    block-size: 2
   prealloc:
     simple: false
     for-loops: true
-  unused:
-    check-exported: false
   whitespace:
     multi-if: false
     multi-func: false
@@ -179,18 +257,23 @@ issues:
   # But independently from this option we use default exclude patterns,
   # it can be disabled by `exclude-use-default: false`. To list all
   # excluded by default patterns execute `golangci-lint run --help`
-  exclude:
-    - "should have a package comment, unless it's in another file for this package"
+  #exclude:
+  #- "should have a package comment, unless it's in another file for this package"
+  #- "do not define dynamic errors, use wrapped static errors instead"
+  #- "missing cases in switch of type Group: maxID"
 
-  exclude-rules:
-    - path: ./*
-      linters:
-        - exhaustive
+  #exclude-rules:
+  #  - path: internal/hash.go
+  #    linters:
+  #      - errcheck
+  #  - path: internal/tag/strings.go
+  #    linters:
+  #      - gosec
 
   max-issues-per-linter: 0
   max-same-issues: 0
 
-  # Independently from option `exclude` we use default exclude patterns,
+  # Independently of option `exclude` we use default exclude patterns,
   # it can be disabled by this option. To list all
   # excluded by default patterns execute `golangci-lint run --help`.
   # Default value for this option is true.
@@ -199,5 +282,7 @@ issues:
 run:
   tests: false
 
-output:
- format: github-actions
+#output:
+#  formats:
+#    - format: github-actions
+#  show-stats: true

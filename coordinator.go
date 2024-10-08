@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (C) 2023 Daniel Bourdrez. All Rights Reserved.
+// Copyright (C) 2024 Daniel Bourdrez. All Rights Reserved.
 //
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree or at
@@ -9,11 +9,30 @@
 package frost
 
 import (
-	group "github.com/bytemare/crypto"
-	secretsharing "github.com/bytemare/secret-sharing"
+	"errors"
+	"fmt"
+
+	"github.com/bytemare/ecc"
+
+	"github.com/bytemare/frost/internal"
 )
 
-// Aggregate allows the coordinator to produce the final signature given all signature shares.
+var errInvalidSignature = errors.New("invalid Signature")
+
+// Signature represents a Schnorr signature.
+type Signature struct {
+	R     *ecc.Element `json:"r"`
+	Z     *ecc.Scalar  `json:"z"`
+	Group ecc.Group    `json:"group"`
+}
+
+// Clear overwrites the original values with default ones.
+func (s *Signature) Clear() {
+	s.R.Identity()
+	s.Z.Zero()
+}
+
+// AggregateSignatures enables a coordinator to produce the final signature given all signature shares.
 //
 // Before aggregation, each signature share must be a valid, deserialized element. If that validation fails the
 // coordinator must abort the protocol, as the resulting signature will be invalid.
@@ -21,74 +40,162 @@ import (
 //
 // The coordinator should verify this signature using the group public key before publishing or releasing the signature.
 // This aggregate signature will verify if and only if all signature shares are valid. If an invalid share is identified
-// a reasonable approach is to remove the participant from the set of allowed participants in future runs of FROST.
-func (p *Participant) Aggregate(
-	list CommitmentList,
-	msg []byte,
+// a reasonable approach is to remove the signer from the set of allowed participants in future runs of FROST. If verify
+// is set to true, AggregateSignatures will automatically verify the signature shares, and will return an error on the
+// first encountered invalid signature share.
+func (c *Configuration) AggregateSignatures(
+	message []byte,
 	sigShares []*SignatureShare,
-) *Signature {
-	if !list.IsSorted() {
-		panic("list not sorted")
+	commitments CommitmentList,
+	verify bool,
+) (*Signature, error) {
+	if !c.verified || !c.keysVerified {
+		if err := c.Init(); err != nil {
+			return nil, err
+		}
 	}
 
-	// Compute binding factors
-	bindingFactorList := p.computeBindingFactors(list, msg)
+	groupCommitment, bindingFactors, participants, err := c.prepareSignatureShareVerification(message, commitments)
+	if err != nil {
+		return nil, err
+	}
 
-	// Compute group commitment
-	groupCommitment := p.computeGroupCommitment(list, bindingFactorList)
+	if verify {
+		for _, share := range sigShares {
+			if err = c.verifySignatureShare(share, message, commitments, participants,
+				groupCommitment, bindingFactors); err != nil {
+				return nil, err
+			}
+		}
+	}
 
-	// Compute aggregate signature
-	z := p.Ciphersuite.Group.NewScalar()
-	for _, share := range sigShares {
-		z.Add(share.SignatureShare)
+	// Aggregate signatures.
+	signature, err := c.sumShares(sigShares, groupCommitment)
+	if err != nil {
+		return nil, err
+	}
+
+	return signature, nil
+}
+
+func (c *Configuration) sumShares(shares []*SignatureShare, groupCommitment *ecc.Element) (*Signature, error) {
+	z := ecc.Group(c.Ciphersuite).NewScalar()
+
+	for _, sigShare := range shares {
+		if err := c.validateSignatureShareLight(sigShare); err != nil {
+			return nil, err
+		}
+
+		z.Add(sigShare.SignatureShare)
 	}
 
 	return &Signature{
-		R: groupCommitment,
-		Z: z,
-	}
+		Group: c.group,
+		R:     groupCommitment,
+		Z:     z,
+	}, nil
 }
 
-// VerifySignatureShare verifies a signature share.
-// id, pki, commi, and sigShareI are, respectively, the identifier, public key, commitment, and signature share of
-// the participant whose share is to be verified.
+// VerifySignatureShare verifies a signature share. sigShare is the signer's signature share to be verified.
 //
 // The CommitmentList must be sorted in ascending order by identifier.
-func (p *Participant) VerifySignatureShare(
-	commitment *Commitment,
-	pki *group.Element,
-	sigShareI *group.Scalar,
-	coms CommitmentList,
-	msg []byte,
-) bool {
-	if !coms.IsSorted() {
-		panic("list not sorted")
+func (c *Configuration) VerifySignatureShare(
+	sigShare *SignatureShare,
+	message []byte,
+	commitments CommitmentList,
+) error {
+	if !c.verified || !c.keysVerified {
+		if err := c.Init(); err != nil {
+			return err
+		}
 	}
 
-	// Compute Binding Factor(s)
-	bindingFactorList := p.computeBindingFactors(coms, msg)
-	bindingFactor := bindingFactorList.BindingFactorForParticipant(commitment.Identifier)
-
-	// Compute Group Commitment
-	groupCommitment := p.computeGroupCommitment(coms, bindingFactorList)
-
-	// Commitment KeyShare
-	commShare := commitment.HidingNonce.Copy().Add(commitment.BindingNonce.Copy().Multiply(bindingFactor))
-
-	// Compute the challenge
-	challenge := challenge(p.Ciphersuite, groupCommitment, p.Configuration.GroupPublicKey, msg)
-
-	// Compute the interpolating value
-	participantList := secretsharing.Polynomial(coms.Participants())
-
-	lambdaI, err := participantList.DeriveInterpolatingValue(p.Ciphersuite.Group, commitment.Identifier)
+	groupCommitment, bindingFactors, participants, err := c.prepareSignatureShareVerification(message, commitments)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	// Compute relation values
-	l := p.Ciphersuite.Group.Base().Multiply(sigShareI)
-	r := commShare.Add(pki.Multiply(challenge.Multiply(lambdaI)))
+	return c.verifySignatureShare(sigShare, message, commitments, participants, groupCommitment, bindingFactors)
+}
 
-	return l.Equal(r) == 1
+func (c *Configuration) prepareSignatureShareVerification(message []byte,
+	commitments CommitmentList,
+) (*ecc.Element, BindingFactors, []*ecc.Scalar, error) {
+	commitments.Sort()
+
+	// Validate general consistency of the commitment list.
+	if err := c.ValidateCommitmentList(commitments); err != nil {
+		return nil, nil, nil, fmt.Errorf("invalid list of commitments: %w", err)
+	}
+
+	groupCommitment, bindingFactors := commitments.groupCommitmentAndBindingFactors(c.VerificationKey, message)
+	participants := commitments.ParticipantsScalar()
+
+	return groupCommitment, bindingFactors, participants, nil
+}
+
+func (c *Configuration) validateSignatureShareLight(sigShare *SignatureShare) error {
+	if sigShare == nil {
+		return errors.New("nil signature share")
+	}
+
+	if sigShare.SignatureShare == nil || sigShare.SignatureShare.IsZero() {
+		return errors.New("invalid signature share (nil or zero scalar)")
+	}
+
+	return nil
+}
+
+func (c *Configuration) validateSignatureShareExtensive(sigShare *SignatureShare) error {
+	if err := c.validateSignatureShareLight(sigShare); err != nil {
+		return err
+	}
+
+	if err := c.validateIdentifier(sigShare.SignerIdentifier); err != nil {
+		return fmt.Errorf("invalid identifier for signer in signature share, the %w", err)
+	}
+
+	if sigShare.Group != c.group {
+		return fmt.Errorf("signature share has invalid group parameter, want %s got %d", c.group, sigShare.Group)
+	}
+
+	if c.getSignerPubKey(sigShare.SignerIdentifier) == nil {
+		return fmt.Errorf("no public key registered for signer %d", sigShare.SignerIdentifier)
+	}
+
+	return nil
+}
+
+func (c *Configuration) verifySignatureShare(
+	sigShare *SignatureShare,
+	message []byte,
+	commitments CommitmentList,
+	participants []*ecc.Scalar,
+	groupCommitment *ecc.Element,
+	bindingFactors BindingFactors,
+) error {
+	if err := c.validateSignatureShareExtensive(sigShare); err != nil {
+		return err
+	}
+
+	com := commitments.Get(sigShare.SignerIdentifier)
+	if com == nil {
+		return fmt.Errorf("commitment for signer %d is missing", sigShare.SignerIdentifier)
+	}
+
+	pk := c.getSignerPubKey(sigShare.SignerIdentifier)
+	lambda := internal.ComputeLambda(c.group, sigShare.SignerIdentifier, participants)
+	lambdaChall := c.challenge(lambda, message, groupCommitment)
+
+	// Commitment KeyShare: r = g(h + b*f + l*s)
+	bindingFactor := bindingFactors[sigShare.SignerIdentifier]
+	commShare := com.HidingNonceCommitment.Copy().Add(com.BindingNonceCommitment.Copy().Multiply(bindingFactor))
+	r := commShare.Add(pk.Copy().Multiply(lambdaChall))
+	l := c.group.Base().Multiply(sigShare.SignatureShare)
+
+	if !l.Equal(r) {
+		return fmt.Errorf("invalid signature share for signer %d", sigShare.SignerIdentifier)
+	}
+
+	return nil
 }
