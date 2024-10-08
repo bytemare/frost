@@ -1,12 +1,8 @@
-GH_ACTIONS = workflows
-
 .PHONY: update
 update:
-	@cd ../
 	@echo "Updating dependencies..."
+	@cd ../ && go get -u ./...
 	@go mod tidy
-	@echo "Updating Github Actions pins..."
-	@$(foreach file, $(wildcard workflows/*.yml), pin-github-action $(file);)
 
 .PHONY: update-linters
 update-linters:
@@ -14,6 +10,8 @@ update-linters:
 	@go install mvdan.cc/gofumpt@latest
 	@go install github.com/daixiang0/gci@latest
 	@go install github.com/segmentio/golines@latest
+	@go install github.com/google/addlicense@latest
+	@go install golang.org/x/tools/cmd/goimports@latest
 	@go install golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest
 	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
 
@@ -30,7 +28,7 @@ fmt:
 .PHONY: license
 license:
 	@echo "Checking License headers ..."
-	@if addlicense -check -v -skip yml -skip yaml -f licence-header.tmpl ../*; then echo "License headers OK"; else return 1; fi;
+	@if addlicense -check -v -skip yaml -f licence-header.tmpl ../*; then echo "License headers OK"; else return 1; fi;
 
 .PHONY: lint
 lint: fmt license
@@ -40,7 +38,7 @@ lint: fmt license
 .PHONY: test
 test:
 	@echo "Running all tests ..."
-	@go test -v -vet=all ../tests
+	@go test -v ../...
 
 .PHONY: vectors
 vectors:
@@ -50,4 +48,4 @@ vectors:
 .PHONY: cover
 cover:
 	@echo "Testing with coverage ..."
-	@go test -v -race -covermode=atomic -coverpkg=../... -coverprofile=../coverage.out ../tests
+	@go test -v -race -covermode=atomic -coverpkg=../... -coverprofile=./coverage.out ../tests
