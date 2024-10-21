@@ -6,7 +6,7 @@ require (
 	filippo.io/edwards25519 v1.1.0
 	github.com/bytemare/dkg v0.0.0-20241007182121-23ea4d549880
 	github.com/bytemare/ecc v0.8.2
-	github.com/bytemare/hash v0.3.0
+	github.com/bytemare/hash v0.4.0
 	github.com/bytemare/secret-sharing v0.7.0
 	github.com/gtank/ristretto255 v0.1.2
 )
