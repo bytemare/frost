@@ -62,7 +62,7 @@ key generation with a trusted dealer.
 
 ### Key Management
 
-If the [DKG](https://github.com/bytemare/dkg) package was used to generate keys, signers can use the produced KeyShare
+If the compatible [DKG](https://github.com/bytemare/dkg) package was used to generate keys, signers can use the produced KeyShare
 and must communicate their PublicKeyShare to the coordinator and other signers.
 
 It is easy to encode and decode these key shares and public key shares for transmission and storage,
@@ -81,7 +81,7 @@ easily recovered using the corresponding ```Decode()``` method.
 More generally, to decode an element (or point) in the Ristretto255 group,
 ```go
 import (
-    "https://github.com/bytemare/ecc"
+    "github.com/bytemare/ecc"
 )
 
 bytesPublicKey := []byte{1, 2, 3, ...}
@@ -97,7 +97,7 @@ if err := publicKey.Decode(bytesPublicKey); err != nil {
 The same goes for secret keys (or scalars),
 ```go
 import (
-    "https://github.com/bytemare/ecc"
+    "github.com/bytemare/ecc"
 )
 
 bytesSecretKey := []byte{1, 2, 3, ...}
