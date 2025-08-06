@@ -8,7 +8,7 @@ require (
 	github.com/bytemare/ecc v0.8.2
 	github.com/bytemare/hash v0.3.0
 	github.com/bytemare/secret-sharing v0.7.0
-	github.com/gtank/ristretto255 v0.1.2
+	github.com/gtank/ristretto255 v0.2.0
 )
 
 require (
