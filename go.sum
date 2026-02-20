@@ -1,5 +1,7 @@
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
+filippo.io/edwards25519 v1.1.1 h1:YpjwWWlNmGIDyXOn8zLzqiD+9TyIlPhGFG96P39uBpw=
+filippo.io/edwards25519 v1.1.1/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
 filippo.io/nistec v0.0.3 h1:h336Je2jRDZdBCLy2fLDUd9E2unG32JLwcJi0JQE9Cw=
 filippo.io/nistec v0.0.3/go.mod h1:84fxC9mi+MhC2AERXI4LSa8cmSVOzrFikg6hZ4IfCyw=
 github.com/bytemare/dkg v0.0.0-20241007182121-23ea4d549880 h1:KoEDglTZoJx0EaWdmYkvdrPNxAr/Hkc1WgWvH2b/XCw=
