@@ -62,7 +62,7 @@ var ciphersuites = [ecc.Secp256k1Sha256 + 1]ciphersuite{
 }
 
 func h1Ed25519(input ...[]byte) *ecc.Scalar {
-	hashed := ciphersuites[ecc.Edwards25519Sha512-1].hash.Hash(0, input...)
+	hashed := ciphersuites[ecc.Edwards25519Sha512-1].hash.Hash(input...)
 
 	s := edwards25519.NewScalar()
 	if _, err := s.SetUniformBytes(hashed); err != nil {
@@ -87,7 +87,7 @@ func hx(g ecc.Group, input, dst []byte) *ecc.Scalar {
 	case ecc.Edwards25519Sha512:
 		sc = h1Ed25519(c.contextString, dst, input)
 	case ecc.Ristretto255Sha512:
-		h := c.hash.Hash(0, c.contextString, dst, input)
+		h := c.hash.Hash(c.contextString, dst, input)
 		s := ristretto255.NewScalar().FromUniformBytes(h)
 
 		sc = g.NewScalar()
@@ -128,11 +128,13 @@ func H3(g ecc.Group, input []byte) *ecc.Scalar {
 // H4 hashes the input and proves the "msg" DST.
 func H4(g ecc.Group, msg []byte) []byte {
 	cs := ciphersuites[g-1]
-	return cs.hash.Hash(0, cs.contextString, []byte("msg"), msg)
+	h := cs.hash.Algorithm().New()
+	return h.Hash(cs.contextString, []byte("msg"), msg)
 }
 
 // H5 hashes the input and proves the "com" DST.
 func H5(g ecc.Group, msg []byte) []byte {
 	cs := ciphersuites[g-1]
-	return cs.hash.Hash(0, cs.contextString, []byte("com"), msg)
+	h := cs.hash.Algorithm().New()
+	return h.Hash(cs.contextString, []byte("com"), msg)
 }

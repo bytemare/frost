@@ -100,11 +100,11 @@ func compareConfigurations(t *testing.T, a, b serde, expectedMatch bool) {
 	}
 
 	if c1.Threshold != c2.Threshold && expectedMatch {
-		t.Fatalf("expected matching threshold: %q / %q", c1.Threshold, c2.Threshold)
+		t.Fatalf("expected matching threshold: %v / %v", c1.Threshold, c2.Threshold)
 	}
 
 	if c1.MaxSigners != c2.MaxSigners && expectedMatch {
-		t.Fatalf("expected matching max signers: %q / %q", c1.MaxSigners, c2.MaxSigners)
+		t.Fatalf("expected matching max signers: %v / %v", c1.MaxSigners, c2.MaxSigners)
 	}
 
 	if ((c1.VerificationKey == nil || c2.VerificationKey == nil) || !c1.VerificationKey.Equal(c2.VerificationKey)) &&
@@ -114,7 +114,7 @@ func compareConfigurations(t *testing.T, a, b serde, expectedMatch bool) {
 
 	if len(c1.SignerPublicKeyShares) != len(c2.SignerPublicKeyShares) && expectedMatch {
 		t.Fatalf(
-			"expected matching SignerPublicKeyShares lengths: %q / %q",
+			"expected matching SignerPublicKeyShares lengths: %v / %v",
 			len(c1.SignerPublicKeyShares),
 			len(c2.SignerPublicKeyShares),
 		)
@@ -891,7 +891,7 @@ func TestEncoding_SignatureShare_InvalidIdentifier(t *testing.T) {
 }
 
 func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
-	expectedErrorPrefix := "failed to decode SignatureShare: scalar Decode: invalid scalar encoding"
+	expectedErrorPrefix := "failed to decode SignatureShare: scalar Decode"
 	message := []byte("message")
 
 	testAll(t, func(t *testing.T, test *tableTest) {

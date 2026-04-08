@@ -76,7 +76,7 @@ func RecoverGroupSecret(c frost.Ciphersuite, keyShares []*keys.KeyShare) (*ecc.S
 		return nil, internal.ErrInvalidCiphersuite
 	}
 
-	publicKeys := make([]keys.Share, len(keyShares))
+	publicKeys := make([]*keys.KeyShare, len(keyShares))
 	for i, v := range keyShares {
 		publicKeys[i] = v
 	}
