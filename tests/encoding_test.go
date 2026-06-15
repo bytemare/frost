@@ -19,12 +19,13 @@ import (
 	"testing"
 
 	"github.com/bytemare/ecc"
-	debugec "github.com/bytemare/ecc/debug"
 	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
+
+	debugec "github.com/bytemare/ecc/debug"
 )
 
 func makeConfAndShares(t *testing.T, test *tableTest) (*frost.Configuration, []*keys.KeyShare) {
@@ -1417,7 +1418,8 @@ func TestEncoding_Signature_InvalidR(t *testing.T) {
 			encoded,
 			1,
 			1+test.Ciphersuite.Group().ElementLength(),
-			bad...)
+			bad...,
+		)
 
 		decoded := new(frost.Signature)
 		if err = decoded.Decode(encoded); err == nil ||
@@ -1739,7 +1741,7 @@ type serde interface {
 
 type tester func(t *testing.T, in, out serde) error
 
-func mustJSONRoundTripMap(t *testing.T, in any, out any) {
+func mustJSONRoundTripMap(t *testing.T, in, out any) {
 	t.Helper()
 
 	data, err := json.Marshal(in)

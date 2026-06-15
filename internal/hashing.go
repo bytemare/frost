@@ -91,7 +91,9 @@ func hx(g ecc.Group, input, dst []byte) *ecc.Scalar {
 		sc = h1Ed25519(c.contextString, dst, input)
 	case ecc.Ristretto255Sha512:
 		h := c.hash.Hash(c.contextString, dst, input)
-		s, _ := ristretto255.NewScalar().SetUniformBytes(h) //nolint:errcheck // Only fails if hash output length is not 64, but we lock that in.
+		s, _ := ristretto255.NewScalar().
+			SetUniformBytes(h)
+			//nolint:errcheck // Only fails if hash output length is not 64, but we lock that in.
 		sc = g.NewScalar()
 		_ = sc.Decode(s.Bytes()) //nolint:errcheck // Can't fail because the underlying encoding/decoding is compatible.
 	case ecc.P256Sha256, ecc.P384Sha384, ecc.P521Sha512, ecc.Secp256k1Sha256:

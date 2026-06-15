@@ -13,10 +13,10 @@ import (
 	"strings"
 	"testing"
 
-	debugec "github.com/bytemare/ecc/debug"
-
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
+
+	debugec "github.com/bytemare/ecc/debug"
 )
 
 func TestMaliciousSigner(t *testing.T) {
@@ -132,8 +132,13 @@ func TestFrost_NewKeyShare(t *testing.T) {
 		configuration, keyShares := makeConfAndShares(t, test)
 		keyShare := keyShares[0]
 
-		newKeyShare, err := frost.NewKeyShare(configuration.Ciphersuite, keyShare.Identifier(), keyShare.SecretKey().Encode(),
-			keyShare.PublicKey().Encode(), configuration.VerificationKey.Encode())
+		newKeyShare, err := frost.NewKeyShare(
+			configuration.Ciphersuite,
+			keyShare.Identifier(),
+			keyShare.SecretKey().Encode(),
+			keyShare.PublicKey().Encode(),
+			configuration.VerificationKey.Encode(),
+		)
 		if err != nil {
 			t.Fatal(err)
 		}

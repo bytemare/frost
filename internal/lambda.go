@@ -17,13 +17,12 @@ import (
 
 	"github.com/bytemare/ecc"
 	"github.com/bytemare/hash"
+
 	secretsharing "github.com/bytemare/secret-sharing"
 )
 
-var (
-	// ErrJSONMissingField indicates a struct field is missing in the JSON encoding.
-	ErrJSONMissingField = errors.New("missing JSON field in encoding")
-)
+// ErrJSONMissingField indicates a struct field is missing in the JSON encoding.
+var ErrJSONMissingField = errors.New("missing JSON field in encoding")
 
 // ComputeLambda derives the interpolating value for id in the polynomial made by the participant identifiers.
 // This function is not public to protect its usage, as the following conditions MUST be met.
@@ -115,7 +114,6 @@ func (l LambdaRegistry) New(g ecc.Group, id uint16, participants []uint16) (*ecc
 	polynomial, err := secretsharing.NewPolynomialFromListFunc(g, participants, func(participant uint16) *ecc.Scalar {
 		return g.NewScalar().SetUInt64(uint64(participant))
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to create polynomial from the participant list: %w", err)
 	}

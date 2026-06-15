@@ -9,7 +9,6 @@
 package frost
 
 import (
-	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 
@@ -19,7 +18,10 @@ import (
 	"github.com/bytemare/frost/internal"
 )
 
-const randomNonceSize = 32
+const (
+	randomNonceSize        = 32
+	randomCommitmentIDSize = 8
+)
 
 // SignatureShare represents a Signer's signature share and its identifier.
 type SignatureShare struct {
@@ -91,10 +93,7 @@ func (s *Signer) generateNonce(secret *ecc.Scalar, random []byte) *ecc.Scalar {
 }
 
 func randomCommitmentID() uint64 {
-	buf := make([]byte, 8)
-	_, _ = rand.Read(buf) //nolint:errcheck // This never returns an error.
-
-	return binary.LittleEndian.Uint64(buf)
+	return binary.LittleEndian.Uint64(internal.RandomBytes(randomCommitmentIDSize))
 }
 
 func (s *Signer) genNonceID() uint64 {

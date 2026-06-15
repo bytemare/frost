@@ -144,7 +144,7 @@ linters:
     interfacebloat:
       max: 11
     lll:
-        line-length: 120
+        line-length: 140
     mnd:
       checks:
         - argument

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (C) 2024 Daniel Bourdrez. All Rights Reserved.
+// Copyright (C) 2026 Daniel Bourdrez. All Rights Reserved.
 //
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree or at
@@ -15,9 +15,10 @@ import (
 	"slices"
 
 	"github.com/bytemare/ecc"
-	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
+
+	secretsharing "github.com/bytemare/secret-sharing"
 )
 
 var (
@@ -99,7 +100,8 @@ func (c CommitmentList) Participants() []uint16 {
 	return out
 }
 
-func (c CommitmentList) participantsScalar() ([]*ecc.Scalar, error) {
+// ParticipantsScalar returns the ecc.Scalar list of participant identifier in the list.
+func (c CommitmentList) ParticipantsScalar() ([]*ecc.Scalar, error) {
 	if len(c) == 0 {
 		return nil, nil
 	}
@@ -113,16 +115,6 @@ func (c CommitmentList) participantsScalar() ([]*ecc.Scalar, error) {
 	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *ecc.Scalar {
 		return g.NewScalar().SetUInt64(uint64(c.SignerID))
 	})
-}
-
-// ParticipantsScalar returns the ecc.Scalar list of participant identifier in the list.
-func (c CommitmentList) ParticipantsScalar() []*ecc.Scalar {
-	participants, err := c.participantsScalar()
-	if err != nil {
-		return nil
-	}
-
-	return participants
 }
 
 // Encode serializes the CommitmentList into a compact byte encoding.

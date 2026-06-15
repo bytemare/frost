@@ -15,11 +15,12 @@ import (
 	"fmt"
 
 	"github.com/bytemare/ecc"
-	secretsharing "github.com/bytemare/secret-sharing"
 	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
+
+	secretsharing "github.com/bytemare/secret-sharing"
 )
 
 // TrustedDealerKeygen uses Shamir and Verifiable Secret Sharing to create secret shares of an input group secret. If
@@ -45,7 +46,8 @@ func TrustedDealerKeygen(
 		secret,
 		threshold,
 		maxSigners,
-		coeffs...)
+		coeffs...,
+	)
 	if err != nil {
 		panic(err)
 	}

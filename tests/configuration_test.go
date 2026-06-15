@@ -298,7 +298,12 @@ func TestConfiguration_VerifySignerPublicKeys_BadPublicKey(t *testing.T) {
 		"invalid public key for participant %d, the key is the group generator (base element)",
 		id,
 	)
-	configuration.SignerPublicKeyShares[threshold-1] = mustPublicKeyShare(t, ciphersuite.Group(), id, ciphersuite.Group().Base())
+	configuration.SignerPublicKeyShares[threshold-1] = mustPublicKeyShare(
+		t,
+		ciphersuite.Group(),
+		id,
+		ciphersuite.Group().Base(),
+	)
 
 	if err := configuration.Init(); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
@@ -429,7 +434,12 @@ func TestConfiguration_ValidatePublicKeyShare_InvalidID(t *testing.T) {
 	}
 	configuration, _ := makeConfAndShares(t, tt)
 
-	pks := mustPublicKeyShare(t, tt.Group(), tt.maxSigners+1, tt.Group().Base().Multiply(tt.Group().NewScalar().Random()))
+	pks := mustPublicKeyShare(
+		t,
+		tt.Group(),
+		tt.maxSigners+1,
+		tt.Group().Base().Multiply(tt.Group().NewScalar().Random()),
+	)
 
 	if err := configuration.ValidatePublicKeyShare(pks); err == nil || err.Error() != expectedErrorPrefix {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
@@ -494,7 +504,13 @@ func TestConfiguration_ValidateKeyShare_InvalidverificationKey(t *testing.T) {
 		maxSigners:  3,
 	}
 	configuration, keyShares := makeConfAndShares(t, tt)
-	keyShare := mustKeyShare(t, tt.Group(), keyShares[0].Identifier(), keyShares[0].SecretKey(), tt.Group().NewElement())
+	keyShare := mustKeyShare(
+		t,
+		tt.Group(),
+		keyShares[0].Identifier(),
+		keyShares[0].SecretKey(),
+		tt.Group().NewElement(),
+	)
 	if err := configuration.ValidateKeyShare(keyShare); err == nil || err.Error() != expectedErrorPrefix {
 		t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
 	}

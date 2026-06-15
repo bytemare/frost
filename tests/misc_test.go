@@ -353,7 +353,12 @@ func TestPublicKeyShareVerificationFail(t *testing.T) {
 		}
 
 		for _, pk := range pkShares {
-			if dkg.VerifyPublicKey(dkg.Ciphersuite(test.Ciphersuite), pk.Identifier(), test.Group().Base(), vssComs) == nil {
+			if dkg.VerifyPublicKey(
+				dkg.Ciphersuite(test.Ciphersuite),
+				pk.Identifier(),
+				test.Group().Base(),
+				vssComs,
+			) == nil {
 				t.Fatal("expected invalidity")
 			}
 		}

@@ -215,7 +215,7 @@ func Example_coordinator() {
 }
 
 // Example_key_generation shows how to create keys in a threshold setup with a centralized trusted dealer.
-// - a decentralised protocol described in the original FROST paper
+// - a decentralised protocol described in the original FROST paper.
 func Example_key_generation_centralised_trusted_dealer() {
 	maxSigners := uint16(5)
 	threshold := uint16(3)
@@ -229,7 +229,8 @@ func Example_key_generation_centralised_trusted_dealer() {
 		maxSigners,
 	)
 
-	fmt.Printf("Created %d key shares with %d vss commitments and %d verification key.",
+	fmt.Printf(
+		"Created %d key shares with %d vss commitments and %d verification key.",
 		len(keyShares),
 		len(vssCommitment),
 		len([]*ecc.Element{verificationKey}), // yes that line is ugly but it's pretext to use the variable produced.

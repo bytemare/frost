@@ -117,9 +117,13 @@ func (c *Configuration) Encode() []byte {
 }
 
 type confHeader struct {
-	g                     ecc.Group
-	h, t, n, nPks, length int
-	pksLengths            []int
+	pksLengths []int
+	h          int
+	t          int
+	n          int
+	nPks       int
+	length     int
+	g          ecc.Group
 }
 
 func (c *Configuration) decodeHeader(data []byte) (*confHeader, error) {
@@ -754,9 +758,9 @@ func (c *commitmentShadow) init(g ecc.Group) {
 type configurationJSON struct {
 	VerificationKey       json.RawMessage   `json:"verificationKey"`
 	SignerPublicKeyShares []json.RawMessage `json:"signerPublicKeyShares"`
+	Ciphersuite           json.RawMessage   `json:"ciphersuite"`
 	Threshold             uint16            `json:"threshold"`
 	MaxSigners            uint16            `json:"maxSigners"`
-	Ciphersuite           json.RawMessage   `json:"ciphersuite"`
 }
 
 type signerJSON struct {
@@ -777,15 +781,15 @@ type nonceJSON struct {
 type commitmentJSON struct {
 	HidingNonceCommitment  json.RawMessage `json:"hidingNonceCommitment"`
 	BindingNonceCommitment json.RawMessage `json:"bindingNonceCommitment"`
+	Group                  json.RawMessage `json:"group"`
 	CommitmentID           uint64          `json:"commitmentId"`
 	SignerID               uint16          `json:"signerId"`
-	Group                  json.RawMessage `json:"group"`
 }
 
 type signatureShareJSON struct {
 	SignatureShare   json.RawMessage `json:"signatureShare"`
-	SignerIdentifier uint16          `json:"signerIdentifier"`
 	Group            json.RawMessage `json:"group"`
+	SignerIdentifier uint16          `json:"signerIdentifier"`
 }
 
 type signatureJSON struct {

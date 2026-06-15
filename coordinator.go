@@ -130,7 +130,7 @@ func (c *Configuration) prepareSignatureShareVerification(message []byte,
 
 	groupCommitment, bindingFactors := commitments.groupCommitmentAndBindingFactors(c.VerificationKey, message)
 
-	participants, err := commitments.participantsScalar()
+	participants, err := commitments.ParticipantsScalar()
 	if err != nil {
 		return nil, nil, nil, err
 	}
