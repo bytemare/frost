@@ -99,14 +99,13 @@ func (c CommitmentList) Participants() []uint16 {
 	return out
 }
 
-// ParticipantsScalar returns the ecc.Scalar list of participant identifier in the list.
-func (c CommitmentList) ParticipantsScalar() []*ecc.Scalar {
+func (c CommitmentList) participantsScalar() ([]*ecc.Scalar, error) {
 	if len(c) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	if c[0] == nil {
-		return nil
+		return nil, nil
 	}
 
 	g := c[0].Group
@@ -114,6 +113,16 @@ func (c CommitmentList) ParticipantsScalar() []*ecc.Scalar {
 	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *ecc.Scalar {
 		return g.NewScalar().SetUInt64(uint64(c.SignerID))
 	})
+}
+
+// ParticipantsScalar returns the ecc.Scalar list of participant identifier in the list.
+func (c CommitmentList) ParticipantsScalar() []*ecc.Scalar {
+	participants, err := c.participantsScalar()
+	if err != nil {
+		return nil
+	}
+
+	return participants
 }
 
 // Encode serializes the CommitmentList into a compact byte encoding.
@@ -223,7 +232,8 @@ func (c CommitmentList) bindingFactors(publicKey *ecc.Element, message []byte) B
 
 	for _, com := range coms {
 		rhoInput := internal.Concatenate(rhoInputPrefix, com.ParticipantID)
-		bindingFactors[com.Commitment.SignerID] = internal.H1(g, rhoInput)
+		factor := internal.H1(g, rhoInput)
+		bindingFactors[com.Commitment.SignerID] = factor
 	}
 
 	return bindingFactors
@@ -244,7 +254,7 @@ func (c CommitmentList) groupCommitment(bf BindingFactors) *ecc.Element {
 
 func (c *Configuration) isSignerRegistered(sid uint16) bool {
 	for _, peer := range c.SignerPublicKeyShares {
-		if peer.ID == sid {
+		if peer.Identifier() == sid {
 			return true
 		}
 	}

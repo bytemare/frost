@@ -81,12 +81,12 @@ func TestSigner_Sign_NoNonceForCommitmentID(t *testing.T) {
 func TestFrost_NewPublicKeyShare(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
 		configuration, keyShares := makeConfAndShares(t, test)
-		publicKeyShare := keyShares[0].Public()
+		publicKeyShare := keyShares[0].PublicKeyShare()
 
 		newPublicKeyShare, err := frost.NewPublicKeyShare(
 			configuration.Ciphersuite,
-			publicKeyShare.ID,
-			publicKeyShare.PublicKey.Encode(),
+			publicKeyShare.Identifier(),
+			publicKeyShare.PublicKey().Encode(),
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -115,7 +115,7 @@ func TestFrost_NewPublicKeyShare_IdentifierIs0(t *testing.T) {
 }
 
 func TestFrost_NewPublicKeyShare_BadPublicKey(t *testing.T) {
-	expectedErrorPrefix := "could not decode public share: element Decode: "
+	expectedErrorPrefix := "could not decode public share: decoding element"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		bad := debugec.BadElementOffCurve(test.Group())
@@ -132,8 +132,8 @@ func TestFrost_NewKeyShare(t *testing.T) {
 		configuration, keyShares := makeConfAndShares(t, test)
 		keyShare := keyShares[0]
 
-		newKeyShare, err := frost.NewKeyShare(configuration.Ciphersuite, keyShare.ID, keyShare.SecretKey().Encode(),
-			keyShare.PublicKey.Encode(), configuration.VerificationKey.Encode())
+		newKeyShare, err := frost.NewKeyShare(configuration.Ciphersuite, keyShare.Identifier(), keyShare.SecretKey().Encode(),
+			keyShare.PublicKey().Encode(), configuration.VerificationKey.Encode())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -143,7 +143,7 @@ func TestFrost_NewKeyShare(t *testing.T) {
 }
 
 func TestFrost_NewKeyShare_InvalidPublicKey(t *testing.T) {
-	expectedErrorPrefix := "could not decode public share: element Decode: "
+	expectedErrorPrefix := "could not decode public share: decoding element"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		randomSecret := test.Ciphersuite.Group().NewScalar().Random().Encode()
@@ -157,7 +157,7 @@ func TestFrost_NewKeyShare_InvalidPublicKey(t *testing.T) {
 }
 
 func TestFrost_NewKeyShare_BadSecretKey(t *testing.T) {
-	expectedErrorPrefix := "could not decode secret share: scalar Decode: "
+	expectedErrorPrefix := "could not decode secret share: decoding scalar"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		bad := debugec.BadScalarHigh(test.Group())
@@ -186,7 +186,7 @@ func TestFrost_NewKeyShare_BadPublicKey(t *testing.T) {
 }
 
 func TestFrost_NewKeyShare_InvalidVerificationKey(t *testing.T) {
-	expectedErrorPrefix := "could not decode the group public key: element Decode: "
+	expectedErrorPrefix := "could not decode the group public key: decoding element"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		g := test.Ciphersuite.Group()

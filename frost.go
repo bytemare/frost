@@ -152,16 +152,16 @@ func (c *Configuration) ValidatePublicKeyShare(pks *keys.PublicKeyShare) error {
 		return errors.New("public key share is nil")
 	}
 
-	if pks.Group != c.group {
-		return fmt.Errorf("key share has invalid group parameter, want %s got %d", c.group, pks.Group)
+	if pks.Group() != c.group {
+		return fmt.Errorf("key share has invalid group parameter, want %s got %d", c.group, pks.Group())
 	}
 
-	if err := c.validateIdentifier(pks.ID); err != nil {
+	if err := c.validateIdentifier(pks.Identifier()); err != nil {
 		return fmt.Errorf("invalid identifier for public key share, the %w", err)
 	}
 
-	if err := c.validateGroupElement(pks.PublicKey); err != nil {
-		return fmt.Errorf("invalid public key for participant %d, the key %w", pks.ID, err)
+	if err := c.validateGroupElement(pks.PublicKey()); err != nil {
+		return fmt.Errorf("invalid public key for participant %d, the key %w", pks.Identifier(), err)
 	}
 
 	return nil
@@ -180,28 +180,30 @@ func (c *Configuration) ValidateKeyShare(keyShare *keys.KeyShare) error {
 		return errKeyShareNil
 	}
 
-	if err := c.ValidatePublicKeyShare(keyShare.Public()); err != nil {
+	if err := c.ValidatePublicKeyShare(keyShare.PublicKeyShare()); err != nil {
 		return err
 	}
 
-	if !c.VerificationKey.Equal(keyShare.VerificationKey) {
+	if !c.VerificationKey.Equal(keyShare.VerificationKey()) {
 		return errKeyShareNotMatch
 	}
 
-	if keyShare.Secret == nil || keyShare.Secret.IsZero() {
+	secret := keyShare.SecretKey()
+	if secret == nil || secret.IsZero() {
 		return errInvalidSecretKey
 	}
 
-	if !c.group.Base().Multiply(keyShare.Secret).Equal(keyShare.PublicKey) {
+	publicKey := keyShare.PublicKey()
+	if !c.group.Base().Multiply(secret).Equal(publicKey) {
 		return errInvalidKeyShare
 	}
 
-	pk := c.getSignerPubKey(keyShare.ID)
+	pk := c.getSignerPubKey(keyShare.Identifier())
 	if pk == nil {
 		return errInvalidKeyShareUnknownID
 	}
 
-	if !pk.Equal(keyShare.PublicKey) {
+	if !pk.Equal(publicKey) {
 		return errPublicKeyShareNoMatch
 	}
 
@@ -228,18 +230,19 @@ func (c *Configuration) verifySignerPublicKeyShares() error {
 		}
 
 		// Verify whether the ID has duplicates
-		if _, exists := idSet[pks.ID]; exists {
-			return fmt.Errorf("found duplicate identifier for signer %d", pks.ID)
+		id := pks.Identifier()
+		if _, exists := idSet[id]; exists {
+			return fmt.Errorf("found duplicate identifier for signer %d", id)
 		}
 
 		// Verify whether the public key has duplicates
-		s := string(pks.PublicKey.Encode())
+		s := string(pks.PublicKey().Encode())
 		if id, exists := pkSet[s]; exists {
-			return fmt.Errorf("found duplicate public keys for signers %d and %d", pks.ID, id)
+			return fmt.Errorf("found duplicate public keys for signers %d and %d", pks.Identifier(), id)
 		}
 
-		pkSet[s] = pks.ID
-		idSet[pks.ID] = struct{}{}
+		pkSet[s] = id
+		idSet[id] = struct{}{}
 	}
 
 	c.keysVerified = true
@@ -289,8 +292,8 @@ func (c *Configuration) verifyConfiguration() error {
 
 func (c *Configuration) getSignerPubKey(id uint16) *ecc.Element {
 	for _, pks := range c.SignerPublicKeyShares {
-		if pks.ID == id {
-			return pks.PublicKey
+		if pks.Identifier() == id {
+			return pks.PublicKey()
 		}
 	}
 
@@ -374,12 +377,7 @@ func NewPublicKeyShare(c Ciphersuite, id uint16, signerPublicKey []byte) (*keys.
 		return nil, fmt.Errorf("could not decode public share: %w", err)
 	}
 
-	return &keys.PublicKeyShare{
-		PublicKey:     pk,
-		ID:            id,
-		Group:         g,
-		VssCommitment: nil,
-	}, nil
+	return keys.NewPublicKeyShare(g, id, pk, nil)
 }
 
 // NewKeyShare returns a KeyShare from separately encoded key material. To deserialize a byte string produced by the
@@ -402,7 +400,7 @@ func NewKeyShare(
 	}
 
 	vpk := g.Base().Multiply(s)
-	if !vpk.Equal(pks.PublicKey) {
+	if !vpk.Equal(pks.PublicKey()) {
 		return nil, errInvalidKeyShare
 	}
 
@@ -411,9 +409,5 @@ func NewKeyShare(
 		return nil, fmt.Errorf("could not decode the group public key: %w", err)
 	}
 
-	return &keys.KeyShare{
-		Secret:          s,
-		VerificationKey: gpk,
-		PublicKeyShare:  *pks,
-	}, nil
+	return keys.NewKeyShare(g, id, s, gpk, nil)
 }

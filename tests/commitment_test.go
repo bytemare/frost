@@ -474,3 +474,16 @@ func TestCommitmentList_ParticipantsScalar_Empty(t *testing.T) {
 		t.Fatal("unexpected output")
 	}
 }
+
+func TestCommitmentList_ParticipantsScalar_InvalidGroupDoesNotPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}()
+
+	com := frost.CommitmentList{{Group: 2, SignerID: 1}}
+	if out := com.ParticipantsScalar(); out != nil {
+		t.Fatal("unexpected output")
+	}
+}

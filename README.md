@@ -74,14 +74,14 @@ Existing key material (e.g. identifiers, secret public, public keys) that has be
 and encoded in their canonical byte representation can be imported.
 
 To create a ```KeyShare``` and ```PublicKeyShare``` from individually encoded secret and public keys, use the
-```keys.NewKeyShare()``` and ```NewPublicKeyShare()``` functions, respectively.
+```frost.NewKeyShare()``` and ```frost.NewPublicKeyShare()``` functions, respectively.
 If a ```KeyShare``` or ```PublicKeyShare``` have been encoded using their respective ```Encode()``` method, they can be
 easily recovered using the corresponding ```Decode()``` method. 
 
 More generally, to decode an element (or point) in the Ristretto255 group,
 ```go
 import (
-    "https://github.com/bytemare/ecc"
+    "github.com/bytemare/ecc"
 )
 
 bytesPublicKey := []byte{1, 2, 3, ...}
@@ -97,7 +97,7 @@ if err := publicKey.Decode(bytesPublicKey); err != nil {
 The same goes for secret keys (or scalars),
 ```go
 import (
-    "https://github.com/bytemare/ecc"
+    "github.com/bytemare/ecc"
 )
 
 bytesSecretKey := []byte{1, 2, 3, ...}
@@ -184,6 +184,8 @@ That signer can then be denied of further contributions.
 
 Configurations, keys, commitments, commitment lists, and even signers can be serialized for transmission and storage,
 and re-instantiated from them. To decode, just create that object and use its ```Decode()``` method.
+JSON decoding is strict: encoded objects must carry their explicit ```group``` or ```ciphersuite``` field where required,
+and required fields encoded as ```null``` are rejected.
 
 For example, to back up a signer with its private keys and commitments, use:
 ```go

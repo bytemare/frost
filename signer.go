@@ -19,6 +19,8 @@ import (
 	"github.com/bytemare/frost/internal"
 )
 
+const randomNonceSize = 32
+
 // SignatureShare represents a Signer's signature share and its identifier.
 type SignatureShare struct {
 	SignatureShare   *ecc.Scalar `json:"signatureShare"`
@@ -75,24 +77,22 @@ func (s *Signer) ClearNonceCommitment(commitmentID uint64) {
 
 // Identifier returns the Signer's identifier.
 func (s *Signer) Identifier() uint16 {
-	return s.KeyShare.ID
+	return s.KeyShare.Identifier()
 }
 
 func (s *Signer) generateNonce(secret *ecc.Scalar, random []byte) *ecc.Scalar {
 	if random == nil {
-		random = internal.RandomBytes(32)
+		random = internal.RandomBytes(randomNonceSize)
 	}
 
-	return internal.H3(s.Configuration.group, internal.Concatenate(random, secret.Encode()))
+	nonce := internal.H3(s.Configuration.group, internal.Concatenate(random, secret.Encode()))
+
+	return nonce
 }
 
 func randomCommitmentID() uint64 {
 	buf := make([]byte, 8)
-
-	// In the extremely rare and unlikely case the CSPRNG returns, panic. It's over.
-	if _, err := rand.Read(buf); err != nil {
-		panic(fmt.Errorf("FATAL: %w", err))
-	}
+	_, _ = rand.Read(buf) //nolint:errcheck // This never returns an error.
 
 	return binary.LittleEndian.Uint64(buf)
 }
@@ -116,15 +116,18 @@ func (s *Signer) genNonceID() uint64 {
 // be kept secret, and the returned commitment sent to the signature aggregator.
 func (s *Signer) Commit() *Commitment {
 	cid := s.genNonceID()
-	hn := s.generateNonce(s.KeyShare.Secret, s.HidingRandom)
-	bn := s.generateNonce(s.KeyShare.Secret, s.BindingRandom)
+	secret := s.KeyShare.SecretKey()
+	hn := s.generateNonce(secret, s.HidingRandom)
+	bn := s.generateNonce(secret, s.BindingRandom)
+
 	com := &Commitment{
 		Group:                  s.Configuration.group,
-		SignerID:               s.KeyShare.ID,
+		SignerID:               s.KeyShare.Identifier(),
 		CommitmentID:           cid,
 		HidingNonceCommitment:  s.Configuration.group.Base().Multiply(hn),
 		BindingNonceCommitment: s.Configuration.group.Base().Multiply(bn),
 	}
+
 	s.NonceCommitments[cid] = &Nonce{
 		HidingNonce:  hn,
 		BindingNonce: bn,
@@ -140,16 +143,16 @@ func (s *Signer) verifyNonces(com *Commitment) error {
 		return fmt.Errorf(
 			"the commitment identifier %d for signer %d in the commitments is unknown to the signer",
 			com.CommitmentID,
-			s.KeyShare.ID,
+			s.KeyShare.Identifier(),
 		)
 	}
 
 	if !nonces.HidingNonceCommitment.Equal(com.HidingNonceCommitment) {
-		return fmt.Errorf("invalid hiding nonce in commitment list for signer %d", s.KeyShare.ID)
+		return fmt.Errorf("invalid hiding nonce in commitment list for signer %d", s.KeyShare.Identifier())
 	}
 
 	if !nonces.BindingNonceCommitment.Equal(com.BindingNonceCommitment) {
-		return fmt.Errorf("invalid binding nonce in commitment list for signer %d", s.KeyShare.ID)
+		return fmt.Errorf("invalid binding nonce in commitment list for signer %d", s.KeyShare.Identifier())
 	}
 
 	return nil
@@ -164,9 +167,10 @@ func (s *Signer) VerifyCommitmentList(commitments CommitmentList) error {
 	}
 
 	// The signer's id must be among the commitments.
-	commitment := commitments.Get(s.KeyShare.ID)
+	id := s.KeyShare.Identifier()
+	commitment := commitments.Get(id)
 	if commitment == nil {
-		return fmt.Errorf("signer identifier %d not found in the commitment list", s.KeyShare.ID)
+		return fmt.Errorf("signer identifier %d not found in the commitment list", id)
 	}
 
 	// Check commitment values for the signer.
@@ -189,26 +193,32 @@ func (s *Signer) Sign(message []byte, commitments CommitmentList) (*SignatureSha
 	)
 
 	participants := commitments.Participants()
-	lambda := s.LambdaRegistry.GetOrNew(s.Configuration.group, s.KeyShare.ID, participants)
+	id := s.KeyShare.Identifier()
+
+	lambda, err := s.LambdaRegistry.GetOrNew(s.Configuration.group, id, participants)
+	if err != nil {
+		return nil, err
+	}
+
 	lambdaChall := s.Configuration.challenge(lambda, message, groupCommitment)
 
-	commitmentID := commitments.Get(s.KeyShare.ID).CommitmentID
+	commitmentID := commitments.Get(id).CommitmentID
 	com := s.NonceCommitments[commitmentID]
 	hidingNonce := com.HidingNonce.Copy()
 	bindingNonce := com.BindingNonce
 
 	// Compute the signature share: h + b*f + l*s
-	bindingFactor := bindingFactors[s.KeyShare.ID]
+	bindingFactor := bindingFactors[id]
 	sigShare := hidingNonce.
 		Add(bindingFactor.Multiply(bindingNonce).
-			Add(lambdaChall.Multiply(s.KeyShare.Secret)))
+			Add(lambdaChall.Multiply(s.KeyShare.SecretKey())))
 
 	// Clean up values
 	s.ClearNonceCommitment(commitmentID)
 
 	return &SignatureShare{
 		Group:            s.Configuration.group,
-		SignerIdentifier: s.KeyShare.ID,
+		SignerIdentifier: id,
 		SignatureShare:   sigShare,
 	}, nil
 }
