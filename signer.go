@@ -82,81 +82,6 @@ func (s *Signer) Identifier() uint16 {
 	return s.KeyShare.Identifier()
 }
 
-func (s *Signer) generateNonce(secret *ecc.Scalar, random []byte) *ecc.Scalar {
-	if random == nil {
-		random = internal.RandomBytes(randomNonceSize)
-	}
-
-	nonce := internal.H3(s.Configuration.group, internal.Concatenate(random, secret.Encode()))
-
-	return nonce
-}
-
-func randomCommitmentID() uint64 {
-	return binary.LittleEndian.Uint64(internal.RandomBytes(randomCommitmentIDSize))
-}
-
-func (s *Signer) genNonceID() uint64 {
-	var cid uint64
-
-	// In the extremely rare and unlikely case the CSPRNG returns an already registered ID, we try again 128 times max
-	// before failing. CSPRNG is a serious issue at which point protocol execution must be stopped.
-	for range 128 {
-		cid = randomCommitmentID()
-		if _, exists := s.NonceCommitments[cid]; !exists {
-			return cid
-		}
-	}
-
-	panic("FATAL: CSPRNG could not generate unique commitment identifiers over 128 iterations")
-}
-
-// Commit generates a signer's nonces and commitment, to be used in the second FROST round. The internal nonce must
-// be kept secret, and the returned commitment sent to the signature aggregator.
-func (s *Signer) Commit() *Commitment {
-	cid := s.genNonceID()
-	secret := s.KeyShare.SecretKey()
-	hn := s.generateNonce(secret, s.HidingRandom)
-	bn := s.generateNonce(secret, s.BindingRandom)
-
-	com := &Commitment{
-		Group:                  s.Configuration.group,
-		SignerID:               s.KeyShare.Identifier(),
-		CommitmentID:           cid,
-		HidingNonceCommitment:  s.Configuration.group.Base().Multiply(hn),
-		BindingNonceCommitment: s.Configuration.group.Base().Multiply(bn),
-	}
-
-	s.NonceCommitments[cid] = &Nonce{
-		HidingNonce:  hn,
-		BindingNonce: bn,
-		Commitment:   com,
-	}
-
-	return com.Copy()
-}
-
-func (s *Signer) verifyNonces(com *Commitment) error {
-	nonces, ok := s.NonceCommitments[com.CommitmentID]
-	if !ok {
-		return fmt.Errorf(
-			"the commitment identifier %d for signer %d in the commitments is unknown to the signer",
-			com.CommitmentID,
-			s.KeyShare.Identifier(),
-		)
-	}
-
-	if !nonces.HidingNonceCommitment.Equal(com.HidingNonceCommitment) {
-		return fmt.Errorf("invalid hiding nonce in commitment list for signer %d", s.KeyShare.Identifier())
-	}
-
-	if !nonces.BindingNonceCommitment.Equal(com.BindingNonceCommitment) {
-		return fmt.Errorf("invalid binding nonce in commitment list for signer %d", s.KeyShare.Identifier())
-	}
-
-	return nil
-}
-
 // VerifyCommitmentList checks for the Commitment list integrity and the signer's commitment. This function must not
 // return an error for Sign to succeed.
 func (s *Signer) VerifyCommitmentList(commitments CommitmentList) error {
@@ -167,6 +92,7 @@ func (s *Signer) VerifyCommitmentList(commitments CommitmentList) error {
 
 	// The signer's id must be among the commitments.
 	id := s.KeyShare.Identifier()
+
 	commitment := commitments.Get(id)
 	if commitment == nil {
 		return fmt.Errorf("signer identifier %d not found in the commitment list", id)
@@ -196,15 +122,20 @@ func (s *Signer) Sign(message []byte, commitments CommitmentList) (*SignatureSha
 
 	lambda, err := s.LambdaRegistry.GetOrNew(s.Configuration.group, id, participants)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed loading lambda registry: %w", err)
 	}
 
 	lambdaChall := s.Configuration.challenge(lambda, message, groupCommitment)
 
-	commitmentID := commitments.Get(id).CommitmentID
-	com := s.NonceCommitments[commitmentID]
-	hidingNonce := com.HidingNonce.Copy()
-	bindingNonce := com.BindingNonce
+	com := commitments.Get(id)
+	if com == nil {
+		return nil, fmt.Errorf("signer identifier %d not found in the commitment list", id)
+	}
+
+	commitmentID := com.CommitmentID
+	nonce := s.NonceCommitments[commitmentID]
+	hidingNonce := nonce.HidingNonce.Copy()
+	bindingNonce := nonce.BindingNonce
 
 	// Compute the signature share: h + b*f + l*s
 	bindingFactor := bindingFactors[id]
@@ -220,4 +151,79 @@ func (s *Signer) Sign(message []byte, commitments CommitmentList) (*SignatureSha
 		SignerIdentifier: id,
 		SignatureShare:   sigShare,
 	}, nil
+}
+
+// Commit generates a signer's nonces and commitment, to be used in the second FROST round. The internal nonce must
+// be kept secret, and the returned commitment sent to the signature aggregator.
+func (s *Signer) Commit() *Commitment {
+	cid := s.genNonceID()
+	secret := s.KeyShare.SecretKey()
+	hn := s.generateNonce(secret, s.HidingRandom)
+	bn := s.generateNonce(secret, s.BindingRandom)
+
+	com := &Commitment{
+		Group:                  s.Configuration.group,
+		SignerID:               s.KeyShare.Identifier(),
+		CommitmentID:           cid,
+		HidingNonceCommitment:  s.Configuration.group.Base().Multiply(hn),
+		BindingNonceCommitment: s.Configuration.group.Base().Multiply(bn),
+	}
+
+	s.NonceCommitments[cid] = &Nonce{
+		HidingNonce:  hn,
+		BindingNonce: bn,
+		Commitment:   com,
+	}
+
+	return com.Copy()
+}
+
+func (s *Signer) generateNonce(secret *ecc.Scalar, random []byte) *ecc.Scalar {
+	if random == nil {
+		random = internal.RandomBytes(randomNonceSize)
+	}
+
+	nonce := internal.H3(s.Configuration.group, internal.Concatenate(random, secret.Encode()))
+
+	return nonce
+}
+
+func randomCommitmentID() uint64 {
+	return binary.LittleEndian.Uint64(internal.RandomBytes(randomCommitmentIDSize))
+}
+
+func (s *Signer) genNonceID() uint64 {
+	var cid uint64
+
+	// In the extremely rare and unlikely case the CSPRNG returns an already registered ID, we try again 128 times max
+	// before failing. CSPRNG is a serious issue at which point protocol execution must be stopped.
+	for range 128 {
+		cid = randomCommitmentID()
+		if _, exists := s.NonceCommitments[cid]; !exists {
+			return cid
+		}
+	}
+
+	panic("FATAL: CSPRNG could not generate unique commitment identifiers over 128 iterations")
+}
+
+func (s *Signer) verifyNonces(com *Commitment) error {
+	nonces, ok := s.NonceCommitments[com.CommitmentID]
+	if !ok {
+		return fmt.Errorf(
+			"the commitment identifier %d for signer %d in the commitments is unknown to the signer",
+			com.CommitmentID,
+			s.KeyShare.Identifier(),
+		)
+	}
+
+	if !nonces.HidingNonceCommitment.Equal(com.HidingNonceCommitment) {
+		return fmt.Errorf("invalid hiding nonce in commitment list for signer %d", s.KeyShare.Identifier())
+	}
+
+	if !nonces.BindingNonceCommitment.Equal(com.BindingNonceCommitment) {
+		return fmt.Errorf("invalid binding nonce in commitment list for signer %d", s.KeyShare.Identifier())
+	}
+
+	return nil
 }

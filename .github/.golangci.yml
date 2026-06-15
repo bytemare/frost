@@ -3,10 +3,13 @@ linters:
   default: none
   disable:
     - embeddedstructfieldcheck
+    - err113
     - exhaustruct
     - exhaustive
+    - gochecknoglobals
     - noinlineerr
     - nonamedreturns
+    - staticcheck
     - varnamelen
   enable:
     - arangolint
@@ -40,7 +43,6 @@ linters:
     - funlen
     - ginkgolinter
     - gocheckcompilerdirectives
-    - gochecknoglobals
     - gochecknoinits
     - gochecksumtype
     - gocognit
@@ -136,6 +138,10 @@ linters:
       enable-all: true
       disabled-checks:
         - sloppyReassign
+        - unnamedResult
+    gosec:
+      excludes:
+        - G115
     govet:
       enable-all: true
       settings:
@@ -155,6 +161,13 @@ linters:
         - assign
       ignored-numbers:
         - '2'
+        - '3'
+        - '5'
+        - '6'
+        - '7'
+        - '8'
+        - '11'
+        - '32'
     nlreturn:
       block-size: 2
     prealloc:

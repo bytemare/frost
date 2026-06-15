@@ -31,8 +31,8 @@ const (
 	encNonceCommitment
 	encLambda
 	encCommitment
-
-	errFmt = "%w: %w"
+	errFmt   = "%w: %w"
+	errFmtID = "%d: %w"
 )
 
 var (
@@ -53,9 +53,10 @@ var (
 )
 
 func encodedLength(encID byte, g ecc.Group, other ...int) (int, int) {
+	var header, tail int
+
 	eLen := g.ElementLength()
 	sLen := g.ScalarLength()
-	var header, tail int
 
 	switch encID {
 	case encConf:
@@ -186,6 +187,7 @@ func publicKeyShareLengths(g ecc.Group, nPks int, data []byte) ([]int, error) {
 
 		commitmentLength := int(binary.LittleEndian.Uint16(data[offset+3 : offset+5]))
 		pksLen := 5 + eLen + commitmentLength*eLen
+
 		if len(data[offset:]) < pksLen {
 			return nil, internal.ErrInvalidLength
 		}
@@ -228,6 +230,7 @@ func (c *Configuration) decode(header *confHeader, data []byte) error {
 	for j := range header.nPks {
 		pk := keys.NewPublicKeyShareReceiver(header.g)
 		pksLen := header.pksLengths[j]
+
 		if err := pk.Decode(data[offset : offset+pksLen]); err != nil {
 			return fmt.Errorf(
 				"%w: could not decode signer public key share for signer %d: %w",
@@ -369,12 +372,6 @@ func (n *Nonce) decode(g ecc.Group, id uint64, comLen int, data []byte) error {
 	return nil
 }
 
-func (n *Nonce) populate(ns *nonceShadow) {
-	n.HidingNonce = ns.HidingNonce
-	n.BindingNonce = ns.BindingNonce
-	n.Commitment = (*Commitment)(ns.commitmentShadow)
-}
-
 // UnmarshalJSON decodes data into n, or returns an error.
 func (n *Nonce) UnmarshalJSON(data []byte) error {
 	n2, err := decodeNonceJSON(data)
@@ -391,17 +388,9 @@ func (n *Nonce) UnmarshalJSON(data []byte) error {
 func (s *Signer) Decode(data []byte) error {
 	conf := new(Configuration)
 
-	header, err := conf.decodeHeader(data)
+	header, err := decodeSignerHeader(conf, data)
 	if err != nil {
-		return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
-	}
-
-	if err = conf.decode(header, data[:header.length]); err != nil {
-		return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
-	}
-
-	if len(data) <= header.length+6 {
-		return fmt.Errorf(errFmt, errDecodeSignerPrefix, errInvalidLength)
+		return err
 	}
 
 	ksLen := int(binary.LittleEndian.Uint16(data[header.length : header.length+2]))
@@ -409,9 +398,9 @@ func (s *Signer) Decode(data []byte) error {
 	nLambdas := int(binary.LittleEndian.Uint16(data[header.length+4 : header.length+6]))
 	g := conf.group
 	_, nLen := encodedLength(encNonceCommitment, g)
-	_, llen := encodedLength(encLambda, g)
+	_, lambdaLen := encodedLength(encLambda, g)
 
-	_, length := encodedLength(encSigner, g, header.length, ksLen, nCommitments*nLen, nLambdas*llen)
+	_, length := encodedLength(encSigner, g, header.length, ksLen, nCommitments*nLen, nLambdas*lambdaLen)
 	if len(data) != length {
 		return fmt.Errorf(errFmt, errDecodeSignerPrefix, errInvalidLength)
 	}
@@ -428,43 +417,79 @@ func (s *Signer) Decode(data []byte) error {
 	}
 
 	offset += ksLen
-	stop := offset + nLambdas*llen
+	stop := offset + nLambdas*lambdaLen
 
-	lambdaRegistry := make(internal.LambdaRegistry, llen)
+	lambdaRegistry := make(internal.LambdaRegistry, lambdaLen)
 	if err = lambdaRegistry.Decode(g, data[offset:stop]); err != nil {
 		return fmt.Errorf("%w: failed to decode lambda registry in signer: %w", errDecodeSignerPrefix, err)
 	}
 
 	offset = stop
-	commitments := make(map[uint64]*Nonce)
-	_, comLen := encodedLength(encCommitment, g)
-	_, nComLen := encodedLength(encNonceCommitment, g)
 
-	for offset < len(data) {
-		// commitment ID
-		id := binary.LittleEndian.Uint64(data[offset : offset+8])
-
-		if _, exists := commitments[id]; exists {
-			return fmt.Errorf("%w: multiple encoded commitments with the same id: %d", errDecodeSignerPrefix, id)
-		}
-
-		n := new(Nonce)
-		if err = n.decode(g, id, comLen, data[offset+8:]); err != nil {
-			return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
-		}
-
-		if err = validateDecodedNonce(g, id, n); err != nil {
-			return fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
-		}
-
-		commitments[id] = n
-		offset += nComLen
+	nonceCommitments, err := decodeNonceCommitmentArray(g, data[offset:])
+	if err != nil {
+		return err
 	}
 
 	s.KeyShare = keyShare
 	s.LambdaRegistry = lambdaRegistry
-	s.NonceCommitments = commitments
+	s.NonceCommitments = nonceCommitments
 	s.Configuration = conf
+
+	return nil
+}
+
+func decodeSignerHeader(conf *Configuration, data []byte) (*confHeader, error) {
+	header, err := conf.decodeHeader(data)
+	if err != nil {
+		return nil, fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
+	}
+
+	if err = conf.decode(header, data[:header.length]); err != nil {
+		return nil, fmt.Errorf(errFmt, errDecodeSignerPrefix, err)
+	}
+
+	if len(data) <= header.length+6 {
+		return nil, fmt.Errorf(errFmt, errDecodeSignerPrefix, errInvalidLength)
+	}
+
+	return header, nil
+}
+
+func decodeNonceCommitmentArray(g ecc.Group, data []byte) (map[uint64]*Nonce, error) {
+	nonceCommitments := make(map[uint64]*Nonce)
+	_, comLen := encodedLength(encCommitment, g)
+	_, nComLen := encodedLength(encNonceCommitment, g)
+
+	offset := 0
+	for offset < len(data) {
+		// commitment ID
+		id := binary.LittleEndian.Uint64(data[offset : offset+8])
+
+		if _, exists := nonceCommitments[id]; exists {
+			return nil, fmt.Errorf("%w: multiple encoded commitments with the same id: %d", errDecodeSignerPrefix, id)
+		}
+
+		n := new(Nonce)
+		if err := decodeNonceCommitment(n, g, id, comLen, offset, data); err != nil {
+			return nil, fmt.Errorf("%w: failed to decode nonce: %w", errDecodeSignerPrefix, err)
+		}
+
+		nonceCommitments[id] = n
+		offset += nComLen
+	}
+
+	return nonceCommitments, nil
+}
+
+func decodeNonceCommitment(n *Nonce, g ecc.Group, id uint64, comLen, offset int, data []byte) error {
+	if err := n.decode(g, id, comLen, data[offset+8:]); err != nil {
+		return err
+	}
+
+	if err := validateDecodedNonce(g, id, n); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -793,8 +818,8 @@ type signatureShareJSON struct {
 }
 
 type signatureJSON struct {
-	R     json.RawMessage `json:"R"`
-	Z     json.RawMessage `json:"Z"`
+	R     json.RawMessage `json:"r"`
+	Z     json.RawMessage `json:"z"`
 	Group json.RawMessage `json:"group"`
 }
 
@@ -813,7 +838,7 @@ func decodeGroupJSON(raw json.RawMessage) (ecc.Group, error) {
 
 	var group int64
 	if err := json.Unmarshal(raw, &group); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%s: %w", "failed to decode group", err)
 	}
 
 	if group < 0 || group > 63 {
@@ -852,7 +877,7 @@ func decodeElementJSON(g ecc.Group, raw json.RawMessage) (*ecc.Element, error) {
 
 	e := g.NewElement()
 	if err := json.Unmarshal(raw, e); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", "failed to decode element", err)
 	}
 
 	if e.Group() != g {
@@ -869,7 +894,7 @@ func decodeScalarJSON(g ecc.Group, raw json.RawMessage) (*ecc.Scalar, error) {
 
 	s := g.NewScalar()
 	if err := json.Unmarshal(raw, s); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", "failed to decode scalar", err)
 	}
 
 	if s.Group() != g {
@@ -882,7 +907,7 @@ func decodeScalarJSON(g ecc.Group, raw json.RawMessage) (*ecc.Scalar, error) {
 func decodeConfigurationJSON(data []byte) (*Configuration, error) {
 	wire := new(configurationJSON)
 	if err := json.Unmarshal(data, wire); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", "failed to decode configuration", err)
 	}
 
 	g, err := decodeGroupJSON(wire.Ciphersuite)
@@ -915,7 +940,7 @@ func decodeConfigurationJSON(data []byte) (*Configuration, error) {
 
 		pks := keys.NewPublicKeyShareReceiver(g)
 		if err = json.Unmarshal(raw, pks); err != nil {
-			return nil, fmt.Errorf("signerPublicKeyShares[%d]: %w", i, err)
+			return nil, fmt.Errorf("failed to decode signerPublicKeyShares[%d]: %w", i, err)
 		}
 
 		conf.SignerPublicKeyShares[i] = pks
@@ -931,7 +956,7 @@ func decodeConfigurationJSON(data []byte) (*Configuration, error) {
 func decodeSignerJSON(data []byte) (*Signer, error) {
 	wire := new(signerJSON)
 	if err := json.Unmarshal(data, wire); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", "failed to decode Signer", err)
 	}
 
 	if err := requireJSONField(wire.Configuration); err != nil {
@@ -944,6 +969,7 @@ func decodeSignerJSON(data []byte) (*Signer, error) {
 	}
 
 	g := conf.group
+
 	keyShare, err := decodeKeyShareJSON(g, wire.KeyShare)
 	if err != nil {
 		return nil, fmt.Errorf("keyShare: %w", err)
@@ -980,7 +1006,7 @@ func decodeKeyShareJSON(g ecc.Group, raw json.RawMessage) (*keys.KeyShare, error
 
 	keyShare := keys.NewKeyShareReceiver(g)
 	if err := json.Unmarshal(raw, keyShare); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode KeyShare: %w", err)
 	}
 
 	return keyShare, nil
@@ -993,7 +1019,7 @@ func decodeLambdaRegistryJSON(g ecc.Group, raw json.RawMessage) (internal.Lambda
 
 	wire := make(map[string]json.RawMessage)
 	if err := json.Unmarshal(raw, &wire); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode LambdaRegistry: %w", err)
 	}
 
 	registry := make(internal.LambdaRegistry, len(wire))
@@ -1030,23 +1056,23 @@ func decodeNonceCommitmentsJSON(g ecc.Group, raw json.RawMessage) (map[uint64]*N
 
 	wire := make(map[uint64]json.RawMessage)
 	if err := json.Unmarshal(raw, &wire); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode NonceCommitments: %w", err)
 	}
 
 	commitments := make(map[uint64]*Nonce, len(wire))
 
 	for id, raw := range wire {
 		if err := requireJSONField(raw); err != nil {
-			return nil, fmt.Errorf("%d: %w", id, err)
+			return nil, fmt.Errorf(errFmtID, id, err)
 		}
 
 		nonce, err := decodeNonceJSON(raw)
 		if err != nil {
-			return nil, fmt.Errorf("%d: %w", id, err)
+			return nil, fmt.Errorf(errFmtID, id, err)
 		}
 
 		if err = validateDecodedNonce(g, id, nonce); err != nil {
-			return nil, fmt.Errorf("%d: %w", id, err)
+			return nil, fmt.Errorf(errFmtID, id, err)
 		}
 
 		commitments[id] = nonce
@@ -1074,7 +1100,7 @@ func validateDecodedNonce(g ecc.Group, id uint64, nonce *Nonce) error {
 func decodeNonceJSON(data []byte) (*Nonce, error) {
 	wire := new(nonceJSON)
 	if err := json.Unmarshal(data, wire); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode Nonce: %w", err)
 	}
 
 	if err := requireJSONField(wire.Commitment); err != nil {
@@ -1087,6 +1113,7 @@ func decodeNonceJSON(data []byte) (*Nonce, error) {
 	}
 
 	g := commitment.Group
+
 	hidingNonce, err := decodeScalarJSON(g, wire.HidingNonce)
 	if err != nil {
 		return nil, fmt.Errorf("hidingNonce: %w", err)
@@ -1107,7 +1134,7 @@ func decodeNonceJSON(data []byte) (*Nonce, error) {
 func decodeCommitmentJSON(receiver ecc.Group, data []byte) (*Commitment, error) {
 	wire := new(commitmentJSON)
 	if err := json.Unmarshal(data, wire); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode Commitment: %w", err)
 	}
 
 	g, err := resolveDecodedGroup(receiver, wire.Group)
@@ -1141,7 +1168,7 @@ func decodeCommitmentJSON(receiver ecc.Group, data []byte) (*Commitment, error) 
 func decodeSignatureShareJSON(receiver ecc.Group, data []byte) (*SignatureShare, error) {
 	wire := new(signatureShareJSON)
 	if err := json.Unmarshal(data, wire); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode SignatureShare: %w", err)
 	}
 
 	g, err := resolveDecodedGroup(receiver, wire.Group)
@@ -1168,7 +1195,7 @@ func decodeSignatureShareJSON(receiver ecc.Group, data []byte) (*SignatureShare,
 func decodeSignatureJSON(receiver ecc.Group, data []byte) (*Signature, error) {
 	wire := new(signatureJSON)
 	if err := json.Unmarshal(data, wire); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode Signature: %w", err)
 	}
 
 	g, err := resolveDecodedGroup(receiver, wire.Group)
@@ -1178,12 +1205,12 @@ func decodeSignatureJSON(receiver ecc.Group, data []byte) (*Signature, error) {
 
 	r, err := decodeElementJSON(g, wire.R)
 	if err != nil {
-		return nil, fmt.Errorf("R: %w", err)
+		return nil, fmt.Errorf("r: %w", err)
 	}
 
 	z, err := decodeScalarJSON(g, wire.Z)
 	if err != nil {
-		return nil, fmt.Errorf("Z: %w", err)
+		return nil, fmt.Errorf("z: %w", err)
 	}
 
 	return &Signature{

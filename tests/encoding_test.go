@@ -1119,7 +1119,7 @@ func TestEncoding_Signer_InvalidCommitmentNonces_DuplicateID(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidCommitmentNonces_NestedIDMismatch(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signer: commitment id mismatch for nonce"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode nonce: commitment id mismatch for nonce"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -1143,7 +1143,7 @@ func TestEncoding_Signer_InvalidCommitmentNonces_NestedIDMismatch(t *testing.T) 
 }
 
 func TestEncoding_Signer_InvalidHidingNonceCommitment(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signer: can't decode hiding nonce for commitment"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode nonce: can't decode hiding nonce for commitment"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -1164,7 +1164,7 @@ func TestEncoding_Signer_InvalidHidingNonceCommitment(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidBindingNonceCommitment(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signer: can't decode binding nonce for commitment"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode nonce: can't decode binding nonce for commitment"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -1185,7 +1185,7 @@ func TestEncoding_Signer_InvalidBindingNonceCommitment(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidCommitment(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signer: can't decode nonce commitment"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode nonce: can't decode nonce commitment"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]

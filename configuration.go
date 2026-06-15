@@ -15,8 +15,9 @@ import (
 	"slices"
 
 	"github.com/bytemare/ecc"
-	"github.com/bytemare/frost/internal"
 	"github.com/bytemare/secret-sharing/keys"
+
+	"github.com/bytemare/frost/internal"
 )
 
 // Configuration holds the Configuration for a signing session.
@@ -187,8 +188,8 @@ func (c *Configuration) verifySignerPublicKeyShares() error {
 
 		// Verify whether the public key has duplicates
 		s := string(pks.PublicKey().Encode())
-		if id, exists := pkSet[s]; exists {
-			return fmt.Errorf("found duplicate public keys for signers %d and %d", pks.Identifier(), id)
+		if id2, exists := pkSet[s]; exists {
+			return fmt.Errorf("found duplicate public keys for signers %d and %d", pks.Identifier(), id2)
 		}
 
 		pkSet[s] = id

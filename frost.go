@@ -114,7 +114,12 @@ func NewPublicKeyShare(c Ciphersuite, id uint16, signerPublicKey []byte) (*keys.
 		return nil, fmt.Errorf("could not decode public share: %w", err)
 	}
 
-	return keys.NewPublicKeyShare(g, id, pk, nil)
+	ks, err := keys.NewPublicKeyShare(g, id, pk, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not create public share: %w", err)
+	}
+
+	return ks, nil
 }
 
 // NewKeyShare returns a KeyShare from separately encoded key material. To deserialize a byte string produced by the
@@ -146,5 +151,10 @@ func NewKeyShare(
 		return nil, fmt.Errorf("could not decode the group public key: %w", err)
 	}
 
-	return keys.NewKeyShare(g, id, s, gpk, nil)
+	ks, err := keys.NewKeyShare(g, id, s, gpk, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not create key share: %w", err)
+	}
+
+	return ks, nil
 }

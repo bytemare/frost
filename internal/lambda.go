@@ -121,7 +121,7 @@ func (l LambdaRegistry) New(g ecc.Group, id uint16, participants []uint16) (*ecc
 	lambda := ComputeLambda(g, id, polynomial)
 	l.Set(participants, lambda)
 
-	return lambda, err
+	return lambda, nil
 }
 
 // Get returns the recorded Lambda for the list of participants, or nil if it wasn't found.

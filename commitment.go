@@ -112,9 +112,14 @@ func (c CommitmentList) ParticipantsScalar() ([]*ecc.Scalar, error) {
 
 	g := c[0].Group
 
-	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *ecc.Scalar {
+	s, err := secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *ecc.Scalar {
 		return g.NewScalar().SetUInt64(uint64(c.SignerID))
 	})
+	if err != nil {
+		return nil, fmt.Errorf("could not compile list of participants from the CommitmentList: %w", err)
+	}
+
+	return s, nil
 }
 
 // Encode serializes the CommitmentList into a compact byte encoding.
