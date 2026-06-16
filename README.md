@@ -4,7 +4,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/bytemare/frost.svg)](https://pkg.go.dev/github.com/bytemare/frost)
 [![codecov](https://codecov.io/gh/bytemare/frost/branch/main/graph/badge.svg?token=5bQfB0OctA)](https://codecov.io/gh/bytemare/frost)
 
-```
+```go
   import "github.com/bytemare/frost"
 ```
 
@@ -16,7 +16,7 @@ The Ristretto255, Edwards25519, Secp256k1, and NIST elliptic curve groups are fu
 The [FROST Distributed Key Generation](https://github.com/bytemare/dkg) protocol produces compatible keys, as described
 in the [original work](https://eprint.iacr.org/2020/852.pdf).
 
-### Requirements
+## Requirements
 
 - When communicating at protocol execution, network channels don't need to be confidential but *MUST* be authenticated. This
   package verifies a lot of things with regard to the correctness to the protocol, but it assumes that signers and coordinators
@@ -29,7 +29,7 @@ in the [original work](https://eprint.iacr.org/2020/852.pdf).
   decoding functions. If data deserialization/decoding fails for a signer, protocol execution must be aborted.
 - Identifiers (for participants/signers) *MUST* be between 1 and n, which is the maximum amount of participants defined at key generation.
 
-#### Supported Ciphersuites
+### Supported Ciphersuites
 
 | ID | Name                       | Backend                       |
 |----|----------------------------|-------------------------------|
@@ -57,7 +57,7 @@ It also ensures correct identifier generation compatible with FROST.
 It is heavily recommended to use the same instances for distributed key generation and signing, as this will avoid that
 the secret key material leaves that instance.
 
-For testing and debugging _only_, the [debug package](https://github.com/bytemare/frost/debug) provides a centralised
+For testing and debugging *only*, the [debug package](https://github.com/bytemare/frost/debug) provides a centralised
 key generation with a trusted dealer.
 
 ### Key Management
@@ -76,7 +76,7 @@ and encoded in their canonical byte representation can be imported.
 To create a ```KeyShare``` and ```PublicKeyShare``` from individually encoded secret and public keys, use the
 ```frost.NewKeyShare()``` and ```frost.NewPublicKeyShare()``` functions, respectively.
 If a ```KeyShare``` or ```PublicKeyShare``` have been encoded using their respective ```Encode()``` method, they can be
-easily recovered using the corresponding ```Decode()``` method. 
+easily recovered using the corresponding ```Decode()``` method.
 
 More generally, to decode an element (or point) in the Ristretto255 group,
 ```go
@@ -90,7 +90,7 @@ g := ecc.Ristretto255Sha512
 
 publicKey := g.NewElement()
 if err := publicKey.Decode(bytesPublicKey); err != nil {
-	return fmt.Errorf("can't decode public key: %w", err)
+    return fmt.Errorf("can't decode public key: %w", err)
 }
 ```
 
@@ -106,7 +106,7 @@ g := ecc.Ristretto255Sha512
 
 secretKey := g.NewScalar()
 if err := secretKey.Decode(bytesSecretKey); err != nil {
-	return fmt.Errorf("can't decode secret key: %w", err)
+    return fmt.Errorf("can't decode secret key: %w", err)
 }
 ```
 
@@ -114,7 +114,7 @@ and any other byte or json encoded structure.
 
 ### Setup
 
-Both signers and coordinators must first instantiate a ```Configuration``` with the long-term fixed values as used at 
+Both signers and coordinators must first instantiate a ```Configuration``` with the long-term fixed values as used at
 key generation:
 - the ciphersuite (see the frost.Ciphersuite values for available ciphersuites)
 - threshold (t) and maximum amount of signers (n)
@@ -122,16 +122,16 @@ key generation:
 
 Then add the PublicKeyShares of the participants (or signers). For simplicity, it is recommended to add all PublicKeyShares
 of the all participants from the key generation step. It is sufficient, though, to only use the shares for the signers that
-will participate in a signing session (which can be a subset _t among n_).
+will participate in a signing session (which can be a subset *t among n*).
 
 ```go
 configuration := &frost.Configuration{
-		Ciphersuite:           ciphersuite,
-		Threshold:             threshold,
-		MaxSigners:            maxSigners,
-        VerificationKey:       verificationKey,
-		SignerPublicKeyShares: publicKeyShares,
-	}
+    Ciphersuite:           ciphersuite,
+    Threshold:             threshold,
+    MaxSigners:            maxSigners,
+    VerificationKey:       verificationKey,
+    SignerPublicKeyShares: publicKeyShares,
+}
 
 if err := configuration.Init(); err != nil {
     return err
@@ -198,7 +198,7 @@ To re-instantiate that same signer from the byte string, do:
 
 signer := new(frost.Signer)
 if err := signer.Decode(bytes); err != nil {
-	return err
+    return err
 }
 ```
 
@@ -210,7 +210,7 @@ Signers have local secret data and state, offline and during protocol execution:
 - the long term secret key
 - the internally stored commitment nonces, maintained between commitment and signature
 
-- FROST is _not robust_ by design.
+- *FROST is not robust by design.*
   - This means that there is a misbehaving participant if signature aggregation fails
   (or if the output signature is not valid), in which case the protocol should be aborted and the problem investigated
   (you shouldn't have a compromised or misbehaving participant in a sane infrastructure).
