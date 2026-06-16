@@ -25,7 +25,7 @@ type ParticipantList []*frost.Signer
 
 func (p ParticipantList) Get(id uint16) *frost.Signer {
 	for _, i := range p {
-		if i.KeyShare.ID == id {
+		if i.KeyShare.Identifier() == id {
 			return i
 		}
 	}
@@ -265,17 +265,11 @@ func (i testVectorInput) decode(t *testing.T, g ecc.Group) *testInput {
 
 	for j, p := range i.ParticipantShares {
 		secret := decodeScalar(t, g, p.ParticipantShare)
-		public := g.Base().Multiply(secret)
-		input.Participants[j] = &keys.KeyShare{
-			Secret:          secret,
-			VerificationKey: input.VerificationKey,
-			PublicKeyShare: keys.PublicKeyShare{
-				PublicKey:     public,
-				VssCommitment: nil,
-				ID:            p.Identifier,
-				Group:         g,
-			},
+		keyShare, err := keys.NewKeyShare(g, p.Identifier, secret, input.VerificationKey, nil)
+		if err != nil {
+			t.Fatal(err)
 		}
+		input.Participants[j] = keyShare
 	}
 
 	return input
@@ -316,7 +310,7 @@ func (v testVector) decode(t *testing.T) *test {
 	conf.SignerPublicKeyShares = make([]*keys.PublicKeyShare, len(inputs.Participants))
 
 	for i, ks := range inputs.Participants {
-		conf.SignerPublicKeyShares[i] = ks.Public()
+		conf.SignerPublicKeyShares[i] = ks.PublicKeyShare()
 	}
 
 	if err := conf.Configuration.Init(); err != nil {

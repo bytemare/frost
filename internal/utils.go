@@ -10,9 +10,10 @@
 package internal
 
 import (
-	cryptorand "crypto/rand"
 	"encoding/binary"
 	"fmt"
+
+	cryptorand "crypto/rand"
 )
 
 // Concatenate returns the concatenation of all bytes composing the input elements.

@@ -9,6 +9,8 @@
 package internal
 
 import (
+	"fmt"
+
 	"filippo.io/edwards25519"
 	"github.com/bytemare/ecc"
 	"github.com/bytemare/hash"
@@ -35,7 +37,7 @@ var ciphersuites = [ecc.Secp256k1Sha256 + 1]ciphersuite{
 		hash:          hash.SHA512.New(),
 		contextString: []byte(ristretto255ContextString),
 	},
-	{ // Ed448 - unused
+	{ // Ed448 - unused=
 		hash:          hash.SHAKE256.New(),
 		contextString: []byte(ed448ContextString),
 	},
@@ -62,7 +64,7 @@ var ciphersuites = [ecc.Secp256k1Sha256 + 1]ciphersuite{
 }
 
 func h1Ed25519(input ...[]byte) *ecc.Scalar {
-	hashed := ciphersuites[ecc.Edwards25519Sha512-1].hash.Hash(0, input...)
+	hashed := ciphersuites[ecc.Edwards25519Sha512-1].hash.Hash(input...)
 
 	s := edwards25519.NewScalar()
 	if _, err := s.SetUniformBytes(hashed); err != nil {
@@ -80,23 +82,28 @@ func h1Ed25519(input ...[]byte) *ecc.Scalar {
 }
 
 func hx(g ecc.Group, input, dst []byte) *ecc.Scalar {
-	var sc *ecc.Scalar
+	var (
+		sc  *ecc.Scalar
+		err error
+	)
+
 	c := ciphersuites[g-1]
 
 	switch g {
 	case ecc.Edwards25519Sha512:
 		sc = h1Ed25519(c.contextString, dst, input)
 	case ecc.Ristretto255Sha512:
-		h := c.hash.Hash(0, c.contextString, dst, input)
-		s := ristretto255.NewScalar().FromUniformBytes(h)
-
+		h := c.hash.Hash(c.contextString, dst, input)
+		s, _ := ristretto255.NewScalar().SetUniformBytes(h) //nolint:errcheck // Only fails if hash output length is not 64, but we lock that in.
 		sc = g.NewScalar()
-		if err := sc.Decode(s.Encode(nil)); err != nil {
-			// Can't fail because the underlying encoding/decoding is compatible.
-			panic(err)
-		}
+		_ = sc.Decode(s.Bytes()) //nolint:errcheck // Can't fail because the underlying encoding/decoding is compatible.
 	case ecc.P256Sha256, ecc.P384Sha384, ecc.P521Sha512, ecc.Secp256k1Sha256:
-		sc = g.HashToScalar(input, append(c.contextString, dst...))
+		sc, err = g.HashToScalar(input, append(c.contextString, dst...))
+		if err != nil {
+			// Can't fail because HashToScalar is always called with compatible parameters.
+			panic(fmt.Errorf("error in HashToScalar for ciphersuite %d: %w", g, err))
+		}
+
 	default:
 		// Can't fail because the function is always called with a compatible group previously checked.
 		panic(ErrInvalidParameters)
@@ -128,11 +135,11 @@ func H3(g ecc.Group, input []byte) *ecc.Scalar {
 // H4 hashes the input and proves the "msg" DST.
 func H4(g ecc.Group, msg []byte) []byte {
 	cs := ciphersuites[g-1]
-	return cs.hash.Hash(0, cs.contextString, []byte("msg"), msg)
+	return cs.hash.Hash(cs.contextString, []byte("msg"), msg)
 }
 
 // H5 hashes the input and proves the "com" DST.
 func H5(g ecc.Group, msg []byte) []byte {
 	cs := ciphersuites[g-1]
-	return cs.hash.Hash(0, cs.contextString, []byte("com"), msg)
+	return cs.hash.Hash(cs.contextString, []byte("com"), msg)
 }

@@ -41,7 +41,7 @@ func Example_signer() {
 	// be broadcast to every participant.
 	publicKeyShares := make([]*keys.PublicKeyShare, len(secretKeyShares))
 	for i, sk := range secretKeyShares {
-		publicKeyShares[i] = sk.Public()
+		publicKeyShares[i] = sk.PublicKeyShare()
 	}
 
 	// This is how to set up the Configuration for FROST, the same for every signer and the coordinator.
@@ -132,7 +132,7 @@ func Example_coordinator() {
 	// be broadcast to every participant.
 	publicKeyShares := make([]*keys.PublicKeyShare, len(secretKeyShares))
 	for i, sk := range secretKeyShares {
-		publicKeyShares[i] = sk.Public()
+		publicKeyShares[i] = sk.PublicKeyShare()
 	}
 
 	// This is how to set up the Configuration for FROST, the same for every signer and the coordinator.
@@ -215,7 +215,7 @@ func Example_coordinator() {
 }
 
 // Example_key_generation shows how to create keys in a threshold setup with a centralized trusted dealer.
-// - a decentralised protocol described in the original FROST paper
+// - a decentralised protocol described in the original FROST paper.
 func Example_key_generation_centralised_trusted_dealer() {
 	maxSigners := uint16(5)
 	threshold := uint16(3)
@@ -229,7 +229,8 @@ func Example_key_generation_centralised_trusted_dealer() {
 		maxSigners,
 	)
 
-	fmt.Printf("Created %d key shares with %d vss commitments and %d verification key.",
+	fmt.Printf(
+		"Created %d key shares with %d vss commitments and %d verification key.",
 		len(keyShares),
 		len(vssCommitment),
 		len([]*ecc.Element{verificationKey}), // yes that line is ugly but it's pretext to use the variable produced.
@@ -312,8 +313,8 @@ func Example_existing_keys() {
 	//- signer secret key: 941c0685dc7c567dd206a39bce556008367fdf633b56c010cde5561435f75b0e
 	//- signer public key: d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a
 	//- global verification key: 4400e5808c12c6ef9dc751135acf76edfa73780c08e766537bb6c49bea591872
-	//Decoded individual elements to a public key share, and re-encoded as a whole: 01050000000000d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a
-	//Decoded individual elements to a secret key share, and re-encoded as a whole: 01050000000000d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a941c0685dc7c567dd206a39bce556008367fdf633b56c010cde5561435f75b0e4400e5808c12c6ef9dc751135acf76edfa73780c08e766537bb6c49bea591872
+	//Decoded individual elements to a public key share, and re-encoded as a whole: 0105000000d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a
+	//Decoded individual elements to a secret key share, and re-encoded as a whole: 0105000000d4b9a3acda8acb133c1eff7b99838908c3f9271569c734591ac8f609f321d01a941c0685dc7c567dd206a39bce556008367fdf633b56c010cde5561435f75b0e4400e5808c12c6ef9dc751135acf76edfa73780c08e766537bb6c49bea591872
 }
 
 // Example_key_deserialization shows how to encode and decode scalars (e.g. secret keys) and elements (e.g. public keys).
@@ -383,9 +384,9 @@ func Example_key_deserialization() {
 func Example_deserialize() {
 	verificationKeyHex := "74144431f64b052a173c2505e4224a6cc5f3e81d587d4f23369e1b2b1fd0d427"
 	publicKeySharesHex := []string{
-		"010100000000003c5ff80cd593a3b7e9007fdbc2b8fe6caee380e7d23eb7ba35160a5b7a51cb08",
-		"0102000000000002db540a823f17b975d9eb206ccfbcf3a7667a0365ec1918fa2c3bb69acb105c",
-		"010300000000008cff0ae1ded90e77095b55218d3632cd90b669d05c888bca26093681e5250870",
+		"01010000003c5ff80cd593a3b7e9007fdbc2b8fe6caee380e7d23eb7ba35160a5b7a51cb08",
+		"010200000002db540a823f17b975d9eb206ccfbcf3a7667a0365ec1918fa2c3bb69acb105c",
+		"01030000008cff0ae1ded90e77095b55218d3632cd90b669d05c888bca26093681e5250870",
 	}
 
 	g := frost.Default.Group()
@@ -396,7 +397,7 @@ func Example_deserialize() {
 
 	publicKeyShares := make([]*keys.PublicKeyShare, len(publicKeySharesHex))
 	for i, p := range publicKeySharesHex {
-		publicKeyShares[i] = new(keys.PublicKeyShare)
+		publicKeyShares[i] = keys.NewPublicKeyShareReceiver(g)
 		if err := publicKeyShares[i].DecodeHex(p); err != nil {
 			fmt.Println(err)
 		}

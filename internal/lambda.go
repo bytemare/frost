@@ -9,15 +9,20 @@
 package internal
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/bytemare/ecc"
-	eccEncoding "github.com/bytemare/ecc/encoding"
 	"github.com/bytemare/hash"
+
 	secretsharing "github.com/bytemare/secret-sharing"
 )
+
+// ErrJSONMissingField indicates a struct field is missing in the JSON encoding.
+var ErrJSONMissingField = errors.New("missing JSON field in encoding")
 
 // ComputeLambda derives the interpolating value for id in the polynomial made by the participant identifiers.
 // This function is not public to protect its usage, as the following conditions MUST be met.
@@ -50,25 +55,41 @@ type Lambda struct {
 	Group ecc.Group `json:"group"`
 }
 
-type lambdaShadow Lambda
+type lambdaJSON struct {
+	Value json.RawMessage `json:"value"`
+	Group ecc.Group       `json:"group"`
+}
 
 // UnmarshalJSON decodes data into l, or returns an error.
 func (l *Lambda) UnmarshalJSON(data []byte) error {
-	shadow := new(lambdaShadow)
-
-	g, err := eccEncoding.JSONReGetGroup(string(data))
-	if err != nil {
-		return fmt.Errorf("failed to decode Lambda: %w", err)
+	wire := new(lambdaJSON)
+	if err := json.Unmarshal(data, wire); err != nil {
+		return fmt.Errorf("unmarshal lambda: %w", err)
 	}
 
-	shadow.Group = g
-	shadow.Value = g.NewScalar()
-
-	if err = json.Unmarshal(data, shadow); err != nil {
-		return fmt.Errorf("failed to decode Lambda: %w", err)
+	if !wire.Group.Available() {
+		return fmt.Errorf("unmarshalled lambda group %d not available", wire.Group)
 	}
 
-	*l = Lambda(*shadow)
+	if err := requireJSONField(wire.Value); err != nil {
+		return fmt.Errorf("failed to decode Lambda: Value: %w", err)
+	}
+
+	v := wire.Group.NewScalar()
+	if err := json.Unmarshal(wire.Value, v); err != nil {
+		return fmt.Errorf("unmarshal lambda: %w", err)
+	}
+
+	l.Group = wire.Group
+	l.Value = v
+
+	return nil
+}
+
+func requireJSONField(raw json.RawMessage) error {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return ErrJSONMissingField
+	}
 
 	return nil
 }
@@ -89,14 +110,18 @@ func lambdaRegistryKey(participants []uint16) string {
 // - id is non-nil and != 0.
 // - every participant id is != 0.
 // - there are no duplicates in participants.
-func (l LambdaRegistry) New(g ecc.Group, id uint16, participants []uint16) *ecc.Scalar {
-	polynomial := secretsharing.NewPolynomialFromListFunc(g, participants, func(p uint16) *ecc.Scalar {
-		return g.NewScalar().SetUInt64(uint64(p))
+func (l LambdaRegistry) New(g ecc.Group, id uint16, participants []uint16) (*ecc.Scalar, error) {
+	polynomial, err := secretsharing.NewPolynomialFromListFunc(g, participants, func(participant uint16) *ecc.Scalar {
+		return g.NewScalar().SetUInt64(uint64(participant))
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create polynomial from the participant list: %w", err)
+	}
+
 	lambda := ComputeLambda(g, id, polynomial)
 	l.Set(participants, lambda)
 
-	return lambda
+	return lambda, nil
 }
 
 // Get returns the recorded Lambda for the list of participants, or nil if it wasn't found.
@@ -117,13 +142,13 @@ func (l LambdaRegistry) Get(participants []uint16) *ecc.Scalar {
 // - id is non-nil and != 0.
 // - every scalar in participants is non-nil and != 0.
 // - there are no duplicates in participants.
-func (l LambdaRegistry) GetOrNew(g ecc.Group, id uint16, participants []uint16) *ecc.Scalar {
+func (l LambdaRegistry) GetOrNew(g ecc.Group, id uint16, participants []uint16) (*ecc.Scalar, error) {
 	lambda := l.Get(participants)
 	if lambda == nil {
 		return l.New(g, id, participants)
 	}
 
-	return lambda
+	return lambda, nil
 }
 
 // Set records Lambda for the given set of participants.

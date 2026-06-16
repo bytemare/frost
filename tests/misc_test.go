@@ -33,7 +33,7 @@ func verifyTrustedDealerKeygen(
 		t.Fatalf("%d / %d", len(coms), test.threshold)
 	}
 
-	recoveredKey, err := debug.RecoverGroupSecret(test.Ciphersuite, ks[:test.threshold])
+	recoveredKey, err := debug.RecoverGroupSecret(test.Ciphersuite, ks[:test.threshold], test.threshold)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,14 +120,14 @@ func TestTrustedDealerKeygenWrongParams(t *testing.T) {
 
 func TestRecoverGroupSecretInvalidCiphersuite(t *testing.T) {
 	expectedError := internal.ErrInvalidCiphersuite
-	if _, err := debug.RecoverGroupSecret(0, nil); err == nil || err.Error() != expectedError.Error() {
+	if _, err := debug.RecoverGroupSecret(0, nil, 1); err == nil || err.Error() != expectedError.Error() {
 		t.Fatalf("expected %q, got %q", expectedError, err)
 	}
 }
 
 func TestRecoverGroupSecretNoShares(t *testing.T) {
 	expectedError := "failed to reconstruct group secret: "
-	if _, err := debug.RecoverGroupSecret(frost.Ristretto255, nil); err == nil ||
+	if _, err := debug.RecoverGroupSecret(frost.Ristretto255, nil, 1); err == nil ||
 		!strings.HasPrefix(err.Error(), expectedError) {
 		t.Fatalf("expected %q, got %q", expectedError, err)
 	}
@@ -275,7 +275,7 @@ func TestRecoverPublicKeys(t *testing.T) {
 		}
 
 		for i, keyShare := range keyShares {
-			if !keyShare.PublicKey.Equal(participantPublicKeys[i]) {
+			if !keyShare.PublicKey().Equal(participantPublicKeys[i]) {
 				t.Fatal("expected equality")
 			}
 		}
@@ -315,28 +315,22 @@ func TestRecoverPublicKeys_BadCommitment(t *testing.T) {
 
 func TestPublicKeyShareVerification(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
-		keyShares, dealerGroupPubKey, _ := runDKG(
+		keyShares, _, vssComs := runDKG(
 			t,
 			test.Ciphersuite.Group(),
 			test.threshold,
 			test.maxSigners,
 		)
 
-		vssComs := make([][]*ecc.Element, test.maxSigners)
 		pkShares := make([]*keys.PublicKeyShare, test.maxSigners)
 
 		for i, keyShare := range keyShares {
-			pk := keyShare.Public()
-			vssComs[i] = pk.VssCommitment
+			pk := keyShare.PublicKeyShare()
 			pkShares[i] = pk
 		}
 
-		if err := dkg.VerifyPublicKey(dkg.Ciphersuite(test.Ciphersuite), 0, dealerGroupPubKey, vssComs); err != nil {
-			t.Fatal(err)
-		}
-
 		for _, pk := range pkShares {
-			if err := dkg.VerifyPublicKey(dkg.Ciphersuite(test.Ciphersuite), pk.ID, pk.PublicKey, vssComs); err != nil {
+			if err := dkg.VerifyPublicKey(dkg.Ciphersuite(test.Ciphersuite), pk.Identifier(), pk.PublicKey(), vssComs); err != nil {
 				t.Fatalf("expected validity: %s", err)
 			}
 		}
@@ -345,29 +339,26 @@ func TestPublicKeyShareVerification(t *testing.T) {
 
 func TestPublicKeyShareVerificationFail(t *testing.T) {
 	testAll(t, func(t *testing.T, test *tableTest) {
-		keyShares, dealerGroupPubKey, _ := runDKG(
+		keyShares, _, vssComs := runDKG(
 			t,
 			test.Ciphersuite.Group(),
 			test.threshold,
 			test.maxSigners,
 		)
 
-		vssComs := make([][]*ecc.Element, test.maxSigners)
 		pkShares := make([]*keys.PublicKeyShare, test.maxSigners)
 
 		for i, keyShare := range keyShares {
-			pk := keyShare.Public()
-			vssComs[i] = pk.VssCommitment
-			pk.PublicKey = test.Group().Base()
-			pkShares[i] = pk
-		}
-
-		if err := dkg.VerifyPublicKey(dkg.Ciphersuite(test.Ciphersuite), 0, dealerGroupPubKey, vssComs); err != nil {
-			t.Fatal(err)
+			pkShares[i] = keyShare.PublicKeyShare()
 		}
 
 		for _, pk := range pkShares {
-			if dkg.VerifyPublicKey(dkg.Ciphersuite(test.Ciphersuite), pk.ID, pk.PublicKey, vssComs) == nil {
+			if dkg.VerifyPublicKey(
+				dkg.Ciphersuite(test.Ciphersuite),
+				pk.Identifier(),
+				test.Group().Base(),
+				vssComs,
+			) == nil {
 				t.Fatal("expected invalidity")
 			}
 		}

@@ -465,12 +465,25 @@ func TestCommitmentList_Validate_UnregisteredKey(t *testing.T) {
 
 func TestCommitmentList_ParticipantsScalar_Empty(t *testing.T) {
 	com := frost.CommitmentList{}
-	if out := com.ParticipantsScalar(); out != nil {
+	if out, err := com.ParticipantsScalar(); err != nil || out != nil {
 		t.Fatal("unexpected output")
 	}
 
 	com = frost.CommitmentList{nil, nil}
-	if out := com.ParticipantsScalar(); out != nil {
+	if out, err := com.ParticipantsScalar(); err != nil || out != nil {
 		t.Fatal("unexpected output")
+	}
+}
+
+func TestCommitmentList_ParticipantsScalar_InvalidGroupDoesNotPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}()
+
+	com := frost.CommitmentList{{Group: 2, SignerID: 1}}
+	if out, err := com.ParticipantsScalar(); err == nil || out != nil {
+		t.Fatal("expected error without output")
 	}
 }

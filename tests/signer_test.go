@@ -31,7 +31,10 @@ func TestLambdaRegistry(t *testing.T) {
 	}
 
 	// Create a new entry
-	lambda := lambdas.New(g, id, participants)
+	lambda, err := lambdas.New(g, id, participants)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if lambda == nil {
 		t.Fatal("unexpected result")
@@ -43,20 +46,29 @@ func TestLambdaRegistry(t *testing.T) {
 		t.Fatal("expected equality")
 	}
 
-	lambda3 := lambdas.GetOrNew(g, id, participants)
+	lambda3, err := lambdas.GetOrNew(g, id, participants)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if !lambda.Equal(lambda3) {
 		t.Fatal("expected equality")
 	}
 
 	// Getting another entry must result in another returned value
-	lambda4 := lambdas.GetOrNew(g, id, participants[:3])
+	lambda4, err := lambdas.GetOrNew(g, id, participants[:3])
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if lambda.Equal(lambda4) {
 		t.Fatal("unexpected equality")
 	}
 
-	lambda5 := lambdas.GetOrNew(g, id, participants[:3])
+	lambda5, err := lambdas.GetOrNew(g, id, participants[:3])
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if !lambda4.Equal(lambda5) {
 		t.Fatal("expected equality")

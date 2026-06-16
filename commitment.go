@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (C) 2024 Daniel Bourdrez. All Rights Reserved.
+// Copyright (C) 2026 Daniel Bourdrez. All Rights Reserved.
 //
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree or at
@@ -15,9 +15,10 @@ import (
 	"slices"
 
 	"github.com/bytemare/ecc"
-	secretsharing "github.com/bytemare/secret-sharing"
 
 	"github.com/bytemare/frost/internal"
+
+	secretsharing "github.com/bytemare/secret-sharing"
 )
 
 var (
@@ -100,20 +101,25 @@ func (c CommitmentList) Participants() []uint16 {
 }
 
 // ParticipantsScalar returns the ecc.Scalar list of participant identifier in the list.
-func (c CommitmentList) ParticipantsScalar() []*ecc.Scalar {
+func (c CommitmentList) ParticipantsScalar() ([]*ecc.Scalar, error) {
 	if len(c) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	if c[0] == nil {
-		return nil
+		return nil, nil
 	}
 
 	g := c[0].Group
 
-	return secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *ecc.Scalar {
+	s, err := secretsharing.NewPolynomialFromListFunc(g, c, func(c *Commitment) *ecc.Scalar {
 		return g.NewScalar().SetUInt64(uint64(c.SignerID))
 	})
+	if err != nil {
+		return nil, fmt.Errorf("could not compile list of participants from the CommitmentList: %w", err)
+	}
+
+	return s, nil
 }
 
 // Encode serializes the CommitmentList into a compact byte encoding.
@@ -223,7 +229,8 @@ func (c CommitmentList) bindingFactors(publicKey *ecc.Element, message []byte) B
 
 	for _, com := range coms {
 		rhoInput := internal.Concatenate(rhoInputPrefix, com.ParticipantID)
-		bindingFactors[com.Commitment.SignerID] = internal.H1(g, rhoInput)
+		factor := internal.H1(g, rhoInput)
+		bindingFactors[com.Commitment.SignerID] = factor
 	}
 
 	return bindingFactors
@@ -244,7 +251,7 @@ func (c CommitmentList) groupCommitment(bf BindingFactors) *ecc.Element {
 
 func (c *Configuration) isSignerRegistered(sid uint16) bool {
 	for _, peer := range c.SignerPublicKeyShares {
-		if peer.ID == sid {
+		if peer.Identifier() == sid {
 			return true
 		}
 	}

@@ -117,7 +117,7 @@ func runFrost(
 	}
 
 	// Sanity Check
-	groupSecretKey, err := debug.RecoverGroupSecret(test.Ciphersuite, keyShares)
+	groupSecretKey, err := debug.RecoverGroupSecret(test.Ciphersuite, keyShares, test.threshold)
 	if err != nil {
 		t.Fatal(err)
 	}

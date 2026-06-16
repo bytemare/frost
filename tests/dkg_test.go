@@ -34,7 +34,7 @@ func runDKG(
 	t *testing.T,
 	g ecc.Group,
 	threshold, maxSigners uint16,
-) ([]*keys.KeyShare, *ecc.Element, []*ecc.Element) {
+) ([]*keys.KeyShare, *ecc.Element, [][]*ecc.Element) {
 	c := dkg.Ciphersuite(g)
 
 	// valid r1DataSet set with and without own package
@@ -44,7 +44,11 @@ func runDKG(
 
 	// Step 1: Start and assemble packages.
 	for i := range maxSigners {
-		r1[i] = participants[i].Start()
+		var err error
+		r1[i], err = participants[i].Start()
+		if err != nil {
+			t.Fatal(err)
+		}
 		commitments[i] = r1[i].Commitment
 	}
 
@@ -88,20 +92,20 @@ func runDKG(
 		//	t.Fatal("expected validity")
 		//}
 
-		if !keyShare.VerificationKey.Equal(pubKey) {
+		if !keyShare.VerificationKey().Equal(pubKey) {
 			t.Fatal("expected same public key")
 		}
 
-		if !keyShare.PublicKey.Equal(g.Base().Multiply(keyShare.SecretKey())) {
+		if !keyShare.PublicKey().Equal(g.Base().Multiply(keyShare.SecretKey())) {
 			t.Fatal("expected equality")
 		}
 
-		if err := dkg.VerifyPublicKey(c, p.Identifier, keyShare.PublicKey, commitments); err != nil {
+		if err := dkg.VerifyPublicKey(c, p.Identifier, keyShare.PublicKey(), commitments); err != nil {
 			t.Fatal(err)
 		}
 
 		keyShares = append(keyShares, keyShare)
 	}
 
-	return keyShares, pubKey, nil
+	return keyShares, pubKey, commitments
 }

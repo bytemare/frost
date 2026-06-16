@@ -15,11 +15,12 @@ import (
 	"fmt"
 
 	"github.com/bytemare/ecc"
-	secretsharing "github.com/bytemare/secret-sharing"
 	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/internal"
+
+	secretsharing "github.com/bytemare/secret-sharing"
 )
 
 // TrustedDealerKeygen uses Shamir and Verifiable Secret Sharing to create secret shares of an input group secret. If
@@ -45,24 +46,28 @@ func TrustedDealerKeygen(
 		secret,
 		threshold,
 		maxSigners,
-		coeffs...)
+		coeffs...,
+	)
 	if err != nil {
 		panic(err)
 	}
 
-	coms := secretsharing.Commit(g, poly)
+	coms, err := secretsharing.Commit(g, poly)
+	if err != nil {
+		panic(err)
+	}
 
 	shares := make([]*keys.KeyShare, maxSigners)
 	for i, k := range privateKeyShares {
-		shares[i] = &keys.KeyShare{
-			Secret:          k.Secret,
-			VerificationKey: coms[0],
-			PublicKeyShare: keys.PublicKeyShare{
-				PublicKey:     g.Base().Multiply(k.Secret),
-				VssCommitment: coms,
-				ID:            k.ID,
-				Group:         g,
-			},
+		shares[i], err = keys.NewKeyShare(
+			g,
+			k.Identifier(),
+			k.SecretKey(),
+			coms[0],
+			coms,
+		)
+		if err != nil {
+			panic(err)
 		}
 	}
 
@@ -71,17 +76,12 @@ func TrustedDealerKeygen(
 
 // RecoverGroupSecret returns the groups secret from at least t-among-n (t = threshold) participant key shares. This is
 // not recommended, as combining all distributed secret shares can put the group secret at risk.
-func RecoverGroupSecret(c frost.Ciphersuite, keyShares []*keys.KeyShare) (*ecc.Scalar, error) {
+func RecoverGroupSecret(c frost.Ciphersuite, keyShares []*keys.KeyShare, threshold uint16) (*ecc.Scalar, error) {
 	if !c.Available() {
 		return nil, internal.ErrInvalidCiphersuite
 	}
 
-	publicKeys := make([]keys.Share, len(keyShares))
-	for i, v := range keyShares {
-		publicKeys[i] = v
-	}
-
-	secret, err := secretsharing.CombineShares(publicKeys)
+	secret, err := secretsharing.CombineShares(keyShares, threshold)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconstruct group secret: %w", err)
 	}

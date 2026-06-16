@@ -10,6 +10,7 @@ package frost_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,12 +19,13 @@ import (
 	"testing"
 
 	"github.com/bytemare/ecc"
-	debugec "github.com/bytemare/ecc/debug"
 	"github.com/bytemare/secret-sharing/keys"
 
 	"github.com/bytemare/frost"
 	"github.com/bytemare/frost/debug"
 	"github.com/bytemare/frost/internal"
+
+	debugec "github.com/bytemare/ecc/debug"
 )
 
 func makeConfAndShares(t *testing.T, test *tableTest) (*frost.Configuration, []*keys.KeyShare) {
@@ -53,7 +55,7 @@ func makeConf(t *testing.T, test *tableTest) *frost.Configuration {
 func getPublicKeyShares(keyShares []*keys.KeyShare) []*keys.PublicKeyShare {
 	publicKeyShares := make([]*keys.PublicKeyShare, 0, len(keyShares))
 	for _, ks := range keyShares {
-		publicKeyShares = append(publicKeyShares, ks.Public())
+		publicKeyShares = append(publicKeyShares, ks.PublicKeyShare())
 	}
 
 	return publicKeyShares
@@ -100,11 +102,11 @@ func compareConfigurations(t *testing.T, a, b serde, expectedMatch bool) {
 	}
 
 	if c1.Threshold != c2.Threshold && expectedMatch {
-		t.Fatalf("expected matching threshold: %q / %q", c1.Threshold, c2.Threshold)
+		t.Fatalf("expected matching threshold: %d / %d", c1.Threshold, c2.Threshold)
 	}
 
 	if c1.MaxSigners != c2.MaxSigners && expectedMatch {
-		t.Fatalf("expected matching max signers: %q / %q", c1.MaxSigners, c2.MaxSigners)
+		t.Fatalf("expected matching max signers: %d / %d", c1.MaxSigners, c2.MaxSigners)
 	}
 
 	if ((c1.VerificationKey == nil || c2.VerificationKey == nil) || !c1.VerificationKey.Equal(c2.VerificationKey)) &&
@@ -114,7 +116,7 @@ func compareConfigurations(t *testing.T, a, b serde, expectedMatch bool) {
 
 	if len(c1.SignerPublicKeyShares) != len(c2.SignerPublicKeyShares) && expectedMatch {
 		t.Fatalf(
-			"expected matching SignerPublicKeyShares lengths: %q / %q",
+			"expected matching SignerPublicKeyShares lengths: %d / %d",
 			len(c1.SignerPublicKeyShares),
 			len(c2.SignerPublicKeyShares),
 		)
@@ -137,37 +139,39 @@ func comparePublicKeyShare(t *testing.T, a, b serde, expectedMatch bool) {
 		t.Fatal("second argument is of wrong type")
 	}
 
-	if !p1.PublicKey.Equal(p2.PublicKey) && expectedMatch {
-		t.Fatalf("Expected equality on PublicKey:\n\t%s\n\t%s\n", p1.PublicKey.Hex(), p2.PublicKey.Hex())
+	if !p1.PublicKey().Equal(p2.PublicKey()) && expectedMatch {
+		t.Fatalf("Expected equality on PublicKey:\n\t%s\n\t%s\n", p1.PublicKey().Hex(), p2.PublicKey().Hex())
 	}
 
-	if p1.ID != p2.ID && expectedMatch {
-		t.Fatalf("Expected equality on ID:\n\t%d\n\t%d\n", p1.ID, p2.ID)
+	if p1.Identifier() != p2.Identifier() && expectedMatch {
+		t.Fatalf("Expected equality on ID:\n\t%d\n\t%d\n", p1.Identifier(), p2.Identifier())
 	}
 
-	if p1.Group != p2.Group && expectedMatch {
-		t.Fatalf("Expected equality on Group:\n\t%v\n\t%v\n", p1.Group, p2.Group)
+	if p1.Group() != p2.Group() && expectedMatch {
+		t.Fatalf("Expected equality on Group:\n\t%v\n\t%v\n", p1.Group(), p2.Group())
 	}
 
-	lenP1Com := len(p1.VssCommitment)
-	lenP2Com := len(p2.VssCommitment)
+	p1Commitment := p1.Commitment()
+	p2Commitment := p2.Commitment()
+	lenP1Com := len(p1Commitment)
+	lenP2Com := len(p2Commitment)
 
 	if lenP1Com != 0 && lenP2Com != 0 {
 		if lenP1Com != lenP2Com && expectedMatch {
 			t.Fatalf(
 				"Expected equality on Commitment length:\n\t%d\n\t%d\n",
-				len(p1.VssCommitment),
-				len(p2.VssCommitment),
+				len(p1Commitment),
+				len(p2Commitment),
 			)
 		}
 
-		for i := range p1.VssCommitment {
-			if !p1.VssCommitment[i].Equal(p2.VssCommitment[i]) && expectedMatch {
+		for i := range p1Commitment {
+			if !p1Commitment[i].Equal(p2Commitment[i]) && expectedMatch {
 				t.Fatalf(
 					"Expected equality on Commitment %d:\n\t%s\n\t%s\n",
 					i,
-					p1.VssCommitment[i].Hex(),
-					p2.VssCommitment[i].Hex(),
+					p1Commitment[i].Hex(),
+					p2Commitment[i].Hex(),
 				)
 			}
 		}
@@ -185,19 +189,19 @@ func compareKeyShares(t *testing.T, a, b serde, expectedMatch bool) {
 		t.Fatal("second argument is of wrong type")
 	}
 
-	if !s1.Secret.Equal(s2.Secret) && expectedMatch {
-		t.Fatalf("Expected equality on Secret:\n\t%s\n\t%s\n", s1.Secret.Hex(), s2.Secret.Hex())
+	if !s1.SecretKey().Equal(s2.SecretKey()) && expectedMatch {
+		t.Fatalf("Expected equality on Secret:\n\t%s\n\t%s\n", s1.SecretKey().Hex(), s2.SecretKey().Hex())
 	}
 
-	if !s1.VerificationKey.Equal(s2.VerificationKey) && expectedMatch {
+	if !s1.VerificationKey().Equal(s2.VerificationKey()) && expectedMatch {
 		t.Fatalf(
 			"Expected equality on VerificationKey:\n\t%s\n\t%s\n",
-			s1.VerificationKey.Hex(),
-			s2.VerificationKey.Hex(),
+			s1.VerificationKey().Hex(),
+			s2.VerificationKey().Hex(),
 		)
 	}
 
-	comparePublicKeyShare(t, s1.Public(), s2.Public(), expectedMatch)
+	comparePublicKeyShare(t, s1.PublicKeyShare(), s2.PublicKeyShare(), expectedMatch)
 }
 
 func compareCommitments(t *testing.T, a, b serde, expectedMatch bool) {
@@ -428,7 +432,7 @@ func TestEncoding_Configuration_InvalidConfigEncoding(t *testing.T) {
 }
 
 func TestEncoding_Configuration_InvalidVerificationKey(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Configuration: could not decode group public key: element Decode: "
+	expectedErrorPrefix := "failed to decode Configuration: could not decode group public key: decoding element"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		configuration := makeConf(t, test)
@@ -535,7 +539,13 @@ func TestEncoding_Configuration_BadJSON(t *testing.T) {
 		testDecodingJSONFails(t, "failed to decode Configuration",
 			errInvalidJSON, configuration, new(frost.Configuration))
 
-		configuration.SignerPublicKeyShares[1].PublicKey.Base()
+		pks := configuration.SignerPublicKeyShares[1]
+		configuration.SignerPublicKeyShares[1] = mustPublicKeyShare(
+			t,
+			pks.Group(),
+			pks.Identifier(),
+			pks.Group().Base(),
+		)
 		j, err := json.Marshal(configuration)
 		if err != nil {
 			t.Fatal(err)
@@ -544,6 +554,379 @@ func TestEncoding_Configuration_BadJSON(t *testing.T) {
 		expectedError := "failed to decode Configuration: invalid public key for participant 2, the key is the group generator (base element)"
 		if err = json.Unmarshal(j, new(frost.Configuration)); err == nil || err.Error() != expectedError {
 			t.Fatalf("expected %q, got %q", errInvalidJSON, err)
+		}
+	})
+}
+
+func TestEncoding_Configuration_CompactRoundTripWithoutVSSCommitments(t *testing.T) {
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	keyShares, verificationKey, _ := debug.TrustedDealerKeygen(tt.Ciphersuite, nil, tt.threshold, tt.maxSigners)
+	publicKeyShares := make([]*keys.PublicKeyShare, len(keyShares))
+
+	for i, keyShare := range keyShares {
+		publicKeyShare, err := frost.NewPublicKeyShare(
+			tt.Ciphersuite,
+			keyShare.Identifier(),
+			keyShare.PublicKey().Encode(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		publicKeyShares[i] = publicKeyShare
+	}
+
+	configuration := &frost.Configuration{
+		Ciphersuite:           tt.Ciphersuite,
+		Threshold:             tt.threshold,
+		MaxSigners:            tt.maxSigners,
+		VerificationKey:       verificationKey,
+		SignerPublicKeyShares: publicKeyShares,
+	}
+	if err := configuration.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	decoded := new(frost.Configuration)
+	if err := decoded.Decode(configuration.Encode()); err != nil {
+		t.Fatal(err)
+	}
+
+	compareConfigurations(t, configuration, decoded, true)
+}
+
+func TestEncoding_JSONRejectsNullRequiredFields(t *testing.T) {
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	configuration, signers := fullSetup(t, tt)
+	commitment := signers[0].Commit()
+
+	t.Run("configuration ciphersuite", func(t *testing.T) {
+		var wire map[string]json.RawMessage
+		mustJSONRoundTripMap(t, configuration, &wire)
+		wire["ciphersuite"] = json.RawMessage("null")
+
+		data, err := json.Marshal(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err = json.Unmarshal(data, new(frost.Configuration)); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("commitment group", func(t *testing.T) {
+		var wire map[string]json.RawMessage
+		mustJSONRoundTripMap(t, commitment, &wire)
+		wire["group"] = json.RawMessage("null")
+
+		data, err := json.Marshal(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err = json.Unmarshal(data, new(frost.Commitment)); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("nonce nested commitment", func(t *testing.T) {
+		nonce := signers[0].NonceCommitments[commitment.CommitmentID]
+		var wire map[string]json.RawMessage
+		mustJSONRoundTripMap(t, nonce, &wire)
+		wire["commitment"] = json.RawMessage("null")
+
+		data, err := json.Marshal(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err = json.Unmarshal(data, new(frost.Nonce)); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+
+func TestEncoding_JSONReceiverPinnedGroupMismatchDoesNotMutate(t *testing.T) {
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	_, signers := fullSetup(t, tt)
+	commitment := signers[0].Commit()
+
+	data, err := json.Marshal(commitment)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receiver := commitment.Copy()
+	receiver.Group = ecc.P256Sha256
+	before := receiver.Encode()
+
+	if err = json.Unmarshal(data, receiver); err == nil {
+		t.Fatal("expected receiver group mismatch")
+	}
+
+	if !bytes.Equal(before, receiver.Encode()) {
+		t.Fatal("receiver mutated after failed commitment decode")
+	}
+
+	sigShare := &frost.SignatureShare{
+		Group:            ecc.P256Sha256,
+		SignerIdentifier: 1,
+		SignatureShare:   ecc.P256Sha256.NewScalar().SetUInt64(7),
+	}
+	goodSigShare := &frost.SignatureShare{
+		Group:            ecc.Ristretto255Sha512,
+		SignerIdentifier: 1,
+		SignatureShare:   ecc.Ristretto255Sha512.NewScalar().SetUInt64(9),
+	}
+	data, err = json.Marshal(goodSigShare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = sigShare.Encode()
+
+	if err = json.Unmarshal(data, sigShare); err == nil {
+		t.Fatal("expected receiver group mismatch")
+	}
+
+	if !bytes.Equal(before, sigShare.Encode()) {
+		t.Fatal("receiver mutated after failed signature share decode")
+	}
+
+	signature := &frost.Signature{
+		Group: ecc.P256Sha256,
+		R:     ecc.P256Sha256.Base(),
+		Z:     ecc.P256Sha256.NewScalar().SetUInt64(7),
+	}
+	goodSignature := &frost.Signature{
+		Group: ecc.Ristretto255Sha512,
+		R:     ecc.Ristretto255Sha512.Base(),
+		Z:     ecc.Ristretto255Sha512.NewScalar().SetUInt64(9),
+	}
+	data, err = json.Marshal(goodSignature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = signature.Encode()
+
+	if err = json.Unmarshal(data, signature); err == nil {
+		t.Fatal("expected receiver group mismatch")
+	}
+
+	if !bytes.Equal(before, signature.Encode()) {
+		t.Fatal("receiver mutated after failed signature decode")
+	}
+}
+
+func TestEncoding_SignerJSONStateIntegrity(t *testing.T) {
+	tt := &tableTest{
+		Ciphersuite: frost.Ristretto255,
+		threshold:   2,
+		maxSigners:  3,
+	}
+	_, signers := fullSetup(t, tt)
+	s := signers[0]
+	commitment := s.Commit()
+	s.HidingRandom = []byte("hiding randomness for json")
+	s.BindingRandom = []byte("binding randomness for json")
+	participants := []uint16{1, 2, 3}
+	if _, err := s.LambdaRegistry.New(tt.Group(), s.Identifier(), participants); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("nonce map key mismatch", func(t *testing.T) {
+		var signerWire map[string]json.RawMessage
+		mustJSONRoundTripMap(t, s, &signerWire)
+
+		var nonceCommitments map[string]json.RawMessage
+		if err := json.Unmarshal(signerWire["nonceCommitments"], &nonceCommitments); err != nil {
+			t.Fatal(err)
+		}
+
+		key := fmt.Sprint(commitment.CommitmentID)
+		var nonceWire map[string]json.RawMessage
+		if err := json.Unmarshal(nonceCommitments[key], &nonceWire); err != nil {
+			t.Fatal(err)
+		}
+
+		var commitmentWire map[string]json.RawMessage
+		if err := json.Unmarshal(nonceWire["commitment"], &commitmentWire); err != nil {
+			t.Fatal(err)
+		}
+
+		commitmentWire["commitmentId"] = json.RawMessage("1")
+		encodedCommitment, err := json.Marshal(commitmentWire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nonceWire["commitment"] = encodedCommitment
+		encodedNonce, err := json.Marshal(nonceWire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nonceCommitments[key] = encodedNonce
+		encodedNonceCommitments, err := json.Marshal(nonceCommitments)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signerWire["nonceCommitments"] = encodedNonceCommitments
+		data, err := json.Marshal(signerWire)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err = json.Unmarshal(data, new(frost.Signer)); err == nil {
+			t.Fatal("expected nonce commitment id mismatch")
+		}
+	})
+
+	t.Run("invalid lambda key", func(t *testing.T) {
+		var signerWire map[string]json.RawMessage
+		mustJSONRoundTripMap(t, s, &signerWire)
+
+		var lambdas map[string]json.RawMessage
+		if err := json.Unmarshal(signerWire["lambdaRegistry"], &lambdas); err != nil {
+			t.Fatal(err)
+		}
+
+		for key, value := range lambdas {
+			delete(lambdas, key)
+			lambdas["abcd"] = value
+			break
+		}
+
+		encodedLambdas, err := json.Marshal(lambdas)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signerWire["lambdaRegistry"] = encodedLambdas
+		data, err := json.Marshal(signerWire)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err = json.Unmarshal(data, new(frost.Signer)); err == nil {
+			t.Fatal("expected invalid lambda registry key")
+		}
+	})
+
+	t.Run("null lambda value", func(t *testing.T) {
+		var signerWire map[string]json.RawMessage
+		mustJSONRoundTripMap(t, s, &signerWire)
+
+		var lambdas map[string]json.RawMessage
+		if err := json.Unmarshal(signerWire["lambdaRegistry"], &lambdas); err != nil {
+			t.Fatal(err)
+		}
+
+		for key := range lambdas {
+			lambdas[key] = json.RawMessage("null")
+			break
+		}
+
+		encodedLambdas, err := json.Marshal(lambdas)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signerWire["lambdaRegistry"] = encodedLambdas
+		data, err := json.Marshal(signerWire)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err = json.Unmarshal(data, new(frost.Signer)); err == nil {
+			t.Fatal("expected null lambda rejection")
+		}
+	})
+
+	t.Run("null lambda registry", func(t *testing.T) {
+		var signerWire map[string]json.RawMessage
+		mustJSONRoundTripMap(t, s, &signerWire)
+		signerWire["lambdaRegistry"] = json.RawMessage("null")
+
+		data, err := json.Marshal(signerWire)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err = json.Unmarshal(data, new(frost.Signer)); err == nil {
+			t.Fatal("expected null lambda registry rejection")
+		}
+	})
+
+	t.Run("null nonce commitments", func(t *testing.T) {
+		var signerWire map[string]json.RawMessage
+		mustJSONRoundTripMap(t, s, &signerWire)
+		signerWire["nonceCommitments"] = json.RawMessage("null")
+
+		data, err := json.Marshal(signerWire)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err = json.Unmarshal(data, new(frost.Signer)); err == nil {
+			t.Fatal("expected null nonce commitments rejection")
+		}
+	})
+
+	t.Run("failed unmarshal does not mutate receiver", func(t *testing.T) {
+		receiver := signers[1]
+		before, err := json.Marshal(receiver)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var signerWire map[string]json.RawMessage
+		mustJSONRoundTripMap(t, s, &signerWire)
+		signerWire["keyShare"] = json.RawMessage("null")
+		data, err := json.Marshal(signerWire)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err = json.Unmarshal(data, receiver); err == nil {
+			t.Fatal("expected invalid signer JSON")
+		}
+
+		after, err := json.Marshal(receiver)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal(before, after) {
+			t.Fatal("receiver mutated after failed signer decode")
+		}
+	})
+
+	t.Run("random fields round trip", func(t *testing.T) {
+		data, err := json.Marshal(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		decoded := new(frost.Signer)
+		if err = json.Unmarshal(data, decoded); err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal(s.HidingRandom, decoded.HidingRandom) {
+			t.Fatal("hidingRandom did not round trip")
+		}
+
+		if !bytes.Equal(s.BindingRandom, decoded.BindingRandom) {
+			t.Fatal("bindingRandom did not round trip")
 		}
 	})
 }
@@ -689,7 +1072,7 @@ func TestEncoding_Signer_BadKeyShare(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidKeyShare(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signer: invalid key share: invalid identifier for public key share, the identifier is 0"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode KeyShare: failed to decode PublicKeyShare: identifier is zero or exceeds registry total"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -735,8 +1118,32 @@ func TestEncoding_Signer_InvalidCommitmentNonces_DuplicateID(t *testing.T) {
 	})
 }
 
+func TestEncoding_Signer_InvalidCommitmentNonces_NestedIDMismatch(t *testing.T) {
+	expectedErrorPrefix := "failed to decode Signer: failed to decode nonce: commitment id mismatch for nonce"
+
+	testAll(t, func(t *testing.T, test *tableTest) {
+		s := makeSigners(t, test)[0]
+		com := s.Commit()
+		g := ecc.Group(test.Ciphersuite)
+		confLen := len(s.Configuration.Encode())
+		keyShareLen := len(s.KeyShare.Encode())
+		offset := confLen + 6 + keyShareLen
+		nestedCommitmentIDOffset := offset + 8 + 2*g.ScalarLength() + 1
+
+		encoded := s.Encode()
+		badID := make([]byte, 8)
+		binary.LittleEndian.PutUint64(badID, com.CommitmentID+1)
+		encoded = slices.Replace(encoded, nestedCommitmentIDOffset, nestedCommitmentIDOffset+8, badID...)
+
+		decoded := new(frost.Signer)
+		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
+			t.Fatalf("expected %q, got %q", expectedErrorPrefix, err)
+		}
+	})
+}
+
 func TestEncoding_Signer_InvalidHidingNonceCommitment(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signer: can't decode hiding nonce for commitment"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode nonce: can't decode hiding nonce for commitment"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -757,7 +1164,7 @@ func TestEncoding_Signer_InvalidHidingNonceCommitment(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidBindingNonceCommitment(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signer: can't decode binding nonce for commitment"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode nonce: can't decode binding nonce for commitment"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -778,7 +1185,7 @@ func TestEncoding_Signer_InvalidBindingNonceCommitment(t *testing.T) {
 }
 
 func TestEncoding_Signer_InvalidCommitment(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signer: can't decode nonce commitment"
+	expectedErrorPrefix := "failed to decode Signer: failed to decode nonce: can't decode nonce commitment"
 
 	testAll(t, func(t *testing.T, test *tableTest) {
 		s := makeSigners(t, test)[0]
@@ -891,7 +1298,7 @@ func TestEncoding_SignatureShare_InvalidIdentifier(t *testing.T) {
 }
 
 func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
-	expectedErrorPrefix := "failed to decode SignatureShare: scalar Decode: invalid scalar encoding"
+	expectedErrorPrefix := "failed to decode SignatureShare: decoding scalar"
 	message := []byte("message")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -909,7 +1316,7 @@ func TestEncoding_SignatureShare_InvalidShare(t *testing.T) {
 		}
 
 		encoded := sigShare.Encode()
-		slices.Replace(encoded, 3, 3+test.Group().ScalarLength(), debugec.BadScalarHigh(test.Group())...)
+		encoded = slices.Replace(encoded, 3, 3+test.Group().ScalarLength(), debugec.BadScalarHigh(test.Group())...)
 
 		decoded := new(frost.SignatureShare)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -994,7 +1401,7 @@ func TestEncoding_Signature_InvalidLength(t *testing.T) {
 }
 
 func TestEncoding_Signature_InvalidR(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signature: invalid encoding of R proof: element Decode: "
+	expectedErrorPrefix := "failed to decode Signature: invalid encoding of R proof: decoding element"
 	message := []byte("message")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -1007,11 +1414,12 @@ func TestEncoding_Signature_InvalidR(t *testing.T) {
 		encoded := signature.Encode()
 
 		bad := debugec.BadElementOffCurve(test.Ciphersuite.Group())
-		slices.Replace(
+		encoded = slices.Replace(
 			encoded,
 			1,
 			1+test.Ciphersuite.Group().ElementLength(),
-			bad...)
+			bad...,
+		)
 
 		decoded := new(frost.Signature)
 		if err = decoded.Decode(encoded); err == nil ||
@@ -1022,7 +1430,7 @@ func TestEncoding_Signature_InvalidR(t *testing.T) {
 }
 
 func TestEncoding_Signature_InvalidZ(t *testing.T) {
-	expectedErrorPrefix := "failed to decode Signature: invalid encoding of z proof: scalar Decode: "
+	expectedErrorPrefix := "failed to decode Signature: invalid encoding of z proof: decoding scalar"
 	message := []byte("message")
 
 	testAll(t, func(t *testing.T, test *tableTest) {
@@ -1036,7 +1444,7 @@ func TestEncoding_Signature_InvalidZ(t *testing.T) {
 		g := test.Ciphersuite.Group()
 		eLen := g.ElementLength()
 		sLen := g.ScalarLength()
-		slices.Replace(encoded, 1+eLen, 1+eLen+sLen, debugec.BadScalarHigh(g)...)
+		encoded = slices.Replace(encoded, 1+eLen, 1+eLen+sLen, debugec.BadScalarHigh(g)...)
 
 		decoded := new(frost.Signature)
 		if err := decoded.Decode(encoded); err == nil ||
@@ -1153,7 +1561,7 @@ func TestEncoding_Commitment_InvalidHidingNonce(t *testing.T) {
 		com := signer.Commit()
 		encoded := com.Encode()
 		bad := debugec.BadElementOffCurve(test.Group())
-		slices.Replace(encoded, 11, 11+test.Group().ElementLength(), bad...)
+		encoded = slices.Replace(encoded, 11, 11+test.Group().ElementLength(), bad...)
 
 		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -1171,7 +1579,7 @@ func TestEncoding_Commitment_InvalidBindingNonce(t *testing.T) {
 		encoded := com.Encode()
 		g := test.Group()
 		bad := debugec.BadElementOffCurve(g)
-		slices.Replace(encoded, 11+g.ElementLength(), 11+2*g.ElementLength(), bad...)
+		encoded = slices.Replace(encoded, 11+g.ElementLength(), 11+2*g.ElementLength(), bad...)
 
 		decoded := new(frost.Commitment)
 		if err := decoded.Decode(encoded); err == nil || !strings.HasPrefix(err.Error(), expectedErrorPrefix) {
@@ -1333,6 +1741,19 @@ type serde interface {
 
 type tester func(t *testing.T, in, out serde) error
 
+func mustJSONRoundTripMap(t *testing.T, in, out any) {
+	t.Helper()
+
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = json.Unmarshal(data, out); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testByteEncoding(t *testing.T, in, out serde) error {
 	bEnc := in.Encode()
 
@@ -1450,12 +1871,10 @@ func testJSONBaddie(in any, decoded json.Unmarshaler, baddie jsonTesterBaddie) e
 
 func testDecodingJSONFails(
 	t *testing.T,
-	errPrefix, badJSONErr string,
+	errPrefix, _ string,
 	in any,
 	decoded json.Unmarshaler,
 ) {
-	errInvalidCiphersuite := errPrefix + ": invalid group"
-
 	// JSON: bad json
 	baddie := jsonTesterBaddie{
 		key:           "\"group\"",
@@ -1471,7 +1890,7 @@ func testDecodingJSONFails(
 	baddie = jsonTesterBaddie{
 		key:           "\"group\"",
 		value:         "\"group\":2, \"oldGroup\"",
-		expectedError: errInvalidCiphersuite,
+		expectedError: errPrefix,
 	}
 
 	if err := testJSONBaddie(in, decoded, baddie); err != nil {
@@ -1482,7 +1901,7 @@ func testDecodingJSONFails(
 	baddie = jsonTesterBaddie{
 		key:           "\"group\"",
 		value:         "\"group\":70, \"oldGroup\"",
-		expectedError: errInvalidCiphersuite,
+		expectedError: errPrefix,
 	}
 
 	if err := testJSONBaddie(in, decoded, baddie); err != nil {
@@ -1493,7 +1912,7 @@ func testDecodingJSONFails(
 	baddie = jsonTesterBaddie{
 		key:           "\"group\"",
 		value:         "\"group\":-1, \"oldGroup\"",
-		expectedError: badJSONErr,
+		expectedError: errPrefix,
 	}
 
 	if err := testJSONBaddie(in, decoded, baddie); err != nil {
@@ -1505,7 +1924,7 @@ func testDecodingJSONFails(
 	baddie = jsonTesterBaddie{
 		key:           "\"group\"",
 		value:         "\"group\":" + overflow + ", \"oldGroup\"",
-		expectedError: errPrefix + ": failed to read Group: strconv.Atoi: parsing \"9223372036854775808\": value out of range",
+		expectedError: errPrefix,
 	}
 
 	if err := testJSONBaddie(in, decoded, baddie); err != nil {

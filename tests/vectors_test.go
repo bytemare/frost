@@ -31,15 +31,17 @@ func (v test) testTrustedDealer(t *testing.T) ([]*keys.KeyShare, *ecc.Element) {
 		v.Inputs.GroupSecretKey,
 		v.Config.Configuration.Threshold,
 		v.Config.Configuration.MaxSigners,
-		v.Inputs.SharePolynomialCoefficients...)
+		v.Inputs.SharePolynomialCoefficients...,
+	)
 
 	if len(secretsharingCommitment) != int(v.Config.Configuration.Threshold) {
 		t.Fatalf(
-			"%d / %d", len(secretsharingCommitment), v.Config.Configuration.Threshold)
+			"%d / %d", len(secretsharingCommitment), v.Config.Configuration.Threshold,
+		)
 	}
 
 	// Test recovery of the full secret signing key.
-	recoveredKey, err := debug.RecoverGroupSecret(v.Config.Ciphersuite, keyShares)
+	recoveredKey, err := debug.RecoverGroupSecret(v.Config.Ciphersuite, keyShares, v.Config.Threshold)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +83,7 @@ func (v test) test(t *testing.T) {
 	cpt := len(keyShares)
 	for _, p := range keyShares {
 		for _, p2 := range v.Inputs.Participants {
-			if p2.Identifier() == p.Identifier() && p2.SecretKey().Equal(p.Secret) {
+			if p2.Identifier() == p.Identifier() && p2.SecretKey().Equal(p.SecretKey()) {
 				cpt--
 			}
 		}
